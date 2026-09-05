@@ -234,12 +234,27 @@ export function turnSlice(set: Set, get: Get) {
     });
     saveCarried(sessionId, null);
 
-    await bridge.agent.editMessage(sessionId, index, content);
+    try {
+      await bridge.agent.editMessage(sessionId, index, content);
+    } catch (error) {
+      // If dispatch failed immediately, do not leave the UI frozen in running state.
+      set({ running: false, pendingUserMessage: null });
+      throw error;
+    }
   },
 
   async abort() {
     const sessionId = get().activeSessionId;
-    if (sessionId) await bridge.agent.abort(sessionId);
+    if (!sessionId) return;
+    await bridge.agent.abort(sessionId).catch(() => {});
+    // Safeguard: if the backend never emits an agent_end (e.g. process hung or state desynced),
+    // forcibly restore running state after a bounded grace period so the user is never permanently locked out.
+    setTimeout(() => {
+      const current = get();
+      if (current.activeSessionId === sessionId && current.running) {
+        set({ running: false, retrying: null, pendingUserMessage: null });
+      }
+    }, 2000);
   },
 
   async respondToApproval(id: string, decision: ApprovalDecision) {
