@@ -119,3 +119,40 @@ test("a conversation on screen keeps its cache — it is being kept up to date l
 
 	assert.ok("watching" in (state.sessionCache as Record<string, unknown>));
 });
+
+test("pendingUserMessage matches its own session and does not clear on events from another session", () => {
+	const userMsg: Message = { role: "user", content: [{ type: "text", text: "同样的提问" }], timestamp: 10 };
+	const state = {
+		activity: {},
+		turns: {},
+		sessions: [],
+		activeSessionId: "session-a",
+		messages: [userMsg],
+		toolRuns: {},
+		pendingUserMessage: { sessionId: "session-a", message: userMsg },
+		sessionCache: {},
+	} as Record<string, unknown>;
+
+	// Event coming from session-b with the exact same text
+	applyAgentEvent(
+		"session-b",
+		{ type: "message_start", message: { role: "user", content: [{ type: "text", text: "同样的提问" }], timestamp: 10 } },
+		(partial) => Object.assign(state, typeof partial === "function" ? partial(state as never) : partial),
+		() => state as never,
+	);
+
+	// Should still be pending for session-a
+	assert.ok(state.pendingUserMessage !== null);
+	assert.equal((state.pendingUserMessage as { sessionId: string }).sessionId, "session-a");
+
+	// Now event comes from session-a
+	applyAgentEvent(
+		"session-a",
+		{ type: "message_start", message: { role: "user", content: [{ type: "text", text: "同样的提问" }], timestamp: 10 } },
+		(partial) => Object.assign(state, typeof partial === "function" ? partial(state as never) : partial),
+		() => state as never,
+	);
+
+	// Now pendingUserMessage is successfully cleared
+	assert.equal(state.pendingUserMessage, null);
+});

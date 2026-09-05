@@ -77,7 +77,7 @@ export function turnSlice(set: Set, get: Get) {
     if (sessionId) saveCarried(sessionId, null);
     set({
       messages: [...get().messages, pending],
-      pendingUserMessage: pending,
+      pendingUserMessage: { sessionId: sessionId ?? null, message: pending },
       running: true,
       turnStartedAt: meter.startedAt,
       turnTokens: meter.tokens,
@@ -214,7 +214,7 @@ export function turnSlice(set: Set, get: Get) {
     };
     set({
       messages: [...get().messages.slice(0, index), pending],
-      pendingUserMessage: pending,
+      pendingUserMessage: { sessionId, message: pending },
       toolRuns: {},
       approvals: [],
       running: true,

@@ -286,13 +286,16 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
       // showing it twice. Matched by reference, so sending the same text again is
       // still two messages.
       const pending = get().pendingUserMessage;
+      const pendingMatch =
+        pending &&
+        (pending.sessionId === sessionId || pending.sessionId === null) &&
+        messages.includes(pending.message);
       if (
         event.message.role === "user" &&
-        pending &&
-        messages.includes(pending)
+        pendingMatch
       ) {
         set({
-          messages: messages.map((m) => (m === pending ? event.message : m)),
+          messages: messages.map((m) => (m === pending.message ? event.message : m)),
           pendingUserMessage: null,
         });
         break;
@@ -334,9 +337,13 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
        * the copy the composer painted and the message appears twice, every first message.
        */
       const pending = get().pendingUserMessage;
-      if (event.message.role === "user" && pending && messages.includes(pending)) {
+      const pendingMatch =
+        pending &&
+        (pending.sessionId === sessionId || pending.sessionId === null) &&
+        messages.includes(pending.message);
+      if (event.message.role === "user" && pendingMatch) {
         set({
-          messages: messages.map((m) => (m === pending ? event.message : m)),
+          messages: messages.map((m) => (m === pending.message ? event.message : m)),
           pendingUserMessage: null,
         });
         break;
