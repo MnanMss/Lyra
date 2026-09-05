@@ -6,6 +6,7 @@ import { BinaryDiff } from "./BinaryDiff.tsx";
 import { DiffView } from "./DiffView.tsx";
 import { iconColour, lookFor } from "../files/index.ts";
 import { SkeletonBar } from "../../ui/primitives/Skeleton.tsx";
+import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
 import { Text } from "../../ui/primitives/Text.tsx";
 
 /**
@@ -109,7 +110,7 @@ export function FileDiffList({
              * corners, which is a red notch travelling up the header as you scroll.
              */}
             <div className="ly-pin sticky top-0 z-10">
-              <div className="flex items-center gap-1 rounded-md pr-1 transition-colors hover:bg-card-hover">
+              <div className="ly-scroll flex items-center gap-1 rounded-md pr-1 transition-colors hover:bg-card-hover">
                 <button
                   type="button"
                   data-ly-tip={file.path}
@@ -133,12 +134,7 @@ export function FileDiffList({
                    * The directory is what tells two `index.ts` apart, so it stays —
                    * truncated from the left, where the shared prefix is.
                    */}
-                  <span
-                    className="min-w-0 flex-1 truncate text-left text-detail text-ink-muted"
-                    dir="rtl"
-                  >
-                    <span dir="ltr">{file.path}</span>
-                  </span>
+                  <ScrollText text={file.path} className="min-w-0 flex-1 text-left text-detail text-ink-muted" />
                   <Text size="caption" mono numeric className="shrink-0">
                     {file.added > 0 && (
                       <span className="text-ok">+{file.added}</span>

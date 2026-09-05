@@ -58,7 +58,7 @@ async function seed(home: string): Promise<void> {
 
 	const plugin = join(home, "plugins", "demo-plugin", "skills", "greet");
 	await mkdir(plugin, { recursive: true });
-	await writeFile(join(plugin, "SKILL.md"), "---\nname: greet\ndescription: 打个招呼。\n---\n\n说你好。\n");
+	await writeFile(join(plugin, "SKILL.md"), "---\nname: greet\ndescription: 在用户请求问候或需要确认连通性时，给出简短、友好的中文问候，用于验证已安装的技能可以被发现并执行。\n---\n\n说你好。\n");
 
 	/*
 	 * Something to install, as an actual repository. `git` takes a local path as a remote, so the
@@ -69,7 +69,7 @@ async function seed(home: string): Promise<void> {
 	await mkdir(join(source, "skills", "translate"), { recursive: true });
 	await writeFile(
 		join(source, "skills", "translate", "SKILL.md"),
-		"---\nname: translate\ndescription: 翻译一段话。\n---\n\n翻译它。\n",
+		"---\nname: translate\ndescription: 用户提供外语文本并要求中文译文时使用，保留原意、术语和段落结构，将输入内容翻译成清晰自然的中文。\n---\n\n翻译它。\n",
 	);
 	await writeFile(join(source, "plugin.json"), JSON.stringify({ name: "翻译器", skills: "skills" }));
 	await run("git", ["init", "-q", "."], { cwd: source });
@@ -139,7 +139,7 @@ async function openPlugins(): Promise<void> {
  */
 async function switchTab(label: string): Promise<void> {
 	await app.evaluate(`(() => {
-		const tab = [...document.querySelectorAll("button")].filter((b) => b.textContent?.trim() === ${JSON.stringify(label)}).pop();
+		const tab = [...document.querySelectorAll("header button")].find((b) => b.checkVisibility({ visibilityProperty: true }) && b.textContent?.trim() === ${JSON.stringify(label)});
 		if (!tab) throw new Error("no tab called " + ${JSON.stringify(label)});
 		tab.click();
 		return true;
@@ -152,7 +152,7 @@ async function waitFor(expression: string, complaint: string, attempts = 40): Pr
 		if (await app.evaluate<boolean>(`Boolean(${expression})`).catch(() => false)) return;
 		await wait(250);
 	}
-	throw new Error(complaint);
+	throw new Error(`${complaint}\n${await app.evaluate<string>("document.body.innerText")}`);
 }
 
 test("a bundle on disk gets a card, under the tab for what it is", async () => {

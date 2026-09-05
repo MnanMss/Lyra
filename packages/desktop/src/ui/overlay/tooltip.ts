@@ -79,10 +79,11 @@ export function tipPlacement(
 	const above = target.top - tip.height - GAP;
 	const fits = side === "bottom" ? below + tip.height < viewport.height - MARGIN : above > MARGIN;
 	// The preferred side when it fits, the other one when it does not.
-	const top = fits === (side === "bottom") ? below : above;
+	const preferred = fits === (side === "bottom") ? below : above;
+	const top = Math.max(MARGIN, Math.min(preferred, viewport.height - tip.height - MARGIN));
 
 	const centred = target.left + target.width / 2 - tip.width / 2;
-	const left = Math.min(Math.max(MARGIN, centred), viewport.width - tip.width - MARGIN);
+	const left = Math.max(MARGIN, Math.min(centred, viewport.width - tip.width - MARGIN));
 	return { left, top };
 }
 
@@ -95,7 +96,8 @@ function place(el: HTMLElement) {
 	tip.hidden = false;
 
 	const a = el.getBoundingClientRect();
-	const b = tip.getBoundingClientRect();
+	// Entrance transforms must not shrink the dimensions used to keep the bubble on screen.
+	const b = { width: tip.offsetWidth, height: tip.offsetHeight };
 	const at = tipPlacement(a, b, el.dataset.lyTipSide === "top" ? "top" : "bottom", {
 		width: window.innerWidth,
 		height: window.innerHeight,
@@ -163,7 +165,11 @@ export function installTooltips() {
 	);
 
 	// Any of these means the target is gone or no longer the thing being pointed at.
-	for (const type of ["pointerdown", "pointerout", "wheel", "keydown", "contextmenu"] as const) {
+	document.addEventListener("pointerout", (event) => {
+		// Moving from a button's label to its icon is still hovering the same target.
+		if (targetOf(event.target) !== targetOf(event.relatedTarget)) hide();
+	}, true);
+	for (const type of ["pointerdown", "wheel", "keydown", "contextmenu"] as const) {
 		document.addEventListener(type, hideTooltipImmediate, true);
 	}
 	window.addEventListener("blur", hide);

@@ -4,6 +4,7 @@
 
 import { GitBranch, GitCompare, Trash2 } from "lucide-react";
 import { IconButton } from "../../ui/primitives/IconButton.tsx";
+import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
 import { Text } from "../../ui/primitives/Text.tsx";
 
 export function BranchRow({
@@ -25,19 +26,13 @@ export function BranchRow({
   onDelete?: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
   return (
-    <div className="group/branch flex items-center gap-1 rounded-md px-1.5 py-1 transition-colors hover:bg-card-hover">
+    <div className="ly-scroll group/branch flex items-center gap-1 rounded-md px-1.5 py-1 transition-colors hover:bg-card-hover">
       <GitBranch
         size={12}
         strokeWidth={1.8}
         className={`shrink-0 ${current ? "text-accent" : "text-ink-faint"}`}
       />
-      <Text
-        size="label"
-        tone={current ? "default" : "muted"}
-        className="min-w-0 flex-1 truncate"
-      >
-        {name}
-      </Text>
+      <ScrollText text={name} className={`min-w-0 flex-1 text-label ${current ? "text-ink" : "text-ink-muted"}`} />
       {current ? (
         <Text size="caption" tone="faint" className="shrink-0 pr-1">
           当前

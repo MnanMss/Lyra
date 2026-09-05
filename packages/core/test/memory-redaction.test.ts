@@ -10,7 +10,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -135,11 +135,11 @@ test("技能提案里的密钥也进不了待确认区", async () => {
 	 */
 	const model = sequenced([
 		"- 部署前先设环境变量。",
-		`NAME: deploy-steps\nDESCRIPTION: 部署的固定步骤\nBODY:\n1. export OPENAI_API_KEY=${OPENAI}\n2. pnpm deploy`,
+		`NAME: deploy-steps\nDESCRIPTION: 部署的固定步骤\nSCOPE: project\nSOURCES: s3,s4\nBODY:\n## 适用范围\n当前项目部署\n## 输入与前置检查\n读取当前部署配置\n## 执行步骤\n1. export OPENAI_API_KEY=${OPENAI}\n2. pnpm deploy\n## 验证与失败处理\n验证部署成功，否则停止`,
 	]);
 	await extractMemory({
 		cwd: project,
-		candidates: [session("s3", ["部署一下", "好"])],
+		candidates: [session("s3", ["部署一下", "好"]), session("s4", ["再次部署", "好"])],
 		stream: model.stream,
 		...DEPS,
 	});
@@ -150,4 +150,17 @@ test("技能提案里的密钥也进不了待确认区", async () => {
 	assert.ok(!proposal.body.includes(OPENAI), "正文里不该有密钥");
 	assert.ok(proposal.body.includes("[已脱敏的凭证]"), "换成了脱敏标记");
 	assert.ok(proposal.body.includes("pnpm deploy"), "其余步骤照旧");
+});
+
+test("skill generation sees current project gates instead of only historical commands", async () => {
+	const instruction = join(project, "AGENTS.md");
+	await writeFile(instruction, `Release requires mandatory-rehearsal. Never use the old manual tag flow. Credential: ${GITHUB}`);
+	try {
+		const model = sequenced(["- 发布流程需要按当前项目配置发现。", "（没有）"]);
+		await extractMemory({ cwd: project, candidates: [session("old-a", ["手动打 tag", "完成"]), session("old-b", ["再打 tag", "完成"])], stream: model.stream, ...DEPS });
+		assert.equal(model.received.length, 2);
+		assert.match(model.received[1], /AGENTS\.md[\s\S]*mandatory-rehearsal/);
+		assert.match(model.received[1], /old-a[\s\S]*old-b/);
+		assert.ok(!model.received[1].includes(GITHUB));
+	} finally { await rm(instruction); }
 });

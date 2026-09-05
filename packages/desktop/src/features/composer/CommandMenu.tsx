@@ -18,6 +18,7 @@
  * composer, since they are the same state as the text being typed.
  */
 
+import { Scroller } from "../../ui/scroll/Scroller.tsx";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 /**
@@ -125,7 +126,7 @@ export function CommandMenu({
 		 */
 		<div ref={panel} className="absolute bottom-full left-0 z-40 mb-2">
 			<div className="ly-glass-solid min-w-[220px] max-w-[380px] overflow-hidden rounded-[12px] border border-line-soft">
-				<div ref={list} onScroll={place} className="ly-scroll max-h-[min(320px,42vh)] overflow-y-auto p-1">
+				<Scroller scrollRef={list} onScroll={place} className="max-h-[min(320px,42vh)]" contentClassName="p-1">
 					{commands.map((command, index) => (
 						<button
 							key={`${command.origin}:${command.name}`}
@@ -158,7 +159,7 @@ export function CommandMenu({
 							)}
 						</button>
 					))}
-				</div>
+				</Scroller>
 			</div>
 
 			{/*

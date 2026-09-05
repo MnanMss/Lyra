@@ -16,6 +16,8 @@
  */
 
 import { renderRuleFile, type AgentSession, type CorrectionSuggestion, type SessionStorage, type Settings } from "@lyra/core";
+import type { LyraApi } from "./ipc-types.ts";
+import { initialPrompt, promptContent, promptOptions } from "./prompt-input.ts";
 import { settingsFromPhone } from "./phone-settings.ts";
 import {
 	all,
@@ -49,7 +51,10 @@ export interface RpcDeps {
 	live(sessionId: string): AgentSession | undefined;
 	/** Bring a stored session up, or null when there is no such session. */
 	activate(projectId: string, sessionId: string): Promise<AgentSession | null>;
-	getOrCreate(cwd: string, modelId: string): Promise<AgentSession>;
+	create: LyraApi["sessions"]["create"];
+	prompt: LyraApi["agent"]["prompt"];
+	abort(sessionId: string): Promise<void>;
+	dispose(sessionId: string): Promise<void>;
 	snapshot(session: AgentSession): Promise<unknown>;
 	touch(sessionId: string): void;
 }
@@ -105,21 +110,14 @@ export const RPC: Record<string, Handler> = {
 		const session = await deps.activate(s(projectId), s(sessionId));
 		return session ? deps.snapshot(session) : null;
 	},
-	"sessions.create": async (deps, [cwd, modelId]) => {
-		const session = await deps.getOrCreate(s(cwd), s(modelId));
-		if (s(modelId)) await session.setModel(s(modelId));
-		return deps.snapshot(session);
-	},
+	"sessions.create": async (deps, [cwd, modelId, initial]) =>
+		deps.create(s(cwd), s(modelId), initialPrompt(initial)),
 
 	// -- Driving a turn --------------------------------------------------------
-	"agent.prompt": async (deps, [sessionId, content, options]) => {
-		const session = await live(deps, s(sessionId));
-		if (!session) return null;
-		await session.prompt(content as never, (options ?? {}) as never);
-		return null;
-	},
+	"agent.prompt": async (deps, [sessionId, content, options]) =>
+		deps.prompt(s(sessionId), promptContent(content), promptOptions(options)),
 	"agent.abort": async (deps, [sessionId]) => {
-		deps.live(s(sessionId))?.abort();
+		await deps.abort(s(sessionId));
 		return null;
 	},
 	"agent.approve": async (deps, [sessionId, requestId, decision]) => {
@@ -166,10 +164,12 @@ export const RPC: Record<string, Handler> = {
 			: deps.store().append(renamed, { type: "meta", meta: { ...renamed, titleSetByUser: true } });
 	},
 	"sessions.setArchived": async (deps, [projectId, sessionId, archived]) => {
+		if (archived) await deps.dispose(s(sessionId));
 		await deps.store().setArchived(s(projectId), s(sessionId), Boolean(archived));
 		return deps.store().listSessions();
 	},
 	"sessions.remove": async (deps, [projectId, sessionId]) => {
+		await deps.dispose(s(sessionId));
 		await deps.store().delete(s(projectId), s(sessionId));
 		return null;
 	},
@@ -251,7 +251,7 @@ async function live(deps: RpcDeps, sessionId: string) {
 	const existing = deps.live(sessionId);
 	if (existing) {
 		deps.touch(sessionId);
-		return existing;
+		return deps.activate(existing.meta.projectId, sessionId);
 	}
 	const meta = (await deps.store().listSessions()).find((entry) => entry.id === sessionId);
 	return meta ? deps.activate(meta.projectId, sessionId) : null;

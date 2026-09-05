@@ -141,7 +141,7 @@ const UI = `
 	};
 	const tiles = () =>
 		[...document.querySelectorAll("div")]
-			.filter((d) => d.className.includes("rounded-[12px]") && d.className.includes("border-line"))
+			.filter((d) => d.checkVisibility({ visibilityProperty: true }) && d.className.includes("rounded-[12px]") && d.className.includes("border-line"))
 			.map((d) => label(d));
 `;
 

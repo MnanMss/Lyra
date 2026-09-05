@@ -303,7 +303,7 @@ test("the usage page reports what is in the logs", async () => {
 		const models = [...document.querySelectorAll("div")]
 			.filter((d) => label(d).includes("Relay") && label(d).includes("%"))
 			.map((d) => label(d));
-		const headings = [...document.querySelectorAll("h1")].map(label).filter(Boolean);
+		const headings = [...document.querySelectorAll("h1")].filter(el => el.checkVisibility({ visibilityProperty: true })).map(label).filter(Boolean);
 		return { tiles, hasBars: bars > 0, models, heading: headings.join(" / ") || null };
 	`);
 

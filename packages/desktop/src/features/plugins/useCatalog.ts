@@ -20,6 +20,7 @@ export interface Catalog {
 	errors: { url: string; message: string }[];
 	diagnostics: { path: string; message: string }[];
 	loading: boolean;
+	localLoading: boolean;
 	/** Configured registry URLs, so an empty page can tell the difference from an empty registry. */
 	sources: string[];
 	refresh: () => void;
@@ -57,6 +58,7 @@ export function useCatalog(): Catalog {
 		skills: Skill[];
 		diagnostics: { path: string; message: string }[];
 	}>({ plugins: [], mcpBundles: [], skills: [], diagnostics: [] });
+	const [localCwd, setLocalCwd] = useState<string | null>(null);
 	/*
 	 * Seeded from the last answer for the same sources, so leaving and coming back shows the shop
 	 * rather than rebuilding it.
@@ -101,6 +103,7 @@ export function useCatalog(): Catalog {
 	const urls = useMemo(() => (urlsKey ? urlsKey.split("|") : []), [urlsKey]);
 
 	const cwd = workspace?.path ?? "";
+	const localLoading = localCwd !== cwd;
 	/** Re-scan when a plugin is switched on or off, which rewrites this list and nothing else. */
 	const disabledKey = (settings?.disabledPlugins ?? []).join("|");
 
@@ -124,6 +127,7 @@ export function useCatalog(): Catalog {
 				skills: scan.skills ?? [],
 				diagnostics: scan.pluginDiagnostics ?? [],
 			});
+			setLocalCwd(cwd);
 		});
 		return () => {
 			cancelled = true;
@@ -167,10 +171,10 @@ export function useCatalog(): Catalog {
 	 * on disk is only the starting point it was installed from.
 	 */
 	const merged = useMemo(
-		() => merge(local.plugins, local.mcpBundles, settings?.mcpServers ?? [], remote, local.skills),
+		() => merge(localLoading ? [] : local.plugins, localLoading ? [] : local.mcpBundles, settings?.mcpServers ?? [], remote, localLoading ? [] : local.skills),
 		// `settings` rather than `settings.mcpServers`: the list is a fresh array on every render,
 		// the object it hangs off is not — it is only replaced when something is actually saved.
-		[local.plugins, local.mcpBundles, settings, remote, local.skills],
+		[local.plugins, local.mcpBundles, settings, remote, local.skills, localLoading],
 	);
 
 	/*
@@ -240,10 +244,11 @@ export function useCatalog(): Catalog {
 
 	return {
 		items,
-		skills: local.skills,
+		skills: localLoading ? [] : local.skills,
 		errors,
 		diagnostics: local.diagnostics,
-		loading,
+		loading: loading || localLoading,
+		localLoading,
 		sources: urls,
 		refresh,
 	};

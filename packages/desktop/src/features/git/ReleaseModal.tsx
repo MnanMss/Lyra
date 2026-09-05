@@ -469,9 +469,9 @@ export function ReleaseModal({ cwd, onClose }: ReleaseModalProps) {
 								</div>
 
 								{previewMode ? (
-									<div className="min-h-[140px] max-h-[220px] overflow-y-auto rounded-xl border border-line-soft bg-card p-3.5 text-detail text-ink leading-relaxed">
+									<Scroller className="min-h-[140px] max-h-[220px] rounded-xl border border-line-soft bg-card" contentClassName="p-3.5 text-detail text-ink leading-relaxed">
 										<Markdown text={notes || "*(无内容)*"} />
-									</div>
+									</Scroller>
 								) : (
 									<textarea
 										value={notes}

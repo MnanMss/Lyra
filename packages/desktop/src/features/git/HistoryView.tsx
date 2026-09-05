@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { GitCommit, WorkspaceDiffFile } from "../../../electron/ipc-types.ts";
 
 import { PanelEmpty } from "../../ui/layout/PanelEmpty.tsx";
-import { SkeletonBar } from "../../ui/primitives/Skeleton.tsx";
+import { SkeletonBar, SkeletonList, useSlowLoad } from "../../ui/primitives/Skeleton.tsx";
 
 import { Scroller } from "../../ui/scroll/Scroller.tsx";
 import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
@@ -54,7 +54,7 @@ interface Expansion {
  * starts it to the merge that ends it, which is what makes a column followable.
  */
 export function HistoryView({ cwd }: { cwd: string }) {
-  const [commits, setCommits] = useState<GitCommit[]>([]);
+  const [commits, setCommits] = useState<GitCommit[] | null>(null);
   /*
    * One piece of state for the open commit, carrying which commit it is about.
    *
@@ -70,7 +70,9 @@ export function HistoryView({ cwd }: { cwd: string }) {
   const [expansion, setExpansion] = useState<Expansion | null>(null);
 
   useEffect(() => {
-    void bridge.git.log(cwd, 80).then(setCommits);
+    let live = true;
+    void bridge.git.log(cwd, 80).then((commits) => { if (live) setCommits(commits); });
+    return () => { live = false; };
   }, [cwd]);
 
   /*
@@ -130,9 +132,11 @@ export function HistoryView({ cwd }: { cwd: string }) {
     };
   }, [cwd, openSha]);
 
-  const rows = useMemo(() => buildGraph(commits), [commits]);
+  const rows = useMemo(() => buildGraph(commits ?? []), [commits]);
   const width = useMemo(() => graphWidth(rows, LANE_WIDTH), [rows]);
 
+  const slow = useSlowLoad(commits === null);
+  if (commits === null) return slow ? <SkeletonList count={5} label="正在读取提交" /> : null;
   if (commits.length === 0) {
     return (
       <PanelEmpty icon={GitCommitHorizontal} title="没有提交">
@@ -142,7 +146,7 @@ export function HistoryView({ cwd }: { cwd: string }) {
   }
 
   return (
-    <Scroller className="flex-1" contentClassName="px-1.5 pb-2" top="none" bottom="none">
+    <Scroller className="flex-1" contentClassName="px-1.5 pb-2">
       {rows.map((row) => {
         const commit = row.commit;
         const state = expansion && expansion.sha === commit.sha ? expansion : null;

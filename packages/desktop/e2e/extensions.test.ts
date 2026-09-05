@@ -164,14 +164,14 @@ async function seed(home: string): Promise<void> {
 	await mkdir(join(home, "skills", "translate"), { recursive: true });
 	await writeFile(
 		join(home, "skills", "translate", "SKILL.md"),
-		"---\nname: translate\ndescription: 翻译一段话。\n---\n\n把它翻成中文。\n",
+		"---\nname: translate\ndescription: 用户提供外语文本并要求中文译文时使用，保留原意、术语和段落结构，将输入内容翻译成清晰自然的中文。\n---\n\n把它翻成中文。\n",
 	);
 
 	// And a plugin, whose skills reach the agent through a bundle rather than on their own.
 	await mkdir(join(home, "plugins", "demo-plugin", "skills", "greet"), { recursive: true });
 	await writeFile(
 		join(home, "plugins", "demo-plugin", "skills", "greet", "SKILL.md"),
-		"---\nname: greet\ndescription: 打个招呼。\n---\n\n说你好。\n",
+		"---\nname: greet\ndescription: 在用户请求问候或需要确认连通性时，给出简短、友好的中文问候，用于验证已安装的技能可以被发现并执行。\n---\n\n说你好。\n",
 	);
 
 	const server = join(home, "mcp-server.mjs");
@@ -341,6 +341,9 @@ async function rowFor(summary: string): Promise<Row> {
 test("每种扩展都能在对话里用到，且行首说出它是哪一种", async () => {
 	await converse("试一下三种扩展");
 	await waitFor(`document.body.innerText.includes("都试过了")`, "the scripted turns never finished");
+	// Closed work groups defer their cards; inspect the controls a user actually opens.
+	await app.evaluate(`document.querySelectorAll('[data-ly-run] > button[aria-expanded="false"]').forEach(button=>button.click())`);
+	await waitFor(`document.body.innerText.includes("Skill: translate")`, "opening tool work did not reveal the skill calls");
 
 	/*
 	 * A loose skill and a plugin's skill both reach the agent, and both are marked as skills.

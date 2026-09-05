@@ -222,7 +222,7 @@ export interface LyraApi {
 	};
 	sessions: {
 		list(): Promise<SessionMeta[]>;
-		create(cwd: string, modelId: string): Promise<SessionSnapshot>;
+		create(cwd: string, modelId: string, initial?: { content: UserContent[]; synthetic?: boolean }): Promise<SessionSnapshot>;
 		/** Start the agent for this session — skills, MCP servers, the lot. For running things. */
 		open(projectId: string, sessionId: string): Promise<SessionSnapshot | null>;
 		/** Read the stored transcript without starting anything. For looking at things. */
@@ -249,7 +249,7 @@ export interface LyraApi {
 		 * `synthetic` marks a message the app composed on the user's behalf — 「继续」 — so the
 		 * transcript does not show it as something they typed. See `Session.prompt`.
 		 */
-		prompt(sessionId: string, content: UserContent[], options?: { synthetic?: boolean; deliver?: "steer" | "followUp" }): Promise<void>;
+		prompt(sessionId: string, content: UserContent[], options?: { synthetic?: boolean; deliver?: "steer" | "followUp"; resumePending?: boolean }): Promise<SessionMeta>;
 		/** Replace a message and re-run from there, discarding everything after it. */
 		editMessage(sessionId: string, messageIndex: number, content: UserContent[]): Promise<void>;
 		abort(sessionId: string): Promise<void>;
@@ -778,6 +778,8 @@ export interface LyraApi {
 	};
 
 	capabilities: {
+		/** Trash a discovered loose definition, preserving built-ins and plugin bundles. */
+		trash(kind: "command" | "skill" | "rule", cwd: string, path: string): Promise<void>;
 		/** 两份同名能力的差异，赢家在前输家在后；hunk 直接交给 DiffView。 */
 		diff(
 			kind: "rule" | "skill",
@@ -1013,7 +1015,7 @@ export interface LyraApi {
 	};
 	diff: {
 		/** Uncommitted changes for the review panel. */
-		workspaceDiff(cwd: string): Promise<{ files: WorkspaceDiffFile[]; added: number; removed: number; branch: string | null }>;
+		workspaceDiff(cwd: string, base?: "head" | "index"): Promise<{ files: WorkspaceDiffFile[]; added: number; removed: number; branch: string | null }>;
 		/**
 		 * One side of a binary file, as a data URL, for the review to draw rather than describe.
 		 *

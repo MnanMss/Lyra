@@ -32,6 +32,7 @@ export function Scroller({
 	onScroll,
 	onResize,
 	scrollRef,
+	scrollbar = true,
 }: {
 	children: React.ReactNode;
 	className?: string;
@@ -58,10 +59,22 @@ export function Scroller({
 	onResize?: (element: HTMLDivElement) => void;
 	/** Exposed for callers that drive the scroll position themselves, like the transcript. */
 	scrollRef?: React.RefObject<HTMLDivElement | null>;
+	/** Narrow navigation rails use their own targets; an overlay thumb would intercept them. */
+	scrollbar?: boolean;
 }) {
 	const own = useRef<HTMLDivElement>(null);
 	const viewport = scrollRef ?? own;
 	const drag = useRef<{ startY: number; startTop: number } | null>(null);
+	const retainedTop = useRef<number | null>(null);
+
+	useLayoutEffect(() => {
+		const el = viewport.current;
+		if (!el) return;
+		// Activity preserves the DOM, but Chromium resets native scroll offsets while hidden.
+		// Save before hiding and restore before paint, independently of content measurement effects.
+		if (retainedTop.current !== null) el.scrollTop = retainedTop.current;
+		return () => { if (el.clientHeight > 0) retainedTop.current = el.scrollTop; };
+	}, [viewport]);
 
 	const [metrics, setMetrics] = useState({ thumbTop: 0, thumbHeight: 0, overflow: false, atTop: true, atBottom: true });
 	const [active, setActive] = useState(false);
@@ -266,7 +279,7 @@ export function Scroller({
 				/>
 			)}
 
-			{metrics.overflow && (
+			{scrollbar && metrics.overflow && (
 				<div
 					/*
 					 * On the edge, above everything on it, and taking no clicks of its own.

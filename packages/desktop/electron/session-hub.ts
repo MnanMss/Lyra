@@ -13,7 +13,9 @@ import { AgentSession, type AgentEvent, type SessionStorage, type Settings, type
 import type { BrowserWindow } from "electron";
 import { createBrowserTools } from "./browser-tools.ts";
 import { autoCreateSessionWorktree, cleanOldWorktrees } from "./git-worktrees.ts";
-import type { SessionSnapshot } from "./ipc-types.ts";
+import type { SessionSnapshot, LyraApi } from "./ipc-types.ts";
+import { createStoredSession, type InitialPrompt } from "./create-session.ts";
+import { initialPrompt, promptContent, promptOptions } from "./prompt-input.ts";
 import { ensureSessionWorkspace } from "./scratch.ts";
 
 export interface HubDeps {
@@ -39,6 +41,44 @@ export function configureHub(next: HubDeps): void {
 }
 
 export const sessions = new Map<string, AgentSession>();
+const ready = new Set<string>();
+const submitted = new Set<string>();
+const initializing = new Map<string, Promise<AgentSession | null>>();
+const retiring = new Set<string>();
+const abortedWhileStarting = new Set<string>();
+
+export async function createSession(cwd: string, modelId: string, initial?: InitialPrompt): Promise<SessionSnapshot> {
+	const saved = await createStoredSession(deps.store(), deps.settings(), cwd, modelId, initialPrompt(initial));
+	stageSession(saved);
+	if (initial) submitted.add(saved.meta.id);
+	return saved;
+}
+
+function stageSession(saved: SessionSnapshot): AgentSession {
+	const browser = createBrowserTools();
+	const session = new AgentSession({ cwd: saved.meta.cwd, settings: deps.settings(), store: deps.store(), meta: saved.meta,
+		extraTools: browser.tools, emit: (event) => broadcast(saved.meta.id, event) });
+	session.restore(saved.messages);
+	sessions.set(saved.meta.id, session);
+	browsers.set(saved.meta.id, browser.dispose);
+	return session;
+}
+
+export const promptSession: LyraApi["agent"]["prompt"] = async (id, content, options) => {
+	const input = promptContent(content);
+	const requested = promptOptions(options);
+	let session: AgentSession | null;
+	try { session = await ensureLiveSession(id); }
+	finally { submitted.delete(id); }
+	if (!session) throw new Error(`Session ${id} is not open.`);
+	// Both transports return after activation; a multi-minute turn is delivered by events.
+	void (requested.resumePending ? session.resumePendingPrompt() : session.prompt(input, requested)).catch((error: unknown) => {
+		const message = error instanceof Error ? error.message : String(error);
+		broadcast(id, { type: "notice", level: "error", message });
+		broadcast(id, { type: "agent_end", reason: "error", error: message });
+	});
+	return session.meta;
+};
 /** Disposers for each session's browser tools, keyed the same way. */
 export const browsers = new Map<string, () => void>();
 /** Side chats, one per session, built on first use and dropped with the session. */
@@ -93,6 +133,7 @@ export async function getOrCreateSession(cwd: string, _modelId: string): Promise
 	});
 	await session.initialize();
 	sessions.set(session.meta.id, session);
+	ready.add(session.meta.id);
 	browsers.set(session.meta.id, browser.dispose);
 
 	// Trigger async cleanup if enabled in settings
@@ -125,7 +166,7 @@ export async function snapshot(session: AgentSession): Promise<SessionSnapshot> 
 	return {
 		meta: session.meta,
 		messages: session.messages,
-		running: session.running,
+		running: session.running || submitted.has(session.meta.id),
 		pendingApprovals: session.listPendingApprovals().map(({ id, request }) => ({
 			id,
 			kind: request.kind,
@@ -137,6 +178,9 @@ export async function snapshot(session: AgentSession): Promise<SessionSnapshot> 
 
 /** Tear down a live session's agent, MCP servers and browser. Safe to call for unknown ids. */
 export async function disposeSession(sessionId: string): Promise<void> {
+	retiring.add(sessionId);
+	submitted.delete(sessionId);
+	try { await initializing.get(sessionId); } catch { /* Failed initialization still owns resources to release. */ }
 	await sessions.get(sessionId)?.dispose();
 	browsers.get(sessionId)?.();
 	browsers.delete(sessionId);
@@ -145,34 +189,73 @@ export async function disposeSession(sessionId: string): Promise<void> {
 	sideChats.get(sessionId)?.abort();
 	sideChats.delete(sessionId);
 	sessions.delete(sessionId);
+	ready.delete(sessionId);
+	retiring.delete(sessionId);
 }
 
 export async function activateSession(projectId: string, sessionId: string): Promise<AgentSession | null> {
+	if (retiring.has(sessionId)) return null;
+	const pending = initializing.get(sessionId);
+	if (pending) return pending;
 	const existing = sessions.get(sessionId);
-	if (existing) {
+	if (existing && ready.has(sessionId)) {
 		touchSession(sessionId);
 		return existing;
 	}
+	const starting = startStoredSession(projectId, sessionId);
+	initializing.set(sessionId, starting);
+	try { return await starting; }
+	finally { initializing.delete(sessionId); abortedWhileStarting.delete(sessionId); }
+}
 
-	const loaded = await deps.store().load(projectId, sessionId);
-	if (!loaded) return null;
-	// Same as `getOrCreateSession`: a stored conversation's directory may not have survived.
-	await ensureSessionWorkspace(loaded.meta.cwd).catch(() => false);
-	const browser = createBrowserTools();
-	const session = new AgentSession({
-		cwd: loaded.meta.cwd,
-		settings: deps.settings(),
-		store: deps.store(),
-		meta: loaded.meta,
-		extraTools: browser.tools,
-		emit: (event) => broadcast(sessionId, event),
-	});
-	session.restore(loaded.messages, loaded.compaction);
-	await session.initialize();
-	sessions.set(sessionId, session);
-	browsers.set(sessionId, browser.dispose);
-	await evictStaleSessions(sessionId);
-	return session;
+async function startStoredSession(projectId: string, sessionId: string): Promise<AgentSession | null> {
+	const store = deps.store();
+	let session = sessions.get(sessionId);
+	if (!session) {
+		const loaded = await store.load(projectId, sessionId);
+		if (!loaded || retiring.has(sessionId)) return null;
+		session = stageSession({ meta: loaded.meta, messages: loaded.messages, running: false, pendingApprovals: [] });
+		session.restore(loaded.messages, loaded.compaction);
+	}
+	try {
+		await ensureSessionWorkspace(session.cwd);
+		if (session.meta.workspaceSetup === "worktree") {
+			const prepared = await autoCreateSessionWorktree(session.cwd, deps.settings(), sessionId);
+			session.cwd = prepared.cwd;
+			// Execution may move; project identity and all metadata edits remain on the same log.
+			await session.log.append({ type: "meta", meta: { ...session.meta, cwd: prepared.cwd, workspaceSetup: undefined } });
+		}
+		if (retiring.has(sessionId)) return null;
+		await session.initialize();
+		ready.add(sessionId);
+		if (abortedWhileStarting.has(sessionId)) await session.cancelPendingPrompt();
+		if (retiring.has(sessionId)) return null;
+		await evictStaleSessions(sessionId);
+		return session;
+	} catch (cause) {
+		await session.dispose();
+		browsers.get(sessionId)?.();
+		ready.delete(sessionId);
+		sessions.delete(sessionId); browsers.delete(sessionId);
+		throw cause;
+	}
+}
+
+export async function abortSession(sessionId: string): Promise<void> {
+	submitted.delete(sessionId);
+	if (initializing.has(sessionId)) abortedWhileStarting.add(sessionId);
+	const session = sessions.get(sessionId);
+	if (session) {
+		session.abort();
+		if (!session.meta.pendingPrompt) return;
+		await session.cancelPendingPrompt();
+	} else {
+		const store = deps.store();
+		const meta = (await store.listSessions()).find((meta) => meta.id === sessionId);
+		if (!meta?.pendingPrompt) return;
+		await store.append(meta, { type: "meta", meta: { ...meta, pendingPrompt: undefined } });
+	}
+	broadcast(sessionId, { type: "agent_end", reason: "aborted" });
 }
 
 /** Retire the least recently used sessions, never one mid-turn and never the current one. */
@@ -182,7 +265,7 @@ async function evictStaleSessions(keep: string): Promise<void> {
 		if (sessions.size <= MAX_LIVE_SESSIONS) break;
 		// An open side chat is a conversation in progress, same as a running turn — evicting
 		// its session would silently throw that conversation away.
-		if (id === keep || session.running || sideChats.has(id)) continue;
+		if (id === keep || session.running || session.meta.pendingPrompt || initializing.has(id) || sideChats.has(id)) continue;
 		await disposeSession(id);
 	}
 }
@@ -194,8 +277,11 @@ async function evictStaleSessions(keep: string): Promise<void> {
  * reading it, which must never come through here.
  */
 export async function ensureLiveSession(sessionId: string): Promise<AgentSession | null> {
+	if (retiring.has(sessionId)) return null;
+	const pending = initializing.get(sessionId);
+	if (pending) return pending;
 	const existing = sessions.get(sessionId);
-	if (existing) {
+	if (existing && ready.has(sessionId)) {
 		touchSession(sessionId);
 		return existing;
 	}

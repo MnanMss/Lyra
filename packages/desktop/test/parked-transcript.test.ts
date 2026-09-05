@@ -7,8 +7,8 @@
  * showed the transcript from *before* that turn — presented as current, with nothing to say so —
  * until the re-read landed.
  *
- * The claim: an event that changes what a background conversation says drops what was parked for
- * it, and an event that does not, does not. The second half is what keeps the cache worth having.
+ * Events are folded into the parked transcript. Dropping it used to replace stale content
+ * with a fresh cold load on every visit; keeping it current avoids both stale replies and flashes.
  */
 
 import assert from "node:assert/strict";
@@ -44,7 +44,7 @@ const reply: Message = {
  * "other" is the background conversation; "watching" is the one the window has open. Writes are
  * folded back into the state so a handler that reads what it just wrote sees it.
  */
-function afterEvent(event: AgentEvent): { parked: boolean } {
+function afterEvent(event: AgentEvent): { parked: boolean; dirty: boolean } {
 	const state = {
 		activity: {},
 		turns: {},
@@ -64,7 +64,8 @@ function afterEvent(event: AgentEvent): { parked: boolean } {
 		() => state as never,
 	);
 
-	return { parked: "other" in (state.sessionCache as Record<string, unknown>) };
+	const cache = state.sessionCache as Record<string, { dirty?: boolean }>;
+	return { parked: "other" in cache, dirty: cache.other?.dirty === true };
 }
 
 for (const [name, event] of [
@@ -75,8 +76,8 @@ for (const [name, event] of [
 	["history being rewound", { type: "rewound", messageCount: 1 }],
 	["history being summarised", { type: "compacted", before: 10, after: 2 }],
 ] as [string, AgentEvent][]) {
-	test(`${name} elsewhere drops what was parked for it`, () => {
-		assert.equal(afterEvent(event).parked, false);
+	test(`${name} elsewhere updates the parked transcript without a cold load`, () => {
+		assert.deepEqual(afterEvent(event), { parked: true, dirty: true });
 	});
 }
 

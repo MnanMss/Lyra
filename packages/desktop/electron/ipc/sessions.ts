@@ -12,7 +12,6 @@ import {
 	forkSession,
 	readTrajectory,
 	removeSessionArtifacts,
-	type AgentSession,
 	type ApprovalDecision,
 	type ContextBreakdown,
 	type SessionMeta,
@@ -29,7 +28,9 @@ import {
 	broadcast,
 	disposeSession,
 	ensureLiveSession,
-	getOrCreateSession,
+	createSession,
+	abortSession,
+	promptSession,
 	sessions,
 	snapshot,
 	touchSession,
@@ -64,26 +65,9 @@ export function registerSessionsIpc({
 	 * Callers that act on a session — prompting, changing its model — have a session id but no
 	 * project id, so the project is recovered from the index.
 	 */
-	async function ensureSession(
-		sessionId: string,
-	): Promise<AgentSession | null> {
-		const existing = sessions.get(sessionId);
-		if (existing) {
-			touchSession(sessionId);
-			return existing;
-		}
-		const meta = (await store.listSessions()).find((s) => s.id === sessionId);
-		return meta ? activateSession(meta.projectId, sessionId) : null;
-	}
+	const ensureSession = ensureLiveSession;
 
-	ipcMain.handle(
-		"sessions:create",
-		async (_event, cwd: string, modelId: string) => {
-			const session = await getOrCreateSession(cwd, modelId);
-			if (modelId) await session.setModel(modelId);
-			return snapshot(session);
-		},
-	);
+	ipcMain.handle("sessions:create", async (_event, cwd: string, modelId: string, initial?: { content: UserContent[]; synthetic?: boolean }) => createSession(cwd, modelId, initial));
 
 	/**
 	 * Read a transcript without starting anything.
@@ -276,23 +260,9 @@ export function registerSessionsIpc({
 			_event,
 			sessionId: string,
 			content: UserContent[],
-			options?: { synthetic?: boolean; deliver?: "steer" | "followUp" },
+			options?: { synthetic?: boolean; deliver?: "steer" | "followUp"; resumePending?: boolean },
 		) => {
-			const session = await ensureSession(sessionId);
-			if (!session) throw new Error(`Session ${sessionId} is not open.`);
-			// Deliberately not awaited: the turn streams events back over IPC and can run for minutes.
-			void session.prompt(content, options).catch((error: unknown) => {
-				broadcast(sessionId, {
-					type: "notice",
-					level: "error",
-					message: error instanceof Error ? error.message : String(error),
-				});
-				broadcast(sessionId, {
-					type: "agent_end",
-					reason: "error",
-					error: String(error),
-				});
-			});
+			return promptSession(sessionId, content, options);
 		},
 	);
 
@@ -362,7 +332,7 @@ export function registerSessionsIpc({
 	);
 
 	ipcMain.handle("agent:abort", async (_event, sessionId: string) => {
-		sessions.get(sessionId)?.abort();
+		await abortSession(sessionId);
 	});
 
 	ipcMain.handle(

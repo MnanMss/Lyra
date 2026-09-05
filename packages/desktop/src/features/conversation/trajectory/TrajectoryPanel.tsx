@@ -89,7 +89,7 @@ export function TrajectoryPanel() {
 				onClear={() => setSources([])}
 			/>
 
-			<Scroller className="flex-1 pt-1.5" contentClassName="px-2 pb-3" top="none" bottom="none">
+			<Scroller className="flex-1 pt-1.5" contentClassName="px-2 pb-3">
 				{loading && entries.length === 0 && (
 					<Text size="caption" tone="faint" className="block px-1.5 py-2">
 						读取中…

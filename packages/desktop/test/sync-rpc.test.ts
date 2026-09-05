@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { allowedMethods, callRpc, RPC, type RpcDeps } from "../electron/sync-rpc.ts";
-import { DEFAULT_SETTINGS } from "@lyra/core";
+import { DEFAULT_SETTINGS, type SessionMeta } from "@lyra/core";
 
 /** Deps that record what was asked of them, so a call can be traced without a real session. */
 function deps(overrides: Partial<RpcDeps> = {}): RpcDeps {
@@ -21,7 +21,10 @@ function deps(overrides: Partial<RpcDeps> = {}): RpcDeps {
 		workspaceInfo: async (path) => ({ path }),
 		live: () => undefined,
 		activate: async () => null,
-		getOrCreate: async () => {
+		create: async () => { throw new Error("not needed"); },
+		abort: async () => {},
+		dispose: async () => {},
+		prompt: async () => {
 			throw new Error("not needed");
 		},
 		snapshot: async () => ({}),
@@ -183,4 +186,26 @@ test("每个 handler 都能经 callRpc 到达", async () => {
 			`${method} 的实参被自己的规格拒了——要么规格写错，要么这里的样例该更新`,
 		);
 	}
+});
+
+test("phone submissions preserve the opening message and resume it through the shared hub", async () => {
+	const meta: SessionMeta = { id: "unique", projectId: "project", projectName: "project", cwd: "/project", title: "你好", createdAt: 1, updatedAt: 1, modelId: "", messageCount: 1,
+		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
+	const opening = { content: [{ type: "text", text: "你好" }], synthetic: false };
+	const calls: unknown[] = [];
+	const hub = deps({
+		create: async (...args) => { calls.push(args); return { meta, messages: [], running: true, pendingApprovals: [] }; },
+		prompt: async (...args) => { calls.push(args); return meta; },
+		activate: async () => { throw new Error("creation must not activate MCP"); },
+	});
+	assert.equal((await callRpc(hub, "sessions.create", ["/project", "qa/model", opening])).ok, true);
+	assert.deepEqual(calls[0], ["/project", "qa/model", opening]);
+	assert.deepEqual(await callRpc(hub, "agent.prompt", ["unique", opening.content, { resumePending: true }]), { ok: true, value: meta });
+	assert.deepEqual(calls[1], ["unique", opening.content, { resumePending: true }]);
+	assert.equal((await callRpc(hub, "agent.prompt", ["unique", "legacy text"])).ok, true);
+	assert.deepEqual(calls[2], ["unique", [{ type: "text", text: "legacy text" }], {}]);
+	for (const invalid of [{ content: [] }, { content: [{ type: "text", text: 9 }] }, { ...opening, synthetic: "yes" }]) {
+		assert.equal((await callRpc(hub, "sessions.create", ["/project", "qa/model", invalid])).ok, false);
+	}
+	assert.equal(calls.length, 3, "malformed content must not reach storage");
 });

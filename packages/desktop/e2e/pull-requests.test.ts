@@ -193,7 +193,7 @@ test("a row says who, when, and how big without being opened", async () => {
 
 test("a group folds to nothing and remembers that it did", async () => {
 	const folded = await app.evaluate<{ open: string; height: number; stored: string | null }>(`(async () => {
-		const heading = document.querySelector("button[aria-expanded]");
+		const heading = document.querySelector('button[class~="group/head"][aria-expanded]');
 		if (!heading) throw new Error("no group heading");
 		const body = () => heading.parentElement.querySelector(".ly-reveal");
 		heading.click();
@@ -210,7 +210,7 @@ test("a group folds to nothing and remembers that it did", async () => {
 	assert.ok(folded.stored && folded.stored.length > 2, "and it is a preference, not a mood");
 
 	const reopened = await app.evaluate<{ open: string; height: number }>(`(async () => {
-		const heading = document.querySelector("button[aria-expanded]");
+		const heading = document.querySelector('button[class~="group/head"][aria-expanded]');
 		heading.click();
 		await new Promise((r) => setTimeout(r, 600));
 		const body = heading.parentElement.querySelector(".ly-reveal");

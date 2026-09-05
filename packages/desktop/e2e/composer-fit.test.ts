@@ -218,6 +218,9 @@ async function useModel(name: string): Promise<void> {
 		const row = document.querySelector('[data-model="relay/${name}"]');
 		if (!row) throw new Error("model not in the menu: ${name}");
 		click(row.querySelector('button[role="menuitem"]'));
+		await wait(100);
+		const confirm = [...document.querySelectorAll('button')].find(b => b.checkVisibility({ visibilityProperty: true }) && b.textContent.trim() === "确认切换");
+		if (confirm) click(confirm);
 		await wait(500);
 		return true;
 	})()`);

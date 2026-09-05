@@ -6,11 +6,11 @@
  * exposing a port is not something to do just in case.
  */
 
-import { AgentSession, type SessionStorage } from "@lyra/core";
+import { type SessionStorage } from "@lyra/core";
 import { workspaceInfo } from "./workspace-info.ts";
 import { applySettings, onSettingsChanged, settings } from "./app-settings.ts";
 import type { SyncStatus } from "./ipc-types.ts";
-import { activateSession, broadcast, getOrCreateSession, sessions, snapshot, touchSession } from "./session-hub.ts";
+import { activateSession, createSession, abortSession, disposeSession, promptSession, getOrCreateSession, sessions, snapshot, touchSession } from "./session-hub.ts";
 import { SyncServer } from "./sync-server.ts";
 
 let syncServer: SyncServer | null = null;
@@ -43,26 +43,13 @@ export async function startSync(): Promise<SyncStatus> {
 			workspaceInfo: (path) => workspaceInfo(path),
 			live: (id) => sessions.get(id),
 			activate: (projectId, id) => activateSession(projectId, id),
-			getOrCreate: (cwd, modelId) => getOrCreateSession(cwd, modelId),
+			create: createSession,
+			prompt: promptSession,
+			abort: abortSession,
+			dispose: disposeSession,
 			snapshot: (session) => snapshot(session),
 			touch: (id) => touchSession(id),
-			resolveSession: async (projectId, sessionId) => {
-				const existing = sessions.get(sessionId);
-				if (existing) return existing;
-				const loaded = await readStore().load(projectId, sessionId);
-				if (!loaded) return null;
-				const session = new AgentSession({
-					cwd: loaded.meta.cwd,
-					settings: settings(),
-					store: readStore(),
-					meta: loaded.meta,
-					emit: (event) => broadcast(sessionId, event),
-				});
-				session.restore(loaded.messages, loaded.compaction);
-				await session.initialize();
-				sessions.set(sessionId, session);
-				return session;
-			},
+			resolveSession: activateSession,
 			createSession: (cwd, modelId) => getOrCreateSession(cwd, modelId),
 		});
 	}

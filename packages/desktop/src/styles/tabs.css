@@ -54,7 +54,9 @@
  * parse. Dark-on-light and light-on-dark both stay legible over whatever it covers.
  */
 .ly-tooltip {
-  max-width: 260px;
+  width: max-content;
+  max-width: min(360px, calc(100vw - 12px));
+  overflow-wrap: anywhere;
   padding: 4px 8px;
   border-radius: 6px;
   font-size: var(--text-caption);

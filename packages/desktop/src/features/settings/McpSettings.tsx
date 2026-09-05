@@ -1,5 +1,6 @@
 import type { McpServerConfig } from "@lyra/core";
-import { Cable, Trash2 } from "lucide-react";
+import { Cable } from "lucide-react";
+import { RowDeleteButton } from "../../ui/primitives/RowDeleteButton.tsx";
 import { useEffect, useState } from "react";
 import type { AgentCapabilities } from "../../../electron/ipc-types.ts";
 import { PluginIcon } from "./PluginIcon.tsx";
@@ -138,7 +139,7 @@ export function McpSettings({ filter = "" }: { filter?: string }) {
 						const status = capabilities?.mcp.find((m) => m.id === server.id);
 						return (
 							<Card key={server.id}>
-								<div className="flex items-center gap-2.5 border-b border-line-soft px-4 py-3">
+								<div data-row-actions className="flex items-center gap-2.5 border-b border-line-soft px-4 py-3">
 									<PluginIcon name={server.name} kind="mcp" size={22} />
 									<input
 										value={server.name}
@@ -159,10 +160,8 @@ export function McpSettings({ filter = "" }: { filter?: string }) {
 									 */}
 									{server.origin && <Badge tone="muted">来自市场</Badge>}
 									<Toggle checked={server.enabled} onChange={(enabled) => update(server.id, { enabled })} />
-									<button
-										type="button"
-										data-ly-tip={server.origin ? "卸载" : "删除"}
-										aria-label={`${server.origin ? "卸载" : "删除"} ${server.name}`}
+									<RowDeleteButton
+										label={`${server.origin ? "卸载" : "删除"} ${server.name}`}
 										onClick={() =>
 											confirm.ask(server.origin
 													? {
@@ -179,10 +178,7 @@ export function McpSettings({ filter = "" }: { filter?: string }) {
 														},
 											)
 										}
-										className="text-ink-faint transition-colors hover:text-danger"
-									>
-										<Trash2 size={14} strokeWidth={1.8} />
-									</button>
+									/>
 								</div>
 
 								<div className="space-y-3 px-4 py-3.5">

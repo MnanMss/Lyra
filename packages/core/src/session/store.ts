@@ -30,6 +30,10 @@ export interface SessionMeta {
 	messageCount: number;
 	usage: Usage;
 	archived?: boolean;
+	/** A submitted opening message is durable before its runtime is initialized. */
+	pendingPrompt?: boolean;
+	/** Desktop workspace preparation is deferred until execution, never transcript reading. */
+	workspaceSetup?: "worktree";
 	/**
 	 * How many messages were already written when the model was last changed mid-conversation.
 	 *

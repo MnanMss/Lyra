@@ -20,6 +20,8 @@ import { EmptyHint, GhostButton, PrimaryButton } from "./controls.tsx";
 import { TextInput } from "./inputs.tsx";
 import { Card, ListRow, SectionTitle } from "./layout.tsx";
 import { bridge } from "../../services/index.ts";
+import { RowDeleteButton } from "../../ui/primitives/RowDeleteButton.tsx";
+import { useDefinitionRemoval } from "./useDefinitionRemoval.tsx";
 
 type Tab = "commands" | "tools";
 
@@ -79,6 +81,7 @@ function SlashCommands() {
 	const refresh = useCallback(() => {
 		void bridge.commands.list(cwd).then(setList);
 	}, [cwd]);
+	const removal = useDefinitionRemoval("command", cwd, refresh);
 
 	useEffect(refresh, [refresh]);
 
@@ -234,7 +237,7 @@ function SlashCommands() {
 					<div className="p-2">
 						{commands.map((command) => (
 							<ListRow
-								key={`${command.scope}:${command.origin}:${command.name}`}
+								key={command.path}
 								title={
 									<span className="font-mono">
 										<span className="text-ink-faint">/</span>
@@ -245,7 +248,10 @@ function SlashCommands() {
 									</span>
 								}
 								detail={command.description || command.path}
-								actions={<span className="text-detail text-ink-faint">{originOf(command)}</span>}
+								actions={<>
+									<span className="text-detail whitespace-nowrap text-ink-faint">{originOf(command)}</span>
+									<RowDeleteButton label={`删除命令 ${command.name}`} pending={removal.pending.has(command.path)} onClick={() => removal.ask(command.name, command.path)} />
+								</>}
 								onOpen={() => void bridge.commands.open(command.path)}
 								openLabel={`编辑 ${command.name}`}
 							/>
@@ -253,6 +259,7 @@ function SlashCommands() {
 					</div>
 				)}
 			</Card>
+			{removal.element}
 		</div>
 	);
 }

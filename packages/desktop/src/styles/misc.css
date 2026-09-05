@@ -354,3 +354,23 @@
   background: var(--ly-code-bg, var(--color-shell));
   color: var(--ly-code-fg, var(--color-ink));
 }
+
+/* Opacity preserves geometry; touch devices keep the action visible without a hover gesture. */
+.ly-row-action {
+	transition: opacity var(--ly-t-quick) var(--ly-e-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.ly-row-action {
+		opacity: 0;
+		pointer-events: none;
+	}
+
+	[data-row-actions]:hover .ly-row-action,
+	[data-row-actions]:focus-within .ly-row-action,
+	.ly-row-action:focus-within,
+	.ly-row-action[data-pending="true"] {
+		opacity: 1;
+		pointer-events: auto;
+	}
+}

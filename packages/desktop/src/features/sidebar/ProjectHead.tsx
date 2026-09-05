@@ -19,6 +19,7 @@ import { useLayout } from "../../app/layout.tsx";
 import { ProjectMenu } from "../modals/index.ts";
 import { usePopover } from "../../ui/overlay/Popover.tsx";
 import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
+import { GroupActivity } from "./GroupActivity.tsx";
 import type { Group } from "./grouping.ts";
 import { startProjectSession } from "./newSession.ts";
 
@@ -96,11 +97,10 @@ export function ProjectHead({
 				 * crowding each other — it was a numeral and an icon on the same pixels, legible
 				 * as neither. Hovering is reaching for the button, so the count is what yields.
 				 */}
-				{collapsed && group.sessions.length > 0 && (
-					<span className="shrink-0 text-caption text-ink-faint tabular-nums transition-opacity duration-[var(--ly-t-quick)] group-hover/project:opacity-0">
-						{group.sessions.length}
-					</span>
-				)}
+				<GroupActivity sessions={group.sessions} />
+				<span className="w-[46px] shrink-0 text-right text-caption text-ink-faint tabular-nums transition-opacity duration-[var(--ly-t-quick)] group-hover/project:opacity-0">
+						{collapsed && group.sessions.length > 0 ? group.sessions.length : ""}
+				</span>
 			</button>
 
 			<span className="pointer-events-none absolute inset-y-0 right-0 flex items-center gap-0.5 rounded-r-lg pr-1.5 opacity-0 transition-opacity duration-[var(--ly-t-quick)] group-hover/project:opacity-100 group-has-[:focus-visible]/project:opacity-100">

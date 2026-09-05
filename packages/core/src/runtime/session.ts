@@ -92,6 +92,9 @@ export class AgentSession {
 	private watcher: CapabilityWatcher | null = null;
 	private streamFn?: AgentRunConfig["streamFn"];
 	private controller: AbortController | null = null;
+	private pendingResume: Promise<void> | null = null;
+	private acceptingPrompt = false;
+	private abortEpoch = 0;
 	private steering: Message[] = [];
 	/**
 	 * 说了「等这一轮做完再说」的那些消息。
@@ -162,7 +165,7 @@ export class AgentSession {
 	}
 
 	get running(): boolean {
-		return this.controller !== null;
+		return this.acceptingPrompt || this.controller !== null;
 	}
 
 	/** Load skills, agents and MCP tools. Safe to call again after settings change. */
@@ -502,6 +505,28 @@ export class AgentSession {
 		return this.subAgents.dismissFinished();
 	}
 
+	/** Consume a durable opening message once, without appending a second copy. */
+	resumePendingPrompt(): Promise<void> {
+		if (this.pendingResume) return this.pendingResume;
+		if (!this.log.meta.pendingPrompt) return Promise.resolve();
+		this.acceptingPrompt = true;
+		const epoch = this.abortEpoch;
+		const resume = async () => {
+			await this.cancelPendingPrompt();
+			if (this.abortEpoch !== epoch) return;
+			await this.run();
+			await this.drainPending();
+		};
+		this.pendingResume = resume().finally(() => { this.pendingResume = null; this.acceptingPrompt = false; void this.tasks.drain(); });
+		return this.pendingResume;
+	}
+
+	async cancelPendingPrompt(): Promise<void> {
+		if (!this.log.meta.pendingPrompt) return;
+		this.log.meta = { ...this.log.meta, pendingPrompt: undefined };
+		await this.log.append({ type: "meta", meta: this.log.meta });
+	}
+
 	async prompt(
 		content: UserContent[],
 		options: {
@@ -550,6 +575,11 @@ export class AgentSession {
 			return;
 		}
 
+		// Reserve the turn before the first disk write; another submission must queue during it.
+		this.acceptingPrompt = true;
+		const epoch = this.abortEpoch;
+		try {
+		await this.cancelPendingPrompt();
 		await this.log.commit(message);
 		await this.emit({ type: "message_start", message });
 		await this.emit({ type: "message_end", message });
@@ -560,8 +590,10 @@ export class AgentSession {
 			await this.setTitleFromPrompt(content);
 		}
 
+		if (this.abortEpoch !== epoch) return;
 		await this.run(options.thinking);
 		await this.drainPending();
+		} finally { this.acceptingPrompt = false; void this.tasks.drain(); }
 	}
 
 	/**
@@ -575,9 +607,11 @@ export class AgentSession {
 			const next = this.pending.shift();
 			if (!next) break;
 			if (this.controller?.signal.aborted) break;
+			const epoch = this.abortEpoch;
 			await this.log.commit(next.message);
 			await this.emit({ type: "message_start", message: next.message });
 			await this.emit({ type: "message_end", message: next.message });
+			if (epoch !== this.abortEpoch) break;
 			await this.run(next.thinking);
 		}
 	}
@@ -644,7 +678,10 @@ export class AgentSession {
 	}
 
 	abort(): void {
+		this.abortEpoch++;
+		if (this.acceptingPrompt && !this.controller) void this.emit({ type: "agent_end", reason: "aborted" });
 		this.controller?.abort();
+		this.steering.length = 0;
 		/*
 		 * Explicitly, as well as through the chain.
 		 *

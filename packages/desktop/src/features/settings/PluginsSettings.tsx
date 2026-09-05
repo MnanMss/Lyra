@@ -135,7 +135,7 @@ export function PluginsSettings({ filter = "" }: { filter?: string }) {
 			 */}
 			{slow ? (
 				<SkeletonList count={5} label="正在读取已安装的插件" />
-			) : plugins.length === 0 ? (
+			) : scan === null ? null : plugins.length === 0 ? (
 				<div className="py-10 text-center">
 					<p className="text-label leading-relaxed text-ink-muted">
 						{needle ? "没有匹配的插件。" : "还没有插件。去插件市场装一个，或把插件目录放进 ~/.lyra/plugins。"}

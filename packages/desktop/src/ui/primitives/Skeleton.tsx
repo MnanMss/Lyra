@@ -32,7 +32,7 @@ export function useSlowLoad(loading: boolean, delay = 220): boolean {
 		return () => window.clearTimeout(timer);
 	}, [loading, delay]);
 
-	return slow;
+	return loading && slow;
 }
 
 /** One dim block. `width` is any CSS length, so a row of them can look like text rather than bars. */

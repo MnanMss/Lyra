@@ -37,7 +37,10 @@ export interface SyncServerDeps {
 	/** The session hub's own functions, handed in for the same reason; see `sync-rpc.ts`. */
 	live(sessionId: string): AgentSession | undefined;
 	activate(projectId: string, sessionId: string): Promise<AgentSession | null>;
-	getOrCreate(cwd: string, modelId: string): Promise<AgentSession>;
+	create: RpcDeps["create"];
+	prompt: RpcDeps["prompt"];
+	abort: RpcDeps["abort"];
+	dispose: RpcDeps["dispose"];
 	snapshot(session: AgentSession): Promise<unknown>;
 	touch(sessionId: string): void;
 }
@@ -198,7 +201,10 @@ export class SyncServer {
 			workspaceInfo: (path) => this.deps.workspaceInfo(path),
 			live: (id) => this.deps.live(id),
 			activate: (projectId, id) => this.deps.activate(projectId, id),
-			getOrCreate: (cwd, modelId) => this.deps.getOrCreate(cwd, modelId),
+			create: this.deps.create,
+			prompt: this.deps.prompt,
+			abort: this.deps.abort,
+			dispose: this.deps.dispose,
 			snapshot: (session) => this.deps.snapshot(session),
 			touch: (id) => this.deps.touch(id),
 		};

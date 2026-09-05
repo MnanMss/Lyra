@@ -31,6 +31,8 @@ import { RuleTryPanel } from "./RuleTryPanel.tsx";
 import { DiffView } from "../git/index.ts";
 import { ShadowedList } from "./ShadowedList.tsx";
 import { ProjectOverrideNotice } from "./ProjectOverrideNotice.tsx";
+import { RowDeleteButton } from "../../ui/primitives/RowDeleteButton.tsx";
+import { useDefinitionRemoval } from "./useDefinitionRemoval.tsx";
 
 /** 三种规则，三种代价。 */
 const BUCKETS = {
@@ -56,6 +58,7 @@ export function RulesSettings({ filter = "" }: { filter?: string }) {
 	const reload = useCallback(() => {
 		void bridge.rules.list(workspace?.path ?? "").then(setData);
 	}, [workspace?.path]);
+	const removal = useDefinitionRemoval("rule", workspace?.path ?? "", reload);
 
 	useEffect(reload, [reload]);
 
@@ -142,7 +145,7 @@ export function RulesSettings({ filter = "" }: { filter?: string }) {
 
 			{slow ? (
 				<SkeletonList count={5} label="正在读取规则" />
-			) : live.length === 0 ? (
+			) : data === null ? null : live.length === 0 ? (
 				<EmptyHint>
 					这个项目还没有规则。
 					<br />
@@ -191,12 +194,16 @@ export function RulesSettings({ filter = "" }: { filter?: string }) {
 										<Badge tone="muted">{rule.sourceLabel}</Badge>
 									</span>
 								}
-								control={<Toggle checked={!rule.disabled} onChange={(on) => void toggle(rule, on)} />}
+								control={<div className="flex items-center gap-2">
+									<Toggle checked={!rule.disabled} onChange={(on) => void toggle(rule, on)} />
+									{!rule.path.startsWith("builtin:") && <RowDeleteButton label={`删除规则 ${rule.name}`} pending={removal.pending.has(rule.path)} onClick={() => removal.ask(rule.name, rule.path)} />}
+								</div>}
 							/>
 						);
 					})}
 				</Card>
 			)}
+			{removal.element}
 		</div>
 	);
 }

@@ -148,3 +148,39 @@ test("待确认区不是一个技能目录", async () => {
 	assert.ok(pendingSkillsDir(project).startsWith(managedSkillsDir(project)), "确实是兄弟目录，所以这条才有意义");
 	assert.ok(!(await skillNames()).includes("still-waiting"), "待确认的不该被当成技能读进来");
 });
+
+
+test("automatic skill proposals require distinct real sources and an executable portability contract", () => {
+	const proposal = `NAME: release-project
+DESCRIPTION: 发布一个项目时，先读取该项目当前发布配置
+SCOPE: portable
+SOURCES: first,second
+BODY:
+## 适用范围
+支持在当前项目发现发布流程时使用；缺少配置时停止。
+## 输入与前置检查
+读取 AGENTS.md、manifest、workspace 配置与发布脚本；从它们发现版本文件和门禁。
+## 执行步骤
+使用目标版本作为输入，调用当前项目的发布脚本。
+## 验证与失败处理
+检查脚本退出状态及实际产物；失败则停止并报告。`;
+	assert.equal(parseSkillProposal(proposal, ["first", "second"])?.scope, "portable");
+	assert.equal(parseSkillProposal(proposal.replace("first,second", "first,first"), ["first", "second"]), null);
+	assert.equal(parseSkillProposal(proposal.replace("first,second", "first,invented"), ["first", "second"]), null);
+	assert.equal(parseSkillProposal(proposal.replace("## 验证与失败处理", "结尾"), ["first", "second"]), null);
+	assert.equal(parseSkillProposal("NAME: release-version\nDESCRIPTION: 发布版本\nBODY:\n修改全部 6 个 package.json", ["first", "second"]), null);
+});
+
+test("candidate scope and evidence survive storage", async () => {
+	await proposeSkill(project, { name: "portable-release", description: "发现并验证当前项目的发布流程", body: "Read current configuration.", scope: "portable", sourceSessions: ["a", "b"] });
+	const candidate = (await pendingSkills(project)).find((one) => one.name === "portable-release");
+	assert.equal(candidate?.scope, "portable");
+	assert.deepEqual(candidate?.sourceSessions, ["a", "b"]);
+	assert.ok(!(await skillNames()).includes("portable-release"));
+	const path = await approveSkill(project, "portable-release");
+	assert.ok(path);
+	const result = await createRegistry({ home: join(home, ".lyra"), userHome: home }).load<Skill>("skill", { cwd: project });
+	const loaded = result.items.find((skill) => skill.name === "portable-release");
+	assert.match(loaded?.content ?? "", /Read current configuration\./);
+	assert.ok(!(await pendingSkills(project)).some((skill) => skill.name === "portable-release"));
+});

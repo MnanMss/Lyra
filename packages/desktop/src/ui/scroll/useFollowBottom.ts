@@ -67,6 +67,9 @@ export interface FollowBottom {
 	unread: number;
 	/** The reader asking to go back: the button, or having just sent something. */
 	returnToBottom(): void;
+	/** Explicit navigation owns the scroll position even while a reply is streaming. */
+	detach(): void;
+	scrollTo(top: number, instant?: boolean): void;
 	/** Hand to `Scroller`'s `onScroll`. */
 	onScroll(el: HTMLDivElement): void;
 	/** Hand to `Scroller`'s `onResize`. */
@@ -212,6 +215,7 @@ export function useFollowBottom({
 		if (!el) return;
 
 		const mark = () => {
+			cancelAnimationFrame(glide.current);
 			lastInput.current = performance.now();
 		};
 
@@ -533,5 +537,31 @@ export function useFollowBottom({
 		publish(read(el));
 	}, [count, tail, publish, write, ready, surfaceId]);
 
-	return { scrollRef, tailRef, away, unread, returnToBottom, onScroll, onResize };
+	const detach = useCallback(() => {
+		cancelAnimationFrame(glide.current);
+		state.current = "detached";
+	}, []);
+	const scrollTo = useCallback((top: number, instant = false) => {
+		detach();
+		const el = scrollRef.current;
+		if (!el) return;
+		const target = Math.max(0, Math.min(top, el.scrollHeight - el.clientHeight));
+		if (instant || motionReduced()) {
+			write(el, target);
+			publish(read(el));
+			return;
+		}
+		// Native smooth scroll takes over a second across long answers; navigation shares the
+		// app's bounded glide and its cancellation on input, unmount and session selection.
+		const from = el.scrollTop;
+		const started = performance.now();
+		const step = (now: number) => {
+			const progress = Math.min(1, (now - started) / GLIDE_MS);
+			write(el, from + (target - from) * (1 - (1 - progress) ** 3));
+			publish(read(el));
+			if (progress < 1) glide.current = requestAnimationFrame(step);
+		};
+		glide.current = requestAnimationFrame(step);
+	}, [detach, publish, write]);
+	return { scrollRef, tailRef, away, unread, returnToBottom, onScroll, onResize, detach, scrollTo };
 }

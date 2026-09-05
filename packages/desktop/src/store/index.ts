@@ -189,6 +189,7 @@ export interface AppState {
   setDraft(key: string, draft: { text: string; attachments?: { id: string; name: string; mimeType: string; data?: string; text?: string; isText?: boolean }[] } | null): void;
 
   activeSessionId: string | null;
+  selectionEpoch: number;
   meta: SessionMeta | null;
   messages: Message[];
   /** True between clicking a session and its transcript arriving. Drives the loading state. */
@@ -426,6 +427,7 @@ export const useApp = create<AppState>((set, get) => ({
   composerDraft: { text: "", replace: false },
   drafts: {},
   activeSessionId: null,
+  selectionEpoch: 0,
   meta: null,
   messages: [],
   loadingSession: false,
