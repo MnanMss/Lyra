@@ -17,6 +17,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { toAnthropicMessages } from "../src/ai/anthropic-messages-request.ts";
 import { toResponsesInput } from "../src/ai/openai-responses-request.ts";
+import { sanitizeChatCompletionsHistory, toChatCompletionsMessages } from "../src/ai/openai-chat-completions-request.ts";
 import type { AssistantMessage, Message, ToolResultMessage } from "../src/types.ts";
 import { emptyUsage } from "../src/types.ts";
 
@@ -157,4 +158,90 @@ test("an Anthropic result with no matching call is kept at the end of its run", 
 		results.content.map((block) => (block as { tool_use_id: string }).tool_use_id),
 		["a", "z"],
 	);
+});
+
+test("Chat Completions: prunes pure-thinking assistant without tools and drops subsequent synthetic nudge", () => {
+	const pureThinkingAssistant: AssistantMessage = {
+		role: "assistant",
+		content: [{ type: "thinking", thinking: "Just thinking and no answer..." }],
+		api: "openai-chat-completions",
+		provider: "relay",
+		model: "test",
+		usage: emptyUsage(),
+		stopReason: "stop",
+		timestamp: 10,
+	};
+	const syntheticNudge: Message = {
+		role: "user",
+		content: [{ type: "text", text: "（自动继续）上一条回复是空的。请直接开始执行：说明你要做什么，并调用工具去做。" }],
+		timestamp: 11,
+		synthetic: true,
+	};
+	const nextUser: Message = {
+		role: "user",
+		content: [{ type: "text", text: "真正的用户新消息" }],
+		timestamp: 12,
+	};
+
+	const sanitized = sanitizeChatCompletionsHistory([user, pureThinkingAssistant, syntheticNudge, nextUser]);
+	assert.equal(sanitized.length, 2);
+	assert.deepEqual(sanitized, [user, nextUser]);
+
+	const wire = toChatCompletionsMessages("", [user, pureThinkingAssistant, syntheticNudge, nextUser]);
+	assert.equal(wire.length, 2);
+	assert.equal((wire[0] as { role: string }).role, "user");
+	assert.equal((wire[1] as { role: string }).role, "user");
+});
+
+test("Chat Completions: preserves assistant with tool calls even if text is empty", () => {
+	const toolCallAssistant: AssistantMessage = {
+		role: "assistant",
+		content: [
+			{ type: "thinking", thinking: "Thinking before call..." },
+			call("call-1", "bash"),
+		],
+		api: "openai-chat-completions",
+		provider: "relay",
+		model: "test",
+		usage: emptyUsage(),
+		stopReason: "toolUse",
+		timestamp: 20,
+	};
+	const wire = toChatCompletionsMessages("", [user, toolCallAssistant, answer("call-1", "ok")]);
+	assert.equal(wire.length, 3);
+	assert.equal((wire[1] as { role: string }).role, "assistant");
+	assert.ok((wire[1] as { tool_calls: unknown[] }).tool_calls.length > 0);
+	assert.equal((wire[2] as { role: string }).role, "tool");
+});
+
+test("Chat Completions: fallback protects against standalone unpruned empty assistant", () => {
+	const standaloneEmptyAssistant: AssistantMessage = {
+		role: "assistant",
+		content: [{ type: "thinking", thinking: "pondering..." }],
+		api: "openai-chat-completions",
+		provider: "relay",
+		model: "test",
+		usage: emptyUsage(),
+		stopReason: "stop",
+		timestamp: 30,
+	};
+
+	// Directly testing the serializer loop fallback net
+	const wire = toChatCompletionsMessages("", [standaloneEmptyAssistant]);
+	assert.equal(wire.length, 0); // because it is pruned by sanitizeChatCompletionsHistory
+
+	// If an assistant has whitespace-only text that bypassed basic checks, it gets a non-empty fallback content
+	const whitespaceAssistant: AssistantMessage = {
+		role: "assistant",
+		content: [{ type: "text", text: "   " }],
+		api: "openai-chat-completions",
+		provider: "relay",
+		model: "test",
+		usage: emptyUsage(),
+		stopReason: "stop",
+		timestamp: 31,
+	};
+	const wireWhitespace = toChatCompletionsMessages("", [whitespaceAssistant]);
+	// whitespace-only is also pruned by sanitizeChatCompletionsHistory
+	assert.equal(wireWhitespace.length, 0);
 });

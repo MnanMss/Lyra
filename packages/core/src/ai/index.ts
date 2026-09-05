@@ -67,7 +67,7 @@ export { toAnthropicMessages } from "./anthropic-messages-request.ts";
 export { openaiResponsesProvider } from "./openai-responses.ts";
 export { toResponsesInput } from "./openai-responses-request.ts";
 export { openaiChatCompletionsProvider } from "./openai-chat-completions.ts";
-export { toChatCompletionsMessages, toChatCompletionsTools } from "./openai-chat-completions-request.ts";
+export { sanitizeChatCompletionsHistory, toChatCompletionsMessages, toChatCompletionsTools } from "./openai-chat-completions-request.ts";
 export {
 	resolveModelThinkingOptions,
 	resolveReasoningEffort,
