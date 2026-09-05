@@ -169,6 +169,7 @@ export {
 	type SessionMeta,
 	type SessionRecord,
 } from "./session/store.ts";
+export { builtinCommandsFor, BUILTIN_COMMANDS, type BuiltinCommand, type CommandAction } from "./commands/builtin.ts";
 export {
 	commandSources,
 	loadCommands,
@@ -212,7 +213,16 @@ export {
 } from "./runtime/previews.ts";
 
 export type { SubAgentDetail, SubAgentStatus, SubAgentSummary } from "./runtime/sub-agents.ts";
-export { collectSkills } from "./runtime/session-setup.ts";
+export { collectRules, collectSkills, type RuleEntry } from "./runtime/session-setup.ts";
+export { FOREIGN_USER_SOURCES } from "./capability/providers/foreign.ts";
+export {
+	approveSkill,
+	managedSkillsDir,
+	pendingSkills,
+	proposeSkill,
+	rejectSkill,
+	type SkillCandidate,
+} from "./runtime/managed-skills.ts";
 export {
 	resolveModelThinkingOptions,
 	resolveReasoningEffort,
@@ -222,3 +232,24 @@ export {
 	GPT_5_6_SOL_OPTIONS,
 	FAST_3_LEVEL_OPTIONS,
 } from "./ai/thinking-options.ts";
+export { lastPassAt, PASS_INTERVAL_MS, runMemoryPass, shouldRunPass } from "./runtime/memory-pass.ts";
+export {
+	MODEL_ROLES,
+	ROLE_DESCRIPTIONS,
+	parseModelRef,
+	resolveModelRef,
+	roleStatus,
+	type ModelRole,
+} from "./config/model-roles.ts";
+export { renderRuleFile, type CorrectionSuggestion } from "./rules/from-correction.ts";
+export { ruleDir, saveRule, type RuleDestination } from "./rules/save.ts";
+export { BUILTIN_RULES } from "./rules/builtin.ts";
+export { FOREIGN_CONFIGS_NOTICE, foreignConfigsIn, markNoticed, noticed, type ForeignConfigLine } from "./runtime/foreign-configs.ts";
+export { layerOverrides, loadProjectLayer, projectConfigPath, type LayerOverride } from "./config/layers.ts";
+export { extensionDirs } from "./runtime/session-capabilities.ts";
+export { validateManifest, type ExtensionDiagnostic, type ExtensionEventStats, type ExtensionStats } from "./extensions/types.ts";
+export { annotateInjected, EXTRACTED_KEY, projectInjectedPath, readInjected, userInjectedPath } from "./runtime/memory-injected.ts";
+export { readLessons } from "./runtime/project-memory.ts";
+export { readExtractedMemory } from "./runtime/memory-extract.ts";
+export { projectMemoryDir } from "./runtime/project-memory.ts";
+export { computeDiff } from "./tools/diff.ts";

@@ -15,8 +15,22 @@
  * you can read top to bottom rather than a rule spread across the handlers.
  */
 
-import type { AgentSession, SessionStorage, Settings } from "@lyra/core";
+import { renderRuleFile, type AgentSession, type CorrectionSuggestion, type SessionStorage, type Settings } from "@lyra/core";
 import { settingsFromPhone } from "./phone-settings.ts";
+import {
+	all,
+	bool,
+	content,
+	index,
+	optionalStr,
+	path,
+	record,
+	str,
+	text,
+	type ArgsError,
+	type Checked,
+} from "@lyra/contract/args";
+import { REMOTE_METHODS, methodFor } from "@lyra/contract";
 
 /**
  * Everything a call may reach, handed in rather than imported.
@@ -207,6 +221,29 @@ export const RPC: Record<string, Handler> = {
 			toolNames: status.toolNames,
 		};
 	},
+
+	/*
+	 * Answering the card that offers to keep a correction as a rule.
+	 *
+	 * The card rides the transcript, so it reaches the phone whether or not the buttons do — and a
+	 * card that cannot be answered is worse than no card: it appears at the right moment and then
+	 * does nothing. What the file *is* does not change because the answer came over a socket; it
+	 * still lands in the desktop's project directory.
+	 *
+	 * `keep` needs a warm session and will not start one. There is nothing to save a rule into
+	 * otherwise — the destination is that session's own cwd — and an offer is only ever answered in
+	 * the minutes after it appears, while its session is still up.
+	 */
+	"rules.preview": async (_deps, [suggestion]) => renderRuleFile(suggestion as CorrectionSuggestion),
+	"rules.keep": async (deps, [sessionId, scope, name, content_]) => {
+		const session = deps.live(s(sessionId));
+		if (!session) throw new Error("这个会话已经关掉了，规则没有保存。");
+		return session.keepSuggestedRule(scope === "user" ? "user" : "project", s(name), s(content_));
+	},
+	"rules.decline": async (deps, [sessionId]) => {
+		deps.live(s(sessionId))?.declineSuggestedRule();
+		return null;
+	},
 };
 
 /** The session for an id, starting it from disk if it is only stored. */
@@ -233,9 +270,89 @@ export interface RpcResult {
  * connection alone — the phone is a long-lived client and one bad call should not cost it the
  * WebSocket and the resync that follows.
  */
+/**
+ * What each method's arguments have to be, checked before the handler sees them.
+ *
+ * These are the only arguments in the application that did not come from our own renderer — they
+ * arrived on a WebSocket. Until now the only handling was `s(value)`, which turns anything that is
+ * not a string into `""`; a number, an object or a null went through as empty string and became a
+ * lookup for a session named "". The request was never refused, it just failed later somewhere
+ * that had nothing to do with the caller.
+ *
+ * A method missing from this table is refused outright rather than allowed through unchecked, so
+ * adding to `RPC` without adding here fails closed. `test/sync-rpc-args.test.ts` asserts the two
+ * lists match.
+ */
+const ARGS: Record<string, (args: unknown[]) => ArgsError | null> = {
+	"settings.get": () => null,
+	"sessions.list": () => null,
+	"git.generalScratch": () => null,
+	"git.scratchRoots": () => null,
+
+	"workspace.info": ([path_]) => fail(path(path_, "path")),
+	"sessions.create": ([cwd, modelId]) => fail(all(path(cwd, "cwd"), optionalStr(modelId, "modelId"))),
+	"sessions.open": ([projectId, sessionId]) => fail(all(str(projectId, "projectId"), str(sessionId, "sessionId"))),
+	"sessions.transcript": ([projectId, sessionId]) =>
+		fail(all(str(projectId, "projectId"), str(sessionId, "sessionId"))),
+	"sessions.remove": ([projectId, sessionId]) => fail(all(str(projectId, "projectId"), str(sessionId, "sessionId"))),
+	"sessions.capabilities": ([sessionId]) => fail(str(sessionId, "sessionId")),
+	"sessions.setArchived": ([projectId, sessionId, archived]) =>
+		fail(all(str(projectId, "projectId"), str(sessionId, "sessionId"), bool(archived, "archived"))),
+	"sessions.rename": ([projectId, sessionId, title]) =>
+		fail(all(str(projectId, "projectId"), str(sessionId, "sessionId"), text(title, "title"))),
+
+	"agent.prompt": ([sessionId, content_, options]) =>
+		fail(all(str(sessionId, "sessionId"), content(content_, "content"), optionalRecord(options, "options"))),
+	"agent.editMessage": ([sessionId, messageIndex, content_]) =>
+		fail(all(str(sessionId, "sessionId"), index(messageIndex, "messageIndex"), content(content_, "content"))),
+	"agent.abort": ([sessionId]) => fail(str(sessionId, "sessionId")),
+	"agent.approve": ([sessionId, requestId, decision]) =>
+		fail(all(str(sessionId, "sessionId"), str(requestId, "requestId"), record(decision, "decision"))),
+	"agent.setModel": ([sessionId, modelId]) => fail(all(str(sessionId, "sessionId"), str(modelId, "modelId"))),
+	"agent.setThinking": ([sessionId, thinking]) => fail(all(str(sessionId, "sessionId"), record(thinking, "thinking"))),
+
+	/*
+	 * `settings.save` takes the whole settings object, and `phone-settings.ts` is what decides
+	 * which fields of it are actually applied — that allowlist is the security boundary here, and
+	 * it stays where it is. This only checks that an object arrived at all.
+	 */
+	"settings.save": ([next]) => fail(record(next, "settings")),
+	"subAgents.list": ([sessionId]) => fail(str(sessionId, "sessionId")),
+
+	/*
+	 * The rule's own text is checked as `text`, not `str`: it is prose with a frontmatter block on
+	 * top, and the id-sized bound the default carries would refuse a perfectly ordinary rule.
+	 */
+	"rules.preview": ([suggestion]) => fail(record(suggestion, "suggestion")),
+	"rules.keep": ([sessionId, scope, name, content_]) =>
+		fail(all(str(sessionId, "sessionId"), str(scope, "scope"), str(name, "name"), text(content_, "content"))),
+	"rules.decline": ([sessionId]) => fail(str(sessionId, "sessionId")),
+};
+
+/** `undefined` is fine, anything else has to be an object. */
+function optionalRecord(value: unknown, name: string) {
+	return value === undefined || value === null ? ({ ok: true, value: undefined } as const) : record(value, name);
+}
+
+/** Unwrap a check into "the error, or nothing". */
+function fail(checked: Checked<unknown>): ArgsError | null {
+	return checked.ok ? null : checked;
+}
+
 export async function callRpc(deps: RpcDeps, method: string, args: unknown[]): Promise<RpcResult> {
 	const handler = RPC[method];
 	if (!handler) return { ok: false, error: "method-not-allowed" };
+
+	/*
+	 * Checked before the handler runs, and a method with no entry is refused rather than trusted —
+	 * so a new method in `RPC` without a matching spec fails closed instead of silently accepting
+	 * whatever is on the wire.
+	 */
+	const check = ARGS[method];
+	if (!check) return { ok: false, error: "invalid-args" };
+	const problem = check(args);
+	if (problem) return { ok: false, error: `invalid-args: ${problem.detail}` };
+
 	try {
 		return { ok: true, value: (await handler(deps, args)) ?? null };
 	} catch (cause) {
@@ -243,5 +360,37 @@ export async function callRpc(deps: RpcDeps, method: string, args: unknown[]): P
 	}
 }
 
-/** The methods the phone may call, for the bridge to expose and for tests to assert on. */
-export const allowedMethods = (): string[] => Object.keys(RPC).sort();
+/**
+ * The methods the phone may call.
+ *
+ * Read off `RPC`, then checked against the contract — the two are written separately (one is an
+ * implementation, one is a declaration) and this is where they have to agree.
+ *
+ * Checked at startup rather than only in a test, because the two ways they can disagree fail very
+ * differently. A method in `RPC` that the contract does not mark `remote` is a hole: the phone can
+ * call something nobody declared it could. A method the contract marks `remote` with no
+ * implementation is dead: the phone's interface offers it and the call comes back
+ * "method-not-allowed", silently, in a place nobody is looking.
+ *
+ * The first is a security question and throwing is the right answer — a desktop that would serve
+ * an undeclared method should not start its sync server at all. The second is a bug and is logged:
+ * refusing to start over it would take the whole feature down for something the user cannot act on.
+ */
+export function allowedMethods(): string[] {
+	const implemented = Object.keys(RPC).sort();
+
+	const undeclared = implemented.filter((method) => methodFor(method)?.remote !== true);
+	if (undeclared.length > 0) {
+		throw new Error(
+			`sync-rpc 实现了契约没有标 remote 的方法：${undeclared.join(", ")}。` +
+				`把它们加进 packages/contract/src/methods.ts 并写明为什么手机可以调，或者从 RPC 里去掉。`,
+		);
+	}
+
+	const unimplemented = REMOTE_METHODS.filter((method) => !(method in RPC));
+	if (unimplemented.length > 0) {
+		console.error(`[sync] 契约标了 remote 但没有实现：${unimplemented.join(", ")}——手机调用它们会静默失败`);
+	}
+
+	return implemented;
+}

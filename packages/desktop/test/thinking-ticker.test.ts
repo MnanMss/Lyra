@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { thinkingRuns } from "../src/components/thinking-ticker.ts";
+import { thinkingRuns } from "../src/features/conversation/thinking-ticker.ts";
 
 test("every line is a run; blank lines are not", () => {
 	assert.deepEqual(thinkingRuns("I need to:\n\n1. Read the diff\n2. Check the tests\n"), [
@@ -33,4 +33,13 @@ test("an underscore inside an identifier is not emphasis", () => {
 
 test("runs of whitespace collapse to one space", () => {
 	assert.deepEqual(thinkingRuns("a   b\t\tc  "), ["a b c"]);
+});
+
+test("consecutive duplicate runs are deduplicated", () => {
+	assert.deepEqual(
+		thinkingRuns(
+			"### Verifying Tailwind Version Adoption\n### Verifying Tailwind Version Adoption\nChecking packages\n### Verifying Tailwind Version Adoption\n",
+		),
+		["Verifying Tailwind Version Adoption", "Checking packages", "Verifying Tailwind Version Adoption"],
+	);
 });

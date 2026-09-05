@@ -55,7 +55,7 @@ import type { TrayCommand } from "./tray-menu.ts";
 export type { DocumentData, DocumentSheet } from "./documents.ts";
 import type { DocumentData } from "./documents.ts";
 import type { UsageScan } from "./usage-scan.ts";
-export type { DocumentKind } from "./document-kind.ts";
+export type { DocumentKind } from "../shared/document-kind.ts";
 export type { OpenTarget } from "./open-targets.ts";
 import type { OpenTarget } from "./open-targets.ts";
 
@@ -64,17 +64,29 @@ export type UpdatePhase = DownloadPhase;
 import type {
 	AgentEvent,
 	ApprovalDecision,
+	BuiltinCommand,
 	BundleKind,
 	ContextBreakdown,
+	CorrectionSuggestion,
 	McpBundle,
 	Registry,
 	RegistryEntry,
 	Plugin,
+	DiffHunk,
+	ExtensionDiagnostic,
+	ExtensionStats,
+	ForeignConfigLine,
+	LayerOverride,
+	PluginDiagnostic,
 	QueuedTask,
+	RuleDestination,
+	RuleEntry,
+	SkillCandidate,
 	ScreenshotSettings,
 	SessionMeta,
 	Settings,
 	Skill,
+	SkillDiagnostic,
 	SlashCommand,
 	SubAgentDetail,
 	SubAgentSummary,
@@ -112,6 +124,15 @@ import type { SkillEntry } from "./ipc/commands.ts";
 export type { ForgeAccount, ForgeKind, ForgeKindInfo } from "./forge/types.ts";
 
 /** One shell in a directory, as the tab strip lists it. */
+/** What `settings.layers` answers; see there. */
+export interface ProjectLayerView {
+	path: string;
+	exists: boolean;
+	error?: string;
+	refused: string[];
+	overrides: LayerOverride[];
+}
+
 export interface TerminalTab {
 	id: string;
 	title: string;
@@ -162,6 +183,12 @@ export interface LyraApi {
 		get(): Promise<Settings>;
 		save(settings: Settings): Promise<Settings>;
 		/**
+		 * 项目层相对全局的差别：哪些键被 `<cwd>/.lyra/config.json` 整体替换（数组与标量；对象深合并
+		 * 后只报叶子）、两侧的值各是什么，以及那个文件里被拒绝的键。设置页读写的是全局文件，
+		 * 被替换的键在这一页拨了也不生效，页面要把这句话说出来。
+		 */
+		layers(cwd: string): Promise<ProjectLayerView>;
+		/**
 		 * Settings changed on the other side of the boundary.
 		 *
 		 * The renderer is not the only thing that writes them: installing an MCP bundle adds its
@@ -182,6 +209,12 @@ export interface LyraApi {
 		scan(): Promise<UsageScan>;
 	};
 	workspace: {
+		/**
+		 * 这个仓库里其他 AI 工具的配置，按「哪家 · 哪个目录 · 哪类 · 几条」——数字来自注册表实际
+		 * 读到的条目，不是目录在不在。`seen` 是这个项目里这条提示看过没有。
+		 */
+		foreignConfigs(cwd: string): Promise<{ lines: ForeignConfigLine[]; seen: boolean }>;
+		markForeignConfigsSeen(cwd: string): Promise<void>;
 		/** Show the project directory in the OS file manager. */
 		reveal(path: string): Promise<void>;
 		pick(): Promise<WorkspaceInfo | null>;
@@ -216,7 +249,7 @@ export interface LyraApi {
 		 * `synthetic` marks a message the app composed on the user's behalf — 「继续」 — so the
 		 * transcript does not show it as something they typed. See `Session.prompt`.
 		 */
-		prompt(sessionId: string, content: UserContent[], options?: { synthetic?: boolean }): Promise<void>;
+		prompt(sessionId: string, content: UserContent[], options?: { synthetic?: boolean; deliver?: "steer" | "followUp" }): Promise<void>;
 		/** Replace a message and re-run from there, discarding everything after it. */
 		editMessage(sessionId: string, messageIndex: number, content: UserContent[]): Promise<void>;
 		abort(sessionId: string): Promise<void>;
@@ -462,6 +495,8 @@ export interface LyraApi {
 		 */
 		list(cwd: string): Promise<{
 			commands: SlashCommand[];
+			/** 内建命令：名字和说明在 core，动作由各个宿主实现。 */
+			builtins: BuiltinCommand[];
 			diagnostics: { path: string; message: string }[];
 			/**
 			 * The skills the same project can use, for the same menu.
@@ -490,9 +525,19 @@ export interface LyraApi {
 			plugins: Plugin[];
 			/** Directories that turned out to be MCP servers rather than plugins. */
 			mcpBundles: McpBundle[];
-			pluginDiagnostics: { path: string; message: string }[];
+			/** 同样带 `severity`：插件里一个描述太短的技能是提醒，不是「没能加载」。 */
+			pluginDiagnostics: PluginDiagnostic[];
 			skills: Skill[];
-			skillDiagnostics: { path: string; message: string }[];
+			/** 带 `severity`：设置页按它把「没加载」和「加载了但描述太短」分成两段。 */
+			skillDiagnostics: SkillDiagnostic[];
+			/**
+			 * Skills that were found and lost to another of the same name.
+			 *
+			 * "Why is the skill I wrote not running" cannot be answered from the list of the ones
+			 * that are: a shadowed skill is simply absent, which looks the same as one that failed
+			 * to parse or was never found at all.
+			 */
+			shadowedSkills: { name: string; path: string; by: string; byLabel: string }[];
 		}>;
 		/** Absolute path to the plugins directory, created if missing. */
 		revealDir(scope: "workspace" | "user", cwd: string): Promise<string>;
@@ -717,6 +762,59 @@ export interface LyraApi {
 		runNow(taskId: string): Promise<{ ok: boolean; error?: string }>;
 	};
 	/**
+	 * Answering the card that offers to turn a correction into a rule.
+	 *
+	 * `preview` renders in the main process on purpose: the card shows the exact text that will be
+	 * written, produced by the same function that writes it. A second renderer in the window would
+	 * drift, and it would drift in the direction where somebody approves text that is not what
+	 * lands on disk.
+	 */
+	extensions: {
+		/**
+		 * 扩展的可观测：有会话就是那个会话宿主里的数字，没有就只有磁盘上的清单（`live: false`）。
+		 * 每个事件一行，包括一次都没派到过的——「0 次」是在说处理器没被够到。
+		 */
+		stats(sessionId: string | null, cwd: string): Promise<{ live: boolean; extensions: ExtensionStats[]; diagnostics: ExtensionDiagnostic[] }>;
+	};
+
+	capabilities: {
+		/** 两份同名能力的差异，赢家在前输家在后；hunk 直接交给 DiffView。 */
+		diff(
+			kind: "rule" | "skill",
+			winner: string,
+			loser: string,
+		): Promise<{ hunks: DiffHunk[]; added: number; removed: number; winner: string; loser: string }>;
+		/** 「改用那个」：让 `path` 这一份赢下 `kind:name`。返回写到了哪个文件。 */
+		prefer(kind: "rule" | "skill", name: string, path: string): Promise<{ wroteTo: string }>;
+	};
+
+	rules: {
+		/** 这个项目现在有哪些规则，包括被关掉的和被同名文件盖掉的。 */
+		list(cwd: string): Promise<{
+			rules: RuleEntry[];
+			diagnostics: { path: string; message: string }[];
+			/** 有个人级规则可以勾的外部工具。 */
+			foreignUserSources: { id: string; label: string; describe: string }[];
+			/** 已经勾上的那些。 */
+			enabledForeignUserRules: string[];
+		}>;
+		/** 关掉或打开一条。已经开着的会话会立刻跟上。 */
+		setDisabled(name: string, disabled: boolean): Promise<void>;
+		/** 勾或取消一个外部工具的个人规则目录。 */
+		setForeignUser(id: string, enabled: boolean): Promise<void>;
+		/** 从会话里总结出来、等着人点头的技能候选。 */
+		pendingSkills(cwd: string): Promise<SkillCandidate[]>;
+		/** 批准一个。`content` 是人编辑过的版本——「编辑后启用」跟「启用」是同一个动作。 */
+		approveSkill(cwd: string, name: string, content?: string): Promise<string | null>;
+		/** 否决一个。文件删掉，下次不再问。 */
+		rejectSkill(cwd: string, name: string): Promise<boolean>;
+		preview(suggestion: CorrectionSuggestion): Promise<string>;
+		/** Save it and make it apply from the next turn. `renamed` when the name was taken. */
+		keep(sessionId: string, scope: RuleDestination, name: string, content: string): Promise<{ path: string; renamed?: string }>;
+		/** They said no. Two in a row and this session stops offering. */
+		decline(sessionId: string): Promise<void>;
+	};
+	/**
 	 * The code hosts this app is signed in to.
 	 *
 	 * Note what is not here: there is no way to read a token back. They go in through `signIn`,
@@ -885,10 +983,33 @@ export interface LyraApi {
 		publishReleaseTag(cwd: string, version: string): Promise<{ ok: boolean; tag?: string; error?: string }>;
 	};
 	memory: {
-		load(): Promise<{ entries: { id: string; content: string; createdAt: number; updatedAt: number }[] }>;
+		/** 每条带来源与最后一次注入提示词的时间（没注入过就没有）。 */
+		load(): Promise<{ entries: { id: string; content: string; createdAt: number; updatedAt: number; source?: "user" | "auto" | "session"; lastInjectedAt?: number }[] }>;
 		add(content: string): Promise<{ id: string; content: string; createdAt: number; updatedAt: number }>;
 		remove(id: string): Promise<boolean>;
 		clear(): Promise<void>;
+	};
+	/**
+	 * 这个项目的记忆——跟上面那个跨项目的偏好库是两回事。
+	 *
+	 * 上面那个是「我这个人的习惯」，存在 `~/.lyra/memory.json`；这个是「这个仓库怎么回事」，
+	 * 由后台抽取从历史会话里读出来，存在项目自己的记忆目录。
+	 */
+	projectMemory: {
+		/**
+		 * 现在该不该跑一遍抽取。
+		 *
+		 * `never-asked` 不是「不跑」——它是**去问**的信号。窗口拿到这个才弹征询，
+		 * 而不是每次空闲都弹。
+		 */
+		status(cwd: string): Promise<{ run: boolean; reason?: string }>;
+		/** 跑一遍。返回写了什么、读了几个会话，或者为什么没跑。 */
+		extract(cwd: string): Promise<{ memory: string; sessions: number; skipped?: string }>;
+		/** 这个项目记住的：`learn` 写的每一条，和抽取出来的那一份，各带写入时间与最后注入时间。 */
+		list(cwd: string): Promise<{
+			lessons: { text: string; context?: string; at: number; lastInjectedAt?: number }[];
+			extracted: { text: string; updatedAt?: number; lastInjectedAt?: number } | null;
+		}>;
 	};
 	diff: {
 		/** Uncommitted changes for the review panel. */

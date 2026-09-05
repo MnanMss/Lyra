@@ -12,11 +12,23 @@ import { nextActivity } from "@lyra/core/activity";
 import { coalesce, flushCoalesced } from "./coalesce.ts";
 import { applyToolEvent } from "./apply-tool.ts";
 import { howItStopped, without } from "./derive.ts";
-import { freeze, relight } from "./turn-meter.ts";
-import { useSide } from "../sideStore.ts";
+import { freeze, relight, saveCarried } from "./turn-meter.ts";
+/*
+ * `sideStore.ts` directly, not the domain's index.
+ *
+ * The index re-exports the dock's panels, which are `.tsx`, and the store is imported by tests that
+ * run under `--experimental-strip-types` — which does not handle JSX. Going through the front door
+ * here would drag a component tree into a module that only wants one atom of state, and the failure
+ * is `Unknown file extension ".tsx"` in a test that has nothing to do with the dock.
+ *
+ * The rule this bends is `features-through-the-front-door`, and it is bent knowingly: `store/` is
+ * below the features rather than beside them, so it is not one domain reaching into another.
+ */
+import { useSide } from "../features/dock/sideStore.ts";
 import { useSubAgents } from "./subAgents.ts";
-import type { AppState } from "../store.ts";
-import { settleTail } from "../transcript.ts";
+import type { AppState } from "./index.ts";
+import { settleTail } from "../lib/transcript.ts";
+import { bridge } from "../services/index.ts";
 
 type Get = () => AppState;
 type Set = (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void;
@@ -174,6 +186,7 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
       const carried = { ...get().carried };
       if (carriedNext) carried[sessionId] = carriedNext;
       else delete carried[sessionId];
+      saveCarried(sessionId, carriedNext);
       set({ carried });
     }
   }
@@ -209,7 +222,7 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
     // A turn driven from the phone still has to move the session up the sidebar and
     // update its title, even though its transcript is not on screen.
     if (event.type === "agent_end" || event.type === "turn_end") {
-      void window.lyra.sessions
+      void bridge.sessions
         .list()
         .then((sessions) => set({ sessions }));
     }
@@ -241,6 +254,14 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
         running: true,
         retrying: null,
         stopped: null,
+        /*
+         * An unanswered offer does not survive into the next turn.
+         *
+         * It is about the exchange that had just happened. Left up, it would sit under a reply to
+         * a different question — still offering to save a rule about something the conversation
+         * has moved past, and still looking like it is about what is on screen now.
+         */
+        ruleOffer: null,
         // The composer already started the clock when it sent, and the ~2s of session
         // setup before the agent starts is part of the wait. Overwriting it here made
         // the elapsed time jump backwards. A turn driven from the phone or the
@@ -456,6 +477,40 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
       });
       break;
 
+    case "capabilities_changed": {
+      /*
+       * 磁盘上的技能或规则变了，这个会话已经重新读过了。
+       *
+       * 说出来，而且要说变了什么。一句「能力已更新」在换分支的时候等于没说——那会换掉半个目录。
+       * 三个数都是 0 也是一个真实的情况：有人改了某条规则的正文，而名单没变——那时不说话，
+       * 因为「改的东西已经生效了」并不值得打断谁。
+       */
+      const parts = [
+        event.skills !== 0 ? `技能 ${event.skills > 0 ? "+" : ""}${event.skills}` : null,
+        event.rules !== 0 ? `规则 ${event.rules > 0 ? "+" : ""}${event.rules}` : null,
+        event.agents !== 0 ? `子代理 ${event.agents > 0 ? "+" : ""}${event.agents}` : null,
+      ].filter(Boolean);
+      if (parts.length > 0) {
+        const named = event.added.length > 0 ? `：${event.added.join("、")}` : "";
+        get().notify(`${parts.join("，")}${named}`);
+      }
+      break;
+    }
+
+    case "rule_suggested":
+      /*
+       * A question, not a record — which is why it is state rather than a message.
+       *
+       * Everything above this point has already returned for sessions that are not on screen, and
+       * that is the behaviour this one needs: an offer about a conversation somebody is not
+       * looking at would be answered with no idea what it referred to. The session spends its
+       * budget either way, which is the honest cost — it did ask.
+       */
+      set({
+        ruleOffer: { name: event.name, body: event.body, condition: event.condition, scope: event.scope },
+      });
+      break;
+
     case "agent_end": {
       /*
        * Settled first, then read — in that order, because the answer depends on it.
@@ -474,7 +529,7 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
         messages: settled,
         stopped: howItStopped(settled, event.reason),
       });
-      void window.lyra.sessions
+      void bridge.sessions
         .list()
         .then((sessions) => set({ sessions }));
       break;
