@@ -3,6 +3,7 @@
     "name": "Lyra",
     "slug": "lyra",
     "version": "0.8.36",
+    "icon": "../../assets/lyra.png",
     "orientation": "portrait",
     "scheme": "lyra",
     "userInterfaceStyle": "dark",
@@ -20,12 +21,24 @@
     },
     "android": {
       "package": "dev.lyra.app",
-      "edgeToEdgeEnabled": true,
-      "usesCleartextTraffic": true
+      "icon": "../../assets/lyra.png",
+      "adaptiveIcon": {
+        "foregroundImage": "../../assets/lyra.png",
+        "backgroundColor": "#171717"
+      },
+      "edgeToEdgeEnabled": true
     },
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
       [
         "expo-camera",
         {
