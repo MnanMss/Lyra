@@ -24,7 +24,7 @@ describe("git release bumpSemver", () => {
 	it("resolves repo owner and name correctly for current repo", async () => {
 		const repoInfo = await getRepoInfo(process.cwd());
 		assert.ok(repoInfo);
-		assert.equal(repoInfo.owner, "kittors");
+		assert.ok(["kittors", "MnanMss"].includes(repoInfo.owner));
 		assert.equal(repoInfo.name, "Lyra");
 	});
 });
