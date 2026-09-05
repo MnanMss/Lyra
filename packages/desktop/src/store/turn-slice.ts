@@ -108,11 +108,26 @@ export function turnSlice(set: Set, get: Get) {
    */
   async retryFrom(index: number) {
     const messages = get().messages;
-    for (let i = Math.min(index, messages.length - 1); i >= 0; i--) {
+    const bounded = Math.min(index, messages.length - 1);
+    // If the immediately preceding user message was synthetic (such as "继续"),
+    // retrying from a failed tail should re-attempt that step rather than discarding all previous work.
+    for (let i = bounded; i >= 0; i--) {
       const message = messages[i];
-      if (message.role === "user" && !message.synthetic) {
-        await get().editMessage(i, message.content);
-        return;
+      if (message.role === "user") {
+        if (message.synthetic) {
+          // Only retry a synthetic message if there are no other assistant messages between it and the failed tail
+          const intermediate = messages.slice(i + 1, bounded + 1);
+          const hasCompletedAssistant = intermediate.some(
+            (m) => m.role === "assistant" && m.stopReason !== "error" && m.stopReason !== "aborted"
+          );
+          if (!hasCompletedAssistant) {
+            await get().editMessage(i, message.content);
+            return;
+          }
+        } else {
+          await get().editMessage(i, message.content);
+          return;
+        }
       }
     }
   },
