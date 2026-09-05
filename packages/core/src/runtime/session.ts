@@ -98,6 +98,7 @@ export class AgentSession {
 	private pendingResume: Promise<void> | null = null;
 	private acceptingPrompt = false;
 	private abortEpoch = 0;
+	private activeTurn: Promise<void> | null = null;
 	private steering: Message[] = [];
 	/**
 	 * 说了「等这一轮做完再说」的那些消息。
@@ -682,7 +683,7 @@ export class AgentSession {
 
 		this.controller = new AbortController();
 		try {
-			await driveTurn({
+			this.activeTurn = driveTurn({
 				cwd: this.cwd,
 				settings: this.settings,
 				getSettings: () => this.settings,
@@ -699,7 +700,9 @@ export class AgentSession {
 				drainSteering: () => this.steering.splice(0, this.steering.length),
 				subAgents: this.subAgents,
 			});
+			await this.activeTurn;
 		} finally {
+			this.activeTurn = null;
 			this.controller = null;
 			// Anything still waiting for approval would hang forever once the run is over.
 			this.approvals.rejectAll();
@@ -823,8 +826,15 @@ export class AgentSession {
 		content: UserContent[],
 		options: { thinking?: ThinkingLevel } = {},
 	): Promise<void> {
-		if (this.running) return;
-		if (!(await this.log.truncateFrom(messageIndex))) return;
+		if (this.running) {
+			this.abort();
+			if (this.activeTurn) {
+				await this.activeTurn.catch(() => {});
+			}
+		}
+		if (!(await this.log.truncateFrom(messageIndex))) {
+			throw new Error(`Failed to truncate message at index ${messageIndex}`);
+		}
 
 		await this.emit({ type: "rewound", messageCount: this.log.messages.length });
 		await this.prompt(content, options);
