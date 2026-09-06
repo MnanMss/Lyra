@@ -8,6 +8,7 @@ export function useCommands(text: string, cwd: string, field: React.RefObject<HT
 	const nonce = useApp((state) => state.extensionsNonce);
 	const [catalog, setCatalog] = useState<{ cwd: string; entries: CommandEntry[] } | null>(null);
 	const [active, setActive] = useState(0);
+	const [keyboardSelection, setKeyboardSelection] = useState(true);
 	const [dismissed, setDismissed] = useState(false);
 	const [selection, setSelection] = useState({ text, start: text.length, end: text.length });
 	const [focused, setFocused] = useState(false);
@@ -26,7 +27,7 @@ export function useCommands(text: string, cwd: string, field: React.RefObject<HT
 	const entries = useMemo(() => catalog?.cwd === cwd ? catalog.entries : commandEntries([], []), [catalog, cwd]);
 	const term = completion?.term ?? null;
 	const matches = useMemo(() => term === null || dismissed || !focused ? [] : rankCommands(entries, term), [entries, term, dismissed, focused]);
-	useEffect(() => { setActive(0); }, [term, cwd]);
+	useEffect(() => { setActive(0); setKeyboardSelection(true); }, [term, cwd]);
 	const current = Math.min(active, Math.max(0, matches.length - 1));
 	function select() {
 		const el = field.current;
@@ -44,7 +45,8 @@ export function useCommands(text: string, cwd: string, field: React.RefObject<HT
 		setDismissed(true);
 	}
 	return {
-		id, matches, term: term ?? "", active: current, setActive, pick,
+		id, matches, term: term ?? "", active: current, keyboardSelection, pick,
+		hover(index: number) { setKeyboardSelection(false); setActive(index); },
 		decoration: commandDecoration(text, entries),
 		change(next: string) { setText(next); setDismissed(false); },
 		select,
@@ -53,7 +55,7 @@ export function useCommands(text: string, cwd: string, field: React.RefObject<HT
 		keyDown(event: React.KeyboardEvent<HTMLTextAreaElement>, submit: () => void) {
 			if (!matches.length || event.nativeEvent.isComposing || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
 			if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-				event.preventDefault(); setActive((current + (event.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length);
+				event.preventDefault(); setKeyboardSelection(true); setActive((current + (event.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length);
 			} else if (event.key === "Enter" || event.key === "Tab") {
 				event.preventDefault();
 				const chosen = matches[current];

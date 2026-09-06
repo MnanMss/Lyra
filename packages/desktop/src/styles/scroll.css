@@ -57,6 +57,16 @@
   opacity: 0.5;
 }
 
+/* Menus need room for their rounded corners and a grab target separate from their rows. */
+.ly-menu-scroll {
+  margin-block: 6px;
+  margin-right: 4px;
+}
+
+.ly-menu-scroll:has(.ly-thumb) > .ly-scroll-view {
+  padding-right: 20px;
+}
+
 /*
  * The browser does not get to move this one on its own.
  *

@@ -453,7 +453,7 @@ export function Composer() {
 				)}
 
 				<div className="relative">
-				<CommandMenu id={slash.id} commands={slash.matches} term={slash.term} active={slash.active} onPick={slash.pick} onHover={slash.setActive} />
+				<CommandMenu id={slash.id} commands={slash.matches} term={slash.term} active={slash.active} keyboardSelection={slash.keyboardSelection} onPick={slash.pick} onHover={slash.hover} />
 				<ComposerShell
 					fieldRef={field}
 					value={text}
