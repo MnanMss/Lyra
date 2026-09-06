@@ -107,6 +107,7 @@ async function seed(home: string): Promise<void> {
 
 before(async () => {
 	app = await startApp({ port: 9498, seed });
+	await app.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
 });
 
 after(async () => {
@@ -138,6 +139,17 @@ const UI = `
 		const nav = [...document.querySelectorAll("button")].find((b) => label(b) === "使用统计");
 		if (!nav) throw new Error("no 使用统计 nav item");
 		return nav;
+	};
+	const heatmap = () => {
+		const scroller = [...document.querySelectorAll("div")].find((d) => d.className.includes("justify-content:safe_center"));
+		if (!scroller) throw new Error("heatmap scroller not found");
+		return scroller;
+	};
+	const heatmapBox = () => {
+		const scroller = heatmap(), outer = scroller.getBoundingClientRect(), inner = scroller.firstElementChild.getBoundingClientRect();
+		return { left: inner.left - outer.left, right: outer.right - inner.right, card: outer.width,
+			grid: inner.width, scrollWidth: scroller.scrollWidth, clientWidth: scroller.clientWidth,
+			scrollLeft: scroller.scrollLeft, justify: getComputedStyle(scroller).justifyContent };
 	};
 	const tiles = () =>
 		[...document.querySelectorAll("div")]
@@ -203,34 +215,66 @@ test("an empty range reports zeroes and says there is no model, rather than dash
 	assert.ok(empty.charts.length >= 1, `the charts say why they are blank: ${empty.charts.join(" / ")}`);
 });
 
-test("the heatmap is centred in its card", async () => {
-	const box = await ui<{ left: number; right: number; card: number; justify: string }>(`
-		const all = [...document.querySelectorAll("button")].find((b) => label(b) === "全部");
-		click(all);
-		await wait(700);
-		const scroller = [...document.querySelectorAll("div")].find((d) => d.className.includes("justify-content:safe_center"));
-		if (!scroller) throw new Error("heatmap scroller not found");
-		scroller.scrollIntoView({ block: "center" });
-		await wait(300);
-		const grid = scroller.firstElementChild;
-		const outer = scroller.getBoundingClientRect();
-		const inner = grid.getBoundingClientRect();
-		return {
-			left: Math.round(inner.left - outer.left),
-			right: Math.round(outer.right - inner.right),
-			card: Math.round(outer.width),
-			justify: getComputedStyle(scroller).justifyContent,
-		};
-	`);
+interface HeatmapBox {
+	left: number;
+	right: number;
+	card: number;
+	grid: number;
+	scrollWidth: number;
+	clientWidth: number;
+	scrollLeft: number;
+	justify: string;
+}
 
-	assert.match(box.justify, /safe center/, `the container asks for safe centring: ${box.justify}`);
-	// Equal margins either side, within a pixel of rounding.
-	assert.ok(
-		Math.abs(box.left - box.right) <= 2,
-		`centred: ${box.left}px on the left, ${box.right}px on the right, in a ${box.card}px card`,
-	);
-	assert.ok(box.left > 0, "and it is not flush against the edge");
+test("the heatmap centres when it fits and keeps both ends reachable when narrow", async (t) => {
+	const viewport = await app.evaluate<{ width: number; height: number }>("({ width: innerWidth, height: innerHeight })");
+	try {
+		// A requested native window size can be clamped to the CI display; set the layout viewport.
+		await app.send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 900, deviceScaleFactor: 1, mobile: false });
+		const wide = await ui<HeatmapBox>(`
+			const all = [...document.querySelectorAll("button")].find((b) => label(b) === "全部");
+			click(all);
+			await new Promise(requestAnimationFrame);
+			heatmap().scrollIntoView({ block: "center" });
+			return heatmapBox();
+		`);
+		assert.match(wide.justify, /safe center/);
+		assert.ok(wide.card > wide.grid, `the wide card fits the grid: ${JSON.stringify(wide)}`);
+		assert.ok(Math.abs(wide.left - wide.right) <= 2, `equal margins: ${JSON.stringify(wide)}`);
+		assert.ok(wide.left > 0);
+		await shot("heatmap-wide");
+
+		await app.send("Emulation.setDeviceMetricsOverride", { width: 375, height: 900, deviceScaleFactor: 1, mobile: false });
+		const recent = await ui<HeatmapBox>(`
+			heatmap().scrollLeft = 0;
+			heatmap().scrollIntoView({ block: "center" });
+			await new Promise(requestAnimationFrame);
+			return heatmapBox();
+		`);
+		assert.ok(recent.scrollWidth > recent.clientWidth, `the narrow card scrolls: ${JSON.stringify(recent)}`);
+		assert.ok(Math.abs(recent.right) <= 1 && recent.left < 0, `the recent end starts visible: ${JSON.stringify(recent)}`);
+		await shot("heatmap-narrow-recent");
+
+		const oldest = await ui<HeatmapBox>(`
+			heatmap().scrollLeft = -heatmap().scrollWidth;
+			await new Promise(requestAnimationFrame);
+			return heatmapBox();
+		`);
+		assert.ok(oldest.scrollLeft < 0 && Math.abs(oldest.left) <= 1, `the oldest end remains reachable: ${JSON.stringify(oldest)}`);
+		await shot("heatmap-narrow-oldest");
+		t.diagnostic(JSON.stringify({ wide, recent, oldest }));
+	} finally {
+		await app.send("Emulation.setDeviceMetricsOverride", { ...viewport, deviceScaleFactor: 1, mobile: false });
+	}
 });
+
+async function shot(name: string): Promise<void> {
+	const directory = process.env.LYRA_E2E_ARTIFACTS;
+	if (!directory) return;
+	await mkdir(directory, { recursive: true });
+	const image = await app.send<{ data: string }>("Page.captureScreenshot", { format: "png" });
+	await writeFile(join(directory, `${name}.png`), Buffer.from(image.data, "base64"));
+}
 
 test("the model menu folds a provider away and remembers it", async () => {
 	const folded = await ui<{ before: number; after: number; count: string; reopened: number }>(`

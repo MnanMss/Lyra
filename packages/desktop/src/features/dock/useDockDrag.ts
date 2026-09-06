@@ -22,7 +22,7 @@
  * no element and recreates nothing.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { freezeMotion, inertPanes } from "../../ui/motion/freeze.ts";
 import { dropAt, sameDrop, type Rect } from "./drop.ts";
@@ -181,11 +181,6 @@ export function useDockDrag(containerRef: React.RefObject<HTMLElement | null>): 
 	 */
 	const landed = useCallback(() => {
 		window.clearTimeout(landingTimer.current);
-		// Back to the dock's own coordinates; the transform has done its job and would now be an
-		// offset from a position that is already correct.
-		const arrived = flying.current ? paneOf(flying.current) : null;
-		if (arrived) arrived.style.transform = "";
-		flying.current = null;
 		/*
 		 * Suppress the dock's own transition for the frame that hands the pane back.
 		 *
@@ -210,6 +205,15 @@ export function useDockDrag(containerRef: React.RefObject<HTMLElement | null>): 
 			requestAnimationFrame(() => settled());
 		});
 	}, []);
+
+	useLayoutEffect(() => {
+		if (carried || !flying.current) return;
+		// Clear the carry offset in the same commit that restores absolute positioning. Clearing
+		// it in transitionend exposes the fixed anchor for a frame before React commits the handover.
+		const arrived = paneOf(flying.current);
+		if (arrived) arrived.style.transform = "";
+		flying.current = null;
+	}, [carried]);
 
 	const finish = useCallback(
 		(cancelled: boolean) => {
