@@ -298,7 +298,7 @@ export interface AppState {
   /** Where history was summarised, by position in the transcript. */
   compactions: { at: number; before: number; after: number }[];
 	commandRuns: CommandRun[];
-  notices: { id: string; level: "info" | "warn" | "error"; message: string }[];
+  notices: { id: string; level: "info" | "warn" | "error"; message: string; sessionId?: string }[];
   /**
    * A correction the runtime thinks could become a rule, waiting to be answered.
    *
@@ -364,6 +364,7 @@ export interface AppState {
   archiveProjectSessions(path: string): Promise<void>;
   newSession(): Promise<void>;
   openSession(meta: SessionMeta): Promise<void>;
+	openSessionById(id: string): Promise<boolean>;
   deleteSession(meta: SessionMeta): Promise<void>;
   setSessionArchived(meta: SessionMeta, archived: boolean): Promise<void>;
   deleteArchivedSessions(): Promise<void>;
@@ -402,7 +403,7 @@ export interface AppState {
   setThinking(thinking: ThinkingLevel): Promise<void>;
   refreshSync(): Promise<void>;
   dismissNotice(id: string): void;
-  notify(message: string, level?: "info" | "warn" | "error"): void;
+  notify(message: string, level?: "info" | "warn" | "error", sessionId?: string): void;
   applyEvent(sessionId: string, event: AgentEvent): void;
 }
 
@@ -546,11 +547,11 @@ export const useApp = create<AppState>((set, get) => ({
   dismissNotice: (id) =>
     set({ notices: get().notices.filter((n) => n.id !== id) }),
 
-  notify: (message, level = "info") =>
+  notify: (message, level = "info", sessionId?: string) =>
     set({
       notices: [
         ...get().notices,
-        { id: `${Date.now()}-${Math.random()}`, level, message },
+        { id: `${Date.now()}-${Math.random()}`, level, message, sessionId },
       ],
     }),
 

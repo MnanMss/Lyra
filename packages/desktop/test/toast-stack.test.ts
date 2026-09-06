@@ -44,6 +44,17 @@ test("the same words at different levels are different cards", () => {
 	assert.equal(groups.length, 2, "a warning and a failure are not the same event");
 });
 
+test("same-titled sessions keep separate navigation targets while duplicates within one session merge", () => {
+	const groups = groupNotices([
+		{ ...notice("a-1", "同名任务已完成", "info"), sessionId: "a" },
+		{ ...notice("b-1", "同名任务已完成", "info"), sessionId: "b" },
+		{ ...notice("a-2", "同名任务已完成", "info"), sessionId: "a" },
+	]);
+	assert.deepEqual(groups.map((group) => ({ sessionId: group.sessionId, ids: group.ids })), [
+		{ sessionId: "a", ids: ["a-1", "a-2"] }, { sessionId: "b", ids: ["b-1"] },
+	]);
+});
+
 test("a repeat keeps the card where it was", () => {
 	/*
 	 * The reason: promoting a repeated message to the end slides the whole column up at the exact

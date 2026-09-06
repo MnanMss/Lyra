@@ -17,7 +17,7 @@ import type { SessionSnapshot, LyraApi } from "./ipc-types.ts";
 import { createStoredSession, type InitialPrompt } from "./create-session.ts";
 import { initialPrompt, promptContent, promptOptions } from "./prompt-input.ts";
 import { ensureSessionWorkspace } from "./scratch.ts";
-import { notifyTaskDone } from "./notify.ts";
+import { notifyAgentEvent } from "./notify.ts";
 
 export interface HubDeps {
 	store(): SessionStorage;
@@ -92,13 +92,7 @@ export function broadcast(sessionId: string, event: AgentEvent): void {
 		win.webContents.send("agent:event", { sessionId, event });
 	}
 	deps.sync?.()?.broadcast(sessionId, event);
-	if (event.type === "agent_end" && event.reason === "done") {
-		const session = sessions.get(sessionId);
-		notifyTaskDone({
-			sessionId,
-			title: session?.meta.title,
-		});
-	}
+	notifyAgentEvent(sessionId, event, sessions.get(sessionId)?.meta.title);
 }
 
 /**

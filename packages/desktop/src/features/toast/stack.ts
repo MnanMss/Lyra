@@ -18,6 +18,8 @@ export interface Notice {
 	id: string;
 	level: ToastLevel;
 	message: string;
+	/** If present, clicking on this notice can navigate to the corresponding session. */
+	sessionId?: string;
 }
 
 /** One card: the message, and every notice that is currently saying it. */
@@ -28,6 +30,8 @@ export interface ToastGroup {
 	message: string;
 	/** What to do about it, when the message is one we recognise. See `explain`. */
 	hint?: string;
+	/** Target session to jump to when clicked. */
+	sessionId?: string;
 	/** Newest last. More than one means the same thing happened again. */
 	ids: string[];
 }
@@ -87,10 +91,10 @@ export function groupNotices(notices: readonly Notice[]): ToastGroup[] {
 		 */
 		const said = explain(notice.message);
 		if (said.silent) continue;
-		const key = `${notice.level}:${said.message}`;
+		const key = `${notice.level}:${notice.sessionId ?? ""}:${said.message}`;
 		const existing = byKey.get(key);
 		if (existing) existing.ids.push(notice.id);
-		else byKey.set(key, { key, level: notice.level, message: said.message, hint: said.hint, ids: [notice.id] });
+		else byKey.set(key, { key, level: notice.level, message: said.message, hint: said.hint, sessionId: notice.sessionId, ids: [notice.id] });
 	}
 	return [...byKey.values()];
 }

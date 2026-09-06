@@ -4,7 +4,8 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { configureNotify, notifyTaskDone, type NotificationInstance, type WindowLike } from "../electron/notify.ts";
+import type { AgentEvent } from "@lyra/core";
+import { configureNotify, notifyNeedAssistance, notifyAgentEvent, notifyTaskDone, type NotificationInstance, type WindowLike } from "../electron/notify.ts";
 
 function mockWindow(overrides: Partial<WindowLike> = {}): WindowLike {
 	return {
@@ -129,6 +130,147 @@ test("notifyTaskDone: falls back to default body when title is empty or missing"
 		(capturedOptions as { title: string; body: string })?.body,
 		"任务已完成",
 	);
+});
+
+test("notifyNeedAssistance: suppresses notification when window is focused and visible", () => {
+	let created = false;
+	configureNotify({
+		isSupported: () => true,
+		window: () => mockWindow({ isFocused: () => true, isVisible: () => true }),
+		createNotification: () => {
+			created = true;
+			return { show: () => {}, on: () => {} };
+		},
+	});
+
+	notifyNeedAssistance({ sessionId: "sess-ask-1", title: "Test Task", question: "需要删除临时文件吗？" });
+	assert.equal(created, false, "Window is focused; assistance notification must not be created");
+});
+
+test("notifyNeedAssistance: suppresses notification when OS does not support it", () => {
+	let created = false;
+	configureNotify({
+		isSupported: () => false,
+		window: () => mockWindow({ isFocused: () => false }),
+		createNotification: () => {
+			created = true;
+			return { show: () => {}, on: () => {} };
+		},
+	});
+
+	notifyNeedAssistance({ sessionId: "sess-ask-2", title: "Test Task", question: "需要删除临时文件吗？" });
+	assert.equal(created, false, "Notifications unsupported; must not attempt creation");
+});
+
+test("notifyNeedAssistance: shows notification when window is blurred and navigates on click", () => {
+	let shown = false;
+	let capturedOptions: unknown = null;
+	let clickHandler: (() => void) | null = null;
+	let receivedCommand: string | null = null;
+
+	const mockNotificationInstance: NotificationInstance = {
+		show: () => {
+			shown = true;
+		},
+		on: (event: string, handler: () => void) => {
+			if (event === "click") {
+				clickHandler = handler;
+			}
+		},
+	};
+
+	configureNotify({
+		isSupported: () => true,
+		window: () => mockWindow({ isFocused: () => false }),
+		appIcon: () => "/path/to/icon.png",
+		sendTrayCommand: (cmd) => {
+			receivedCommand = cmd;
+		},
+		createNotification: (options) => {
+			capturedOptions = options;
+			return mockNotificationInstance;
+		},
+	});
+
+	notifyNeedAssistance({
+		sessionId: "sess-ask-99",
+		title: "重构数据库",
+		question: "请选择迁移模式：自动还是手动？",
+	});
+
+	assert.equal(shown, true, "Notification must be shown when window is not focused");
+	assert.deepEqual(capturedOptions, {
+		title: "Lyra",
+		body: "「重构数据库」等待回复：请选择迁移模式：自动还是手动？",
+		icon: "/path/to/icon.png",
+		silent: false,
+	});
+
+	assert.ok(clickHandler, "Click handler must be registered");
+	clickHandler!();
+
+	assert.equal(receivedCommand, "open-session:sess-ask-99", "Must navigate to the session requesting assistance");
+});
+
+test("notifyNeedAssistance: handles missing title or question and truncates long question", () => {
+	let capturedOptions: unknown = null;
+	const dummyNotification: NotificationInstance = {
+		show: () => {},
+		on: () => {},
+	};
+
+	configureNotify({
+		isSupported: () => true,
+		window: () => mockWindow({ isFocused: () => false }),
+		createNotification: (options) => {
+			capturedOptions = options;
+			return dummyNotification;
+		},
+	});
+
+	notifyNeedAssistance({ sessionId: "sess-empty" });
+	assert.equal(
+		(capturedOptions as { title: string; body: string })?.body,
+		"等待回复",
+	);
+
+	const longQuestion = "a".repeat(100);
+	notifyNeedAssistance({ sessionId: "sess-long", question: longQuestion });
+	assert.equal(
+		(capturedOptions as { title: string; body: string })?.body,
+		`等待回复：${"a".repeat(77)}...`,
+	);
+});
+
+test("notifyNeedAssistance: shows notification when window is minimized", () => {
+	let shown = false;
+	configureNotify({
+		isSupported: () => true,
+		window: () => mockWindow({ isFocused: () => true, isMinimized: () => true }),
+		createNotification: () => ({
+			show: () => {
+				shown = true;
+			},
+			on: () => {},
+		}),
+	});
+
+	notifyNeedAssistance({ sessionId: "sess-min", title: "后台任务", question: "是否继续？" });
+	assert.equal(shown, true, "Minimized window must receive assistance notification");
+});
+
+test("the session event boundary notifies both ordinary approvals and interactive questions", () => {
+	const bodies: string[] = [];
+	configureNotify({ isSupported: () => true, window: () => mockWindow({ isFocused: () => false }),
+		createNotification: (options) => ({ on: () => {}, show: () => { bodies.push(options.body); } }),
+	});
+	const approval: AgentEvent = { type: "approval_request", requestId: "approve-1", toolCallId: "tool-1", kind: "bash",
+		title: "运行命令", detail: "command details must stay inside the app", subject: "rm temp" };
+	notifyAgentEvent("session-a", approval, "清理项目");
+	notifyAgentEvent("session-b", { ...approval, requestId: "ask-1", kind: "interactive", subject: "ask_user", detail: "选择方案", options: ["A", "B"] }, "方案讨论");
+	assert.deepEqual(bodies, ["「清理项目」等待批准：运行命令", "「方案讨论」等待回复：选择方案"]);
+	for (const reason of ["aborted", "error", "max_turns", "stalled"] as const) notifyAgentEvent("session-a", { type: "agent_end", reason });
+	assert.equal(bodies.length, 2, "only normal completion is a completion notification");
 });
 
 for (const [name, window] of [
