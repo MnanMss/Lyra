@@ -99,6 +99,8 @@ import { Scheduler } from "./scheduler.ts";
 import { createTray, destroyTray, hasTray, refreshMenu, type TrayCommand } from "./tray.ts";
 import { registerScreenshotIpc } from "./ipc/screenshot.ts";
 import { destroyScreenshotOverlay, dismissStrayOverlay, isScreenshotOverlay, registerScreenshotShortcut, unregisterScreenshotShortcut, warmScreenshotOverlay } from "./screenshot.ts";
+import { Notification } from "electron";
+import { configureNotify } from "./notify.ts";
 
 /*
  * A profile is a whole app, Chromium's half included.
@@ -113,6 +115,8 @@ import { destroyScreenshotOverlay, dismissStrayOverlay, isScreenshotOverlay, reg
  * size, its saved layout or its browser panel's cookies relocated out from under it.
  */
 if (process.env.LYRA_HOME) app.setPath("userData", join(process.env.LYRA_HOME, "chromium"));
+if (process.platform === "win32") app.setAppUserModelId("dev.lyra.app");
+
 
 /**
  * One Lyra per machine, and every later launch reaches the one that is already running.
@@ -619,6 +623,15 @@ function reveal(then?: () => void): void {
 function sendToRenderer(command: TrayCommand): void {
 	reveal(() => getWindow()?.webContents.send("tray:command", command));
 }
+configureNotify({
+	reveal,
+	sendTrayCommand: (cmd) => sendToRenderer(cmd),
+	isSupported: () => Notification.isSupported(),
+	window: () => getWindow(),
+	appIcon: () => appIconPath(),
+	createNotification: (options) => new Notification(options),
+});
+
 
 app.on("window-all-closed", () => {
 	/*
