@@ -103,12 +103,10 @@ export function toChatCompletionsMessages(systemPrompt: string, messages: Messag
 
 		if (message.role === "assistant") {
 			const answers = new Map<string, ToolResultMessage>();
-			const consumedIndices = new Set<number>();
 			let after = index + 1;
 			for (; after < sanitized.length; after++) {
 				const next = sanitized[after];
 				if (next.role !== "toolResult") break;
-				consumedIndices.add(after);
 				if (!answers.has(next.toolCallId)) answers.set(next.toolCallId, next);
 			}
 

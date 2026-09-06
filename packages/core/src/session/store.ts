@@ -429,7 +429,7 @@ export class SessionStore implements SessionStorage {
 		messageIndex: number,
 	): Promise<{ meta: SessionMeta; messages: Message[] } | null> {
 		const loaded = await this.load(projectId, sessionId);
-		if (!loaded || messageIndex < 0 || messageIndex >= loaded.messages.length) return null;
+		if (!loaded || !Number.isInteger(messageIndex) || messageIndex < 0 || messageIndex >= loaded.messages.length) return null;
 
 		/*
 		 * Turn atomicity: never cut inside a tool-call turn.
@@ -439,19 +439,6 @@ export class SessionStore implements SessionStorage {
 		let targetIndex = messageIndex;
 		while (targetIndex > 0 && loaded.messages[targetIndex]?.role === "toolResult") {
 			targetIndex -= 1;
-		}
-		// If targetIndex is inside or at the assistant message that spawned the tool calls,
-		// also drop the assistant message itself so no orphaned tool calls remain.
-		if (
-			targetIndex >= 0 &&
-			loaded.messages[targetIndex]?.role === "assistant" &&
-			loaded.messages[targetIndex]?.content.some((c) => c.type === "toolCall")
-		) {
-			// Check if all its tool results are within targetIndex; if not all results follow,
-			// or if we truncated into the results run, we must step back before this assistant.
-			if (messageIndex > targetIndex) {
-				targetIndex = Math.max(0, targetIndex);
-			}
 		}
 
 		// The seq to keep is the one just before the record carrying the doomed message.

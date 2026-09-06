@@ -20,51 +20,43 @@
  * preserving turn atomicity and repairing protocol invariants without losing history.
  */
 
-import type { AssistantMessage, Message, ToolResultMessage } from "../types.ts";
+import type { Message, ToolResultMessage } from "../types.ts";
 
 export function sanitizeToolPairing(messages: Message[]): Message[] {
 	const out: Message[] = [];
 
 	for (let i = 0; i < messages.length; i++) {
 		const message = messages[i];
+		// Only results consumed by their immediately preceding call turn belong on the wire.
+		// Keep the original persisted transcript intact for recall and diagnostics.
+		if (message.role === "toolResult") continue;
 		out.push(message);
 
 		if (message.role !== "assistant") continue;
 
-		const toolCalls = (message as AssistantMessage).content.filter((c) => c.type === "toolCall");
+		const toolCalls = message.content.filter((c) => c.type === "toolCall");
 		if (toolCalls.length === 0) continue;
 
 		// Collect the toolResults in the immediately following run
-		const resultsRun: ToolResultMessage[] = [];
+		const results = new Map<string, ToolResultMessage>();
 		let after = i + 1;
 		for (; after < messages.length; after++) {
 			const next = messages[after];
 			if (next.role !== "toolResult") break;
-			resultsRun.push(next);
+			if (!results.has(next.toolCallId)) results.set(next.toolCallId, next);
 		}
 
-		// Check which tool calls have an answer in this run
-		const answeredIds = new Set(resultsRun.map((r) => r.toolCallId));
-		const missingCalls = toolCalls.filter((tc) => !answeredIds.has(tc.id));
-
-		if (missingCalls.length > 0) {
-			// Synthesize a placeholder toolResult so the wire protocol invariants remain unbroken
-			for (const missing of missingCalls) {
-				const syntheticResult: ToolResultMessage = {
-					role: "toolResult",
-					toolCallId: missing.id,
-					toolName: missing.name,
-					content: [{ type: "text", text: "[Turn was interrupted before tool execution could complete]" }],
-					isError: true,
-					timestamp: message.timestamp || Date.now(),
-				};
-				resultsRun.push(syntheticResult);
-			}
-
-			// Push the existing and synthetic results
-			out.push(...resultsRun);
-			i = after - 1;
+		for (const call of toolCalls) {
+			out.push(results.get(call.id) ?? {
+				role: "toolResult",
+				toolCallId: call.id,
+				toolName: call.name,
+				content: [{ type: "text", text: "[Turn was interrupted before tool execution could complete]" }],
+				isError: true,
+				timestamp: message.timestamp,
+			});
 		}
+		i = after - 1;
 	}
 
 	return out;
