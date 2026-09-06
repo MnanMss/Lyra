@@ -19,6 +19,7 @@ import { rowActions, SessionRow, type RowActions } from "./SessionRow.tsx";
 import { ShowMore } from "./ShowMore.tsx";
 import { useSidebarReorder } from "./useSidebarReorder.ts";
 import { SidebarReorderContext } from "./reorder-context.ts";
+import type { SortKey } from "./ListMenu.tsx";
 import { CarriedPill } from "./DropIndicator.tsx";
 
 /**
@@ -42,6 +43,7 @@ export function ProjectList({
 	onLooseCollapse,
 	actions,
 	onReordered,
+	sort,
 	empty,
 }: {
 	groups: Grouped;
@@ -57,11 +59,12 @@ export function ProjectList({
 	onLooseCollapse: () => void;
 	actions: RowActions;
 	onReordered?: () => void;
+	sort: SortKey;
 	/** What an empty list says, which differs between the sidebar and the archive. */
 	empty: React.ReactNode;
 }) {
 	const { compact } = useLayout();
-	const reorder = useSidebarReorder(onReordered);
+	const reorder = useSidebarReorder(groups, sort, onReordered);
 	const pinnedShut = collapsed.includes(PINNED);
 	const hasPinned = (groups.pinnedSessions?.length ?? 0) > 0 || groups.pinned.length > 0;
 	const pinnedCount = (groups.pinnedSessions?.length ?? 0) + groups.pinned.length;

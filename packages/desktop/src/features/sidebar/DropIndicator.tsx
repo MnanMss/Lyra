@@ -2,6 +2,7 @@
  * Drop indicator with a trailing circle mark, indicating where dragged item will be inserted.
  */
 
+import { createPortal } from "react-dom";
 import { Folder, MessageSquare } from "lucide-react";
 import type { DraggingItem } from "./reorder-context.ts";
 
@@ -18,7 +19,7 @@ export function DropLineIndicator({ placement }: { placement: "before" | "after"
 }
 
 export function CarriedPill({ item, pointer }: { item: DraggingItem; pointer: { x: number; y: number } }) {
-	return (
+	return createPortal(
 		<div
 			style={{
 				left: `${pointer.x + 12}px`,
@@ -32,6 +33,7 @@ export function CarriedPill({ item, pointer }: { item: DraggingItem; pointer: { 
 				<MessageSquare size={14} strokeWidth={1.8} className="shrink-0 text-accent" />
 			)}
 			<span className="truncate text-detail font-medium text-ink">{item.title}</span>
-		</div>
+		</div>,
+		document.body,
 	);
 }

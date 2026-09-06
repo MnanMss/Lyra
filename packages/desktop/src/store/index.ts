@@ -353,8 +353,8 @@ export interface AppState {
   renameProject(path: string, name: string): Promise<void>;
   setProjectPinned(path: string, pinned: boolean): Promise<void>;
   setSessionPinned(sessionId: string, pinned: boolean): Promise<void>;
-  reorderProjects(sourcePath: string, targetPath: string, placement: "before" | "after"): Promise<void>;
-  reorderProjectSessions(projectPath: string, sourceId: string, targetId: string, placement: "before" | "after"): Promise<void>;
+  reorderProjects(sourcePath: string, targetPath: string, placement: "before" | "after"): Promise<boolean>;
+  reorderProjectSessions(projectPath: string, sourceId: string, targetId: string, placement: "before" | "after", sort: "updatedAt" | "createdAt" | "manual"): Promise<boolean>;
   renameSession(session: SessionMeta, title: string): Promise<void>;
   moveSessionProject(session: SessionMeta, targetPath: string): Promise<void>;
   removeProject(path: string): Promise<void>;

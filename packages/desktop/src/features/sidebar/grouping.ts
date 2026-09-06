@@ -8,6 +8,7 @@
  */
 
 import type { SessionMeta } from "@lyra/core";
+import { orderedSessions, type SessionSortKey } from "../../lib/sidebar-order.ts";
 
 export interface Group {
 	path: string;
@@ -58,7 +59,7 @@ export function groupSessions(
 	scratchRoots: string[] = [],
 	pinnedSessionIds: string[] = [],
 	sessionOrder?: Record<string, string[]>,
-	sortKey: "updatedAt" | "createdAt" | "manual" = "updatedAt",
+	sortKey: SessionSortKey = "updatedAt",
 ): Grouped {
 	const needle = query.trim().toLowerCase();
 	const filtered = needle ? sessions.filter((s) => s.title.toLowerCase().includes(needle)) : sessions;
@@ -94,24 +95,8 @@ export function groupSessions(
 		group.sessions.push(session);
 	}
 	for (const group of byPath.values()) {
-		const custom = sessionOrder?.[group.path];
-		if (sortKey === "manual" && custom && custom.length > 0) {
-			const rank = new Map(custom.map((id, index) => [id, index]));
-			group.sessions.sort((a, b) => {
-				const rankA = rank.has(a.id) ? rank.get(a.id)! : -1;
-				const rankB = rank.has(b.id) ? rank.get(b.id)! : -1;
-				if (rankA === -1 && rankB === -1) return b.updatedAt - a.updatedAt;
-				if (rankA === -1) return -1;
-				if (rankB === -1) return 1;
-				return rankA - rankB;
-			});
-		} else if (sortKey === "createdAt") {
-			group.sessions.sort((a, b) => b.createdAt - a.createdAt);
-		} else {
-			group.sessions.sort((a, b) => b.updatedAt - a.updatedAt);
-		}
+		group.sessions = orderedSessions(group.sessions, sortKey, sessionOrder?.[group.path]);
 	}
-
 
 	const pinnedPaths = new Set(projects.filter((p) => p.pinned).map((p) => p.path));
 	const order = new Map(projects.map((p, i) => [p.path, i]));
