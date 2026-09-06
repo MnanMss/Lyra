@@ -84,7 +84,7 @@ export function MentionMenu({
 			className="ly-mention-menu ly-glass-solid absolute bottom-full left-0 right-0 z-40 mb-2 overflow-hidden rounded-[18px] border border-line-soft"
 		>
 			<div style={{ maxHeight: height }} className="flex flex-col">
-				<Scroller scrollRef={list} className="min-h-0" contentClassName="p-1.5">
+				<Scroller scrollRef={list} className="ly-menu-scroll min-h-0" contentClassName="p-1.5">
 					{shown.map((item, index) => {
 						const Icon =
 							item.kind === "action"

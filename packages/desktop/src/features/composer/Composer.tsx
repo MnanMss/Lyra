@@ -544,7 +544,7 @@ export function Composer() {
 					attachments={
 						attachments.length > 0 || sessionRefs.length > 0 ? (
 							<div className="flex flex-wrap gap-2 px-4 pt-3.5">
-								{sessionRefs.map((session) => <button key={session.id} type="button" aria-label={`移除会话引用：${session.title}`} onClick={() => setSessionRefs((refs) => refs.filter((ref) => ref.id !== session.id))} className="flex max-w-full items-center gap-1.5 rounded-lg border border-line-soft bg-card px-2 py-1 text-caption text-ink-muted"><MessageSquare size={12} /><span className="truncate">{session.title}</span><X size={12} className="shrink-0" /></button>)}
+								{sessionRefs.map((session) => <button key={session.id} type="button" aria-label={`移除会话引用：${session.title}`} onClick={() => setSessionRefs((refs) => refs.filter((ref) => ref.id !== session.id))} className="flex max-w-full items-center gap-1.5 rounded-lg border border-line-soft bg-card px-2 py-1 text-caption text-ink-muted"><MessageSquare size={12} className="shrink-0" /><span className="truncate">{session.title}</span><X size={12} className="shrink-0" /></button>)}
 								{attachments.map((attachment) => (
 									<div key={attachment.id} className="relative">
 										{/*
