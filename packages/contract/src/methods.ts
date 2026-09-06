@@ -132,6 +132,7 @@ export const METHODS = {
 		uniquePath: { channel: "files:uniquePath", remote: false, why: "读写任意路径" },
 		exists: { channel: "files:exists", remote: false, why: "读写任意路径" },
 		importInto: { channel: "files:import", remote: false, why: "读写任意路径" },
+		pick: { channel: "files:pick", remote: false, why: "弹出系统原生文件/目录选择框" },
 	},
 	clipboard: {
 		read: { channel: "clipboard:read", remote: false, why: "手机有自己的剪贴板" },

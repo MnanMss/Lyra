@@ -11,6 +11,7 @@ import { taskTool } from "../../tools/task.ts";
 import { todoTool } from "../../tools/todo.ts";
 import { webFetchTool } from "../../tools/web.ts";
 import { writeTool } from "../../tools/write.ts";
+import { askUserTool } from "../../tools/ask-user.ts";
 import { useToolPipeline } from "../../agent/tool-pipeline.ts";
 import type { Tool, ToolResult } from "../../types.ts";
 import type { Context, Plugin } from "../context.ts";
@@ -53,7 +54,7 @@ class Registry implements ToolRegistry {
  */
 export const FILE_TOOLS = [readTool, writeTool, editTool, lsTool, globTool, grepTool, symbolTool] as unknown as Tool[];
 export const SHELL_TOOLS = [bashTool, bashOutputTool] as unknown as Tool[];
-export const AGENT_TOOLS = [todoTool, taskTool, skillTool] as unknown as Tool[];
+export const AGENT_TOOLS = [todoTool, taskTool, skillTool, askUserTool] as unknown as Tool[];
 export const WEB_TOOLS = [webFetchTool, previewTool] as unknown as Tool[];
 
 export const toolsPlugin: Plugin = {

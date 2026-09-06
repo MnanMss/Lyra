@@ -340,13 +340,13 @@ export interface Settings {
 	 */
 	maxConcurrentSubAgents: number;
 	/**
-	 * Which model answers to `@fast`, `@deep` and `@review`.
+	 * Which model answers to `@compact`, `@fast`, `@deep` and `@review`.
 	 *
 	 * Lets a sub-agent definition name what it needs rather than a specific model — the definition
 	 * then works on a machine with a different set of providers, which is what makes one shareable
 	 * at all. Empty entries fall through to the session's own model.
 	 */
-	modelRoles?: Partial<Record<"default" | "fast" | "deep" | "review", string>>;
+	modelRoles?: Partial<Record<"default" | "compact" | "fast" | "deep" | "review", string>>;
 	subAgentProfiles?: Record<string, SubAgentProfile>;
 	/**
 	 * Whether finished sessions may be read by a model to build project memory.
@@ -673,7 +673,7 @@ export function normalizeSettings(parsed: Partial<Settings>): Settings {
 				parsed.modelRoles && typeof parsed.modelRoles === "object"
 					? Object.fromEntries(
 							Object.entries(parsed.modelRoles as Record<string, unknown>).filter(
-								([key, value]) => ["default", "fast", "deep", "review"].includes(key) && typeof value === "string" && value,
+								([key, value]) => ["default", "compact", "fast", "deep", "review"].includes(key) && typeof value === "string" && value,
 							),
 						)
 					: {},
