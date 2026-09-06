@@ -8,7 +8,18 @@ import { questionModel, REFERENCE_TITLE, seedQuestions } from "./mention-questio
 
 let app: RunningApp;
 const { server, requests } = questionModel();
-const capsules = '.ly-composer button[aria-label^="移除会话引用："]';
+const capsuleCount = `document.querySelectorAll('.ly-composer button[aria-label^="移除会话引用："]').length`;
+type SessionId = "qa-long" | "qa-short";
+const clickTargets = {
+	composer: `Boolean((globalThis.__lyraMentionTarget=document.querySelector('main textarea'))?.checkVisibility())`,
+	"qa-long": `Boolean((globalThis.__lyraMentionTarget=document.querySelector('[data-ly-row="qa-long"] > button'))?.checkVisibility())`,
+	"qa-short": `Boolean((globalThis.__lyraMentionTarget=document.querySelector('[data-ly-row="qa-short"] > button'))?.checkVisibility())`,
+	firstReference: `Boolean((globalThis.__lyraMentionTarget=document.querySelector('.ly-mention-menu [role="option"][data-index="0"]'))?.checkVisibility())`,
+	secondReference: `Boolean((globalThis.__lyraMentionTarget=document.querySelector('.ly-mention-menu [role="option"][data-index="1"]'))?.checkVisibility())`,
+	choice: `Boolean((globalThis.__lyraMentionTarget=document.querySelector('[data-question-choice]'))?.checkVisibility())`,
+	custom: `Boolean((globalThis.__lyraMentionTarget=document.querySelector('input[aria-label="自定义回答"]'))?.checkVisibility())`,
+	submitCustom: `Boolean((globalThis.__lyraMentionTarget=document.querySelector('input[aria-label="自定义回答"] + button'))?.checkVisibility())`,
+};
 
 before(async () => {
 	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -23,32 +34,45 @@ after(async () => {
 	await app?.stop(); await closeListeningServer(server);
 });
 
-async function until(expression: string) {
-	await app.evaluate(`new Promise((resolve,reject)=>{const deadline=performance.now()+15000;const tick=()=>{if(${expression})resolve();else if(performance.now()<deadline)requestAnimationFrame(tick);else reject(new Error(${JSON.stringify(expression)}));};tick();})`);
+async function until(condition: string | (() => Promise<boolean>)) {
+	const deadline = Date.now() + 15_000;
+	while (Date.now() < deadline) {
+		if (typeof condition === "string" ? await app.evaluate(condition) : await condition()) return;
+		await app.evaluate("new Promise(requestAnimationFrame)");
+	}
+	throw new Error("The visible condition did not settle within 15 seconds");
 }
-async function click(selector: string) {
-	await until(`document.querySelector(${JSON.stringify(selector)})?.checkVisibility()`);
-	await app.evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'nearest',behavior:'instant'})`);
-	await until(`(()=>{const e=document.querySelector(${JSON.stringify(selector)}),r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));})()`);
-	const at = await app.evaluate<{ x: number; y: number }>(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+async function click(target: keyof typeof clickTargets) {
+	await until(async () => {
+		// The fixture selects a complete constant script, never inserts data into JavaScript.
+		if (!await app.evaluate(clickTargets[target])) return false;
+		await app.evaluate("globalThis.__lyraMentionTarget.scrollIntoView({block:'nearest',behavior:'instant'})");
+		return app.evaluate("(()=>{const e=globalThis.__lyraMentionTarget,r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));})()");
+	});
+	const at = await app.evaluate<{ x: number; y: number }>("(()=>{const r=globalThis.__lyraMentionTarget.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()");
 	for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) await app.send("Input.dispatchMouseEvent", { type, ...at, ...(type === "mouseMoved" ? {} : { button: "left", clickCount: 1 }) });
 }
-async function input(text: string, selector = "main textarea") {
-	await click(selector);
-	await app.evaluate(`document.querySelector(${JSON.stringify(selector)}).select()`);
+async function input(text: string, target: "composer" | "custom" = "composer") {
+	await click(target);
+	await app.evaluate("globalThis.__lyraMentionTarget.select()");
 	await app.send("Input.insertText", { text });
-	await until(`document.querySelector(${JSON.stringify(selector)}).value === ${JSON.stringify(text)}`);
+	const value = target === "composer" ? "document.querySelector('main textarea').value" : `document.querySelector('input[aria-label="自定义回答"]').value`;
+	await until(async () => await app.evaluate(value) === text);
 }
 async function enter() {
 	await app.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", windowsVirtualKeyCode: 13, text: "\r" });
 	await app.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", windowsVirtualKeyCode: 13 });
 }
-async function session(id: string) {
-	await click(`[data-ly-row="${id}"] > button`);
-	await until(`document.querySelector('[data-ly-row="${id}"] > button')?.getAttribute('aria-current') === 'page'`);
+async function session(id: SessionId) {
+	await click(id);
+	await until(id === "qa-long"
+		? `document.querySelector('[data-ly-row="qa-long"] > button')?.getAttribute('aria-current') === 'page'`
+		: `document.querySelector('[data-ly-row="qa-short"] > button')?.getAttribute('aria-current') === 'page'`);
 }
-async function snapshot(id: string) {
-	const result = await app.evaluate<SessionSnapshot | null>(`(async()=>{const s=(await window.lyra.sessions.list()).find(s=>s.id===${JSON.stringify(id)});return window.lyra.sessions.transcript(s.projectId,s.id);})()`);
+async function snapshot(id: SessionId) {
+	const result = await app.evaluate<SessionSnapshot | null>(id === "qa-long"
+		? "(async()=>{const s=(await window.lyra.sessions.list()).find(s=>s.id==='qa-long');return window.lyra.sessions.transcript(s.projectId,s.id);})()"
+		: "(async()=>{const s=(await window.lyra.sessions.list()).find(s=>s.id==='qa-short');return window.lyra.sessions.transcript(s.projectId,s.id);})()");
 	assert.ok(result); return result;
 }
 async function shot(name: string) {
@@ -60,8 +84,13 @@ async function shot(name: string) {
 }
 async function appearance(theme: "dark" | "light", width: number) {
 	await app.send("Emulation.setDeviceMetricsOverride", { width, height: 800, deviceScaleFactor: 1, mobile: false });
-	await app.evaluate(`(async()=>{const s=await window.lyra.settings.get();await window.lyra.settings.save({...s,appearance:{...s.appearance,theme:${theme === "light" ? '"light"' : '"dark"'}}});})()`);
-	await until(`innerWidth === ${width} && document.documentElement.style.colorScheme === ${theme === "light" ? '"light"' : '"dark"'} && !document.documentElement.hasAttribute('data-theme-switching')`);
+	await app.evaluate(theme === "light"
+		? "(async()=>{const s=await window.lyra.settings.get();await window.lyra.settings.save({...s,appearance:{...s.appearance,theme:'light'}});})()"
+		: "(async()=>{const s=await window.lyra.settings.get();await window.lyra.settings.save({...s,appearance:{...s.appearance,theme:'dark'}});})()");
+	await until(async () => {
+		const state = await app.evaluate<{ width: number; theme: string; switching: boolean }>("({width:innerWidth,theme:document.documentElement.style.colorScheme,switching:document.documentElement.hasAttribute('data-theme-switching')})");
+		return state.width === width && state.theme === theme && !state.switching;
+	});
 }
 
 test("same-title references survive draft switching and fit dark, light and narrow composers", async (t) => {
@@ -69,19 +98,19 @@ test("same-title references survive draft switching and fit dark, light and narr
 	for (let index = 0; index < 2; index++) {
 		await input("@同名会话");
 		await until(`document.querySelectorAll('.ly-mention-menu [role="option"][data-mention-kind="session"]').length === 2`);
-		await click(`.ly-mention-menu [role="option"][data-index="${index}"]`);
-		await until(`document.querySelectorAll(${JSON.stringify(capsules)}).length === ${index + 1}`);
+		await click(index === 0 ? "firstReference" : "secondReference");
+		await until(async () => await app.evaluate(capsuleCount) === index + 1);
 		assert.equal(await app.evaluate("document.querySelector('main textarea').value"), "");
 	}
 	await input("保留这份引用草稿");
 	await session("qa-short");
-	await until(`document.querySelector('main textarea').value === '' && document.querySelectorAll(${JSON.stringify(capsules)}).length === 0`);
+	await until(`document.querySelector('main textarea').value === '' && document.querySelectorAll('.ly-composer button[aria-label^="移除会话引用："]').length === 0`);
 	await session("qa-long");
-	await until(`document.querySelector('main textarea').value === '保留这份引用草稿' && document.querySelectorAll(${JSON.stringify(capsules)}).length === 2`);
+	await until(`document.querySelector('main textarea').value === '保留这份引用草稿' && document.querySelectorAll('.ly-composer button[aria-label^="移除会话引用："]').length === 2`);
 	for (const theme of ["dark", "light"] satisfies Array<"dark" | "light">) {
 		for (const width of [1280, 375]) {
 			await appearance(theme, width);
-			const bounds = await app.evaluate<{ width: number; shell: { left: number; right: number }; pills: Array<{ left: number; right: number; titleWidth: number; fullTitleWidth: number; overflow: string; icons: number[] }>; foreground: string; background: string }>(`(()=>{const shell=document.querySelector('main textarea').closest('.ly-composer'),r=shell.getBoundingClientRect(),pills=[...document.querySelectorAll(${JSON.stringify(capsules)})];return {width:innerWidth,shell:{left:r.left,right:r.right},pills:pills.map(p=>{const b=p.getBoundingClientRect(),s=p.querySelector('span');return {left:b.left,right:b.right,titleWidth:s.clientWidth,fullTitleWidth:s.scrollWidth,overflow:getComputedStyle(s).overflow,icons:[...p.querySelectorAll('svg')].map(icon=>icon.getBoundingClientRect().width)};}),foreground:getComputedStyle(pills[0]).color,background:getComputedStyle(pills[0]).backgroundColor};})()`);
+			const bounds = await app.evaluate<{ width: number; shell: { left: number; right: number }; pills: Array<{ left: number; right: number; titleWidth: number; fullTitleWidth: number; overflow: string; icons: number[] }>; foreground: string; background: string }>(`(()=>{const shell=document.querySelector('main textarea').closest('.ly-composer'),r=shell.getBoundingClientRect(),pills=[...document.querySelectorAll('.ly-composer button[aria-label^="移除会话引用："]')];return {width:innerWidth,shell:{left:r.left,right:r.right},pills:pills.map(p=>{const b=p.getBoundingClientRect(),s=p.querySelector('span');return {left:b.left,right:b.right,titleWidth:s.clientWidth,fullTitleWidth:s.scrollWidth,overflow:getComputedStyle(s).overflow,icons:[...p.querySelectorAll('svg')].map(icon=>icon.getBoundingClientRect().width)};}),foreground:getComputedStyle(pills[0]).color,background:getComputedStyle(pills[0]).backgroundColor};})()`);
 			t.diagnostic(JSON.stringify({ theme, ...bounds }));
 			assert.equal(bounds.pills.length, 2);
 			assert.ok(bounds.shell.left >= 0 && bounds.shell.right <= width);
@@ -105,7 +134,7 @@ test("same-title references survive draft switching and fit dark, light and narr
 	assert.deepEqual(sent.sessionRefs?.map((ref) => ref.id).sort(), ["qa-long", "qa-short"]);
 	assert.deepEqual(sent.sessionRefs?.map((ref) => ref.title), [REFERENCE_TITLE, REFERENCE_TITLE]);
 	assert.ok(requests.some((request) => { const raw = JSON.stringify(request); return raw.includes("session://qa-long") && raw.includes("session://qa-short"); }));
-	assert.equal(await app.evaluate(`document.querySelectorAll(${JSON.stringify(capsules)}).length`), 0);
+	assert.equal(await app.evaluate(capsuleCount), 0);
 	await shot("reference-sent");
 });
 
@@ -122,7 +151,7 @@ test("real ask_user returns choices and custom answers to their own pending sess
 	assert.equal(requests.length, aRequests, "switching sessions does not answer the pending tool");
 	const bBefore = (await snapshot("qa-short")).messages.filter((message) => message.role === "user").length;
 	await input("ASK_CUSTOM"); await enter();
-	await until(`document.querySelector('input[aria-label="自定义回答"]')`);
+	await until(`Boolean(document.querySelector('input[aria-label="自定义回答"]'))`);
 	await appearance("light", 375);
 	const question = await app.evaluate<{ left: number; right: number; width: number; inputs: number }>(`(()=>{const e=document.querySelector('input[aria-label="自定义回答"]').closest('.ly-glass'),r=e.getBoundingClientRect();return {left:r.left,right:r.right,width:innerWidth,inputs:e.querySelectorAll('input').length};})()`);
 	assert.ok(question.left >= 0 && question.right <= question.width); assert.equal(question.inputs, 1); t.diagnostic(JSON.stringify(question));
@@ -130,14 +159,14 @@ test("real ask_user returns choices and custom answers to their own pending sess
 	await appearance("dark", 1280); await session("qa-long");
 	await until(`[...document.querySelectorAll('button')].some(e=>e.textContent==='更新实现')`);
 	await app.evaluate(`[...document.querySelectorAll('button')].find(e=>e.textContent==='更新实现').setAttribute('data-question-choice','')`);
-	await click("[data-question-choice]");
+	await click("choice");
 	await session("qa-short");
-	await until(`document.querySelector('input[aria-label="自定义回答"]')`);
+	await until(`Boolean(document.querySelector('input[aria-label="自定义回答"]'))`);
 	const custom = "先保留草稿，完成验证再更新。";
-	await input(custom, 'input[aria-label="自定义回答"]');
-	await click('input[aria-label="自定义回答"] + button');
+	await input(custom, "custom");
+	await click("submitCustom");
 	await until(`!document.querySelector('input[aria-label="自定义回答"]') && !document.querySelector('button[aria-label="停止"]')`);
-	for (const [id, answer, count] of [["qa-long", "更新实现", aBefore], ["qa-short", custom, bBefore]] satisfies Array<[string, string, number]>) {
+	for (const [id, answer, count] of [["qa-long", "更新实现", aBefore], ["qa-short", custom, bBefore]] satisfies Array<[SessionId, string, number]>) {
 		const state = await snapshot(id);
 		assert.equal(state.messages.filter((message) => message.role === "user").length, count + 1, "answering does not inject another user prompt");
 		const result = state.messages.findLast((message) => message.role === "toolResult" && message.toolName === "ask_user");
