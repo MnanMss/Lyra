@@ -362,6 +362,7 @@ export interface AppState {
   archiveProjectSessions(path: string): Promise<void>;
   newSession(): Promise<void>;
   openSession(meta: SessionMeta): Promise<void>;
+	openSessionById(id: string): Promise<boolean>;
   deleteSession(meta: SessionMeta): Promise<void>;
   setSessionArchived(meta: SessionMeta, archived: boolean): Promise<void>;
   deleteArchivedSessions(): Promise<void>;

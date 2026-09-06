@@ -10,6 +10,7 @@
 /** A toolbar button, and the gap after it. Shared so what sits beside one can clear it. */
 import { shortcutLabel } from "../../ui/keyboard.ts";
 import { useApp } from "../../store/index.ts";
+import { unreadActivity } from "../../lib/session-notifications.ts";
 
 export const TOOLBAR_BUTTON = 28;
 export const TOOLBAR_GAP = 10;
@@ -48,17 +49,15 @@ export function WindowControls({
 	/** Filled in, for the compact layout where the sidebar is a drawer that is currently over you. */
 	active?: boolean;
 }) {
-	const hasUnread = useApp((s) => {
-		if (navOpen) return false;
-		return Object.entries(s.activity).some(([id, act]) => (act === "done" || act === "waiting") && id !== s.activeSessionId);
-	});
+	const unread = useApp((s) => navOpen ? null : unreadActivity(s.activity, s.activeSessionId));
+	const status = unread === "waiting" ? "有任务等待处理" : unread === "failed" ? "有任务执行失败" : unread === "done" ? "有任务已完成" : "";
 	return (
 		<>
-			<ToolbarButton label={navOpen ? "隐藏侧边栏 ⌘B" : "显示侧边栏 ⌘B"} onClick={onToggleNav} active={active}>
+			<ToolbarButton label={navOpen ? "隐藏侧边栏 ⌘B" : `显示侧边栏${status ? ` · ${status}` : ""} ⌘B`} onClick={onToggleNav} active={active}>
 				<span className="relative flex items-center justify-center">
 					<SidebarIcon open={navOpen} />
-					{hasUnread && (
-						<span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-ok shadow-sm" />
+					{unread && (
+						<span aria-hidden="true" className={`absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full ${unread === "waiting" ? "bg-accent" : unread === "failed" ? "bg-danger" : "bg-ok"}`} />
 					)}
 				</span>
 			</ToolbarButton>

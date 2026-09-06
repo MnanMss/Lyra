@@ -117,6 +117,26 @@ export function sessionSlice(set: Set, get: Get) {
   },
 
 
+	async openSessionById(id: string) {
+		const epoch = get().selectionEpoch;
+		let target = get().sessions.find((session) => session.id === id);
+		if (!target) {
+			try {
+				const sessions = await bridge.sessions.list();
+				// A cold notification lookup must not steal a newer navigation choice.
+				if (get().selectionEpoch !== epoch) return false;
+				target = get().sessions.find((session) => session.id === id) ?? sessions.find((session) => session.id === id);
+				if (target && !get().sessions.some((session) => session.id === id)) set({ sessions: [...get().sessions, target] });
+			} catch (cause) {
+				get().notify(`无法打开会话：${cause instanceof Error ? cause.message : String(cause)}`, "error");
+				return false;
+			}
+		}
+		if (!target) { get().notify("会话已不存在", "warn"); return false; }
+		await get().openSession(target);
+		return true;
+	},
+
   async openSession(meta: SessionMeta) {
     flushCoalesced();
     /*
@@ -183,6 +203,7 @@ export function sessionSlice(set: Set, get: Get) {
        * being looked at.
        */
       activity: readOutcome(get().activity, meta.id),
+			notices: get().notices.filter((notice) => notice.sessionId !== meta.id),
       sessionCache: prune(cache, meta.id),
 			selectionEpoch: get().selectionEpoch + 1,
       activeSessionId: meta.id,

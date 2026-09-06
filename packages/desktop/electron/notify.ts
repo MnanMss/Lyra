@@ -6,6 +6,8 @@
  * focuses the window, navigating directly to the conversation.
  */
 
+import type { AgentEvent } from "@lyra/core";
+
 export interface NotificationInstance {
 	show(): void;
 	on(event: "click", listener: () => void): void;
@@ -20,6 +22,16 @@ export interface NeedAssistanceDetails {
 	sessionId: string;
 	title?: string;
 	question?: string;
+	kind?: "question" | "approval";
+}
+
+/** All pending decisions need attention while their conversation is out of view. */
+export function notifyAgentEvent(sessionId: string, event: AgentEvent, title?: string): void {
+	if (event.type === "agent_end" && event.reason === "done") notifyTaskDone({ sessionId, title });
+	if (event.type === "approval_request") {
+		const question = event.kind === "interactive" || event.subject === "ask_user";
+		notifyNeedAssistance({ sessionId, title, kind: question ? "question" : "approval", question: question ? event.detail || event.reason : event.title });
+	}
 }
 
 export interface WindowLike {
@@ -105,16 +117,8 @@ export function notifyNeedAssistance(details: NeedAssistanceDetails): void {
 	const question = details.question?.trim().replace(/\s+/g, " ");
 	const questionSummary = question ? (question.length > 80 ? `${question.slice(0, 77)}...` : question) : undefined;
 
-	let body: string;
-	if (sessionTitle && questionSummary) {
-		body = `「${sessionTitle}」模型需要协助：${questionSummary}`;
-	} else if (sessionTitle) {
-		body = `「${sessionTitle}」模型需要协助`;
-	} else if (questionSummary) {
-		body = `模型需要协助：${questionSummary}`;
-	} else {
-		body = "模型需要协助";
-	}
+	const action = details.kind === "approval" ? "等待批准" : "等待回复";
+	const body = `${sessionTitle ? `「${sessionTitle}」` : ""}${action}${questionSummary ? `：${questionSummary}` : ""}`;
 
 	const icon = deps.appIcon();
 	const notification = deps.createNotification({
@@ -125,9 +129,7 @@ export function notifyNeedAssistance(details: NeedAssistanceDetails): void {
 	});
 
 	notification.on("click", () => {
-		deps.reveal(() => {
-			deps.sendTrayCommand(`open-session:${details.sessionId}`);
-		});
+		deps.sendTrayCommand(`open-session:${details.sessionId}`);
 	});
 
 	notification.show();

@@ -18,7 +18,7 @@
  * the pointer.
  */
 
-import { ArrowRight, CircleAlert, Info, MessageCirclePlus, TriangleAlert, X } from "lucide-react";
+import { CircleAlert, Info, MessageCirclePlus, TriangleAlert, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useApp } from "../../store/index.ts";
@@ -42,8 +42,7 @@ export function Toaster() {
 	const remove = useApp((s) => s.dismissNotice);
 	const newSession = useApp((s) => s.newSession);
 	const setComposerDraft = useApp((s) => s.setComposerDraft);
-	const openSession = useApp((s) => s.openSession);
-	const sessions = useApp((s) => s.sessions);
+	const openSessionById = useApp((s) => s.openSessionById);
 	/**
 	 * Hand an error to a fresh conversation, already written up, and stop there.
 	 *
@@ -212,16 +211,13 @@ export function Toaster() {
 							<button
 								type="button"
 								onClick={() => {
-									const target = sessions.find((s) => s.id === group.sessionId);
-									if (target) void openSession(target);
-									dismiss(group);
+									if (group.sessionId) void openSessionById(group.sessionId).then((opened) => { if (opened) dismiss(group); });
 								}}
 								className="flex h-[18px] shrink-0 items-center gap-1 rounded px-1 text-caption text-accent transition-colors hover:bg-card-hover"
 								data-ly-tip="跳转到该会话"
 								aria-label="跳转到该会话"
 							>
 								<span>查看</span>
-								<ArrowRight size={11} strokeWidth={2} />
 							</button>
 						)}
 						{/*
@@ -232,7 +228,7 @@ export function Toaster() {
 						 * would be a button nobody presses. An error is the case where the next thing
 						 * the user wants is an explanation.
 						 */}
-						{group.level === "error" && (
+						{group.level === "error" && !group.sessionId && (
 							<button
 								type="button"
 								onClick={() => {

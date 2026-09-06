@@ -52,7 +52,7 @@ export function SessionStatus({ activity }: { activity: SessionActivity | null }
 				 */
 				<span className="ly-pulse block h-[7px] w-[7px] rounded-full bg-accent" />
 			) : activity === "done" ? (
-				<span className="ly-done-bloom block h-[7px] w-[7px] rounded-full bg-ok" />
+				<span className="block h-[7px] w-[7px] rounded-full bg-ok" />
 			) : activity === "failed" ? (
 				<span className="block h-[7px] w-[7px] rounded-full bg-danger" />
 			) : (

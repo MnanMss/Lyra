@@ -33,6 +33,7 @@ import type { AppState } from "./index.ts";
 import { settleTail } from "../lib/transcript.ts";
 import { bridge } from "../services/index.ts";
 import { sessionTitle } from "../lib/session-title.ts";
+import { completionNotice } from "../lib/session-notifications.ts";
 
 type Get = () => AppState;
 type Set = (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void;
@@ -48,6 +49,7 @@ const RECONNECTED = new Set<AgentEvent["type"]>([
 ]);
 
 export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, get: Get): void {
+	const completion = completionNotice(event, get().activity[sessionId] ?? null);
   recordReadEvent(sessionId, event);
   /*
    * Every conversation's state, not just the one on screen.
@@ -182,6 +184,10 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
   }
 
   if (sessionId !== get().activeSessionId) {
+		if (completion) {
+			const target = get().sessions.find((session) => session.id === sessionId);
+			get().notify(`${target ? `「${sessionTitle(target.title)}」` : "任务"}${completion.text}`, completion.level, sessionId);
+		}
     const cached = get().sessionCache[sessionId];
     if (cached) {
       const next = cachedEvent(cached, event);
@@ -201,18 +207,8 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
     if (event.type === "agent_end" || event.type === "turn_end") {
       void bridge.sessions
         .list()
-        .then((sessions) => {
-          set({ sessions });
-          if (event.type === "agent_end" && event.reason !== "aborted") {
-            const target = sessions.find((s) => s.id === sessionId);
-            const name = target ? sessionTitle(target.title) : "会话";
-            if (event.reason === "done") {
-              get().notify(`会话「${name}」已完成`, "info", sessionId);
-            } else if (event.reason === "error" || event.reason === "max_turns") {
-              get().notify(`会话「${name}」执行失败`, "error", sessionId);
-            }
-          }
-        });
+				.then((sessions) => set({ sessions }))
+				.catch((cause: unknown) => get().notify(`会话列表刷新失败：${cause instanceof Error ? cause.message : String(cause)}`, "error"));
     }
     return;
   }
@@ -459,7 +455,7 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
       });
       void bridge.sessions
         .list()
-        .then((sessions) => set({ sessions }));
+				.then((sessions) => set({ sessions }));
       break;
     }
   }

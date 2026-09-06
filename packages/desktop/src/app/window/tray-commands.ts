@@ -23,14 +23,12 @@ export function useTrayCommands(): void {
 			/*
 			 * The one command with a subject: which conversation to open.
 			 *
-			 * Matched before the switch because it is a prefix rather than a name. The menu holds
-			 * ids read from the same store this list comes from, so a miss means the conversation
-			 * was deleted between the menu opening and the click — nothing to do but ignore it.
+			 * A newly revealed window may still be loading its list. Resolve by ID through the
+			 * same path as in-app notifications instead of silently losing a cold click.
 			 */
 			if (command.startsWith("open-session:")) {
 				const id = command.slice("open-session:".length);
-				const meta = app.sessions.find((session) => session.id === id);
-				if (meta) void app.openSession(meta);
+				void app.openSessionById(id);
 				return;
 			}
 
