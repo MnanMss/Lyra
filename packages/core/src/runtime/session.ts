@@ -108,6 +108,7 @@ export class AgentSession {
 	private pendingResume: Promise<void> | null = null;
 	private acceptingPrompt = false;
 	private abortEpoch = 0;
+	private activePrompt: Promise<void> | null = null;
 	private steering: Message[] = [];
 	/**
 	 * 说了「等这一轮做完再说」的那些消息。
@@ -650,7 +651,7 @@ export class AgentSession {
 		// Reserve the turn before the first disk write; another submission must queue during it.
 		this.acceptingPrompt = true;
 		const epoch = this.abortEpoch;
-		try {
+		const accept = async () => {
 		await this.cancelPendingPrompt();
 		await this.log.commit(message);
 		await this.emit({ type: "message_start", message });
@@ -665,7 +666,10 @@ export class AgentSession {
 		if (this.abortEpoch !== epoch) return;
 		await this.run(options.thinking);
 		await this.drainPending();
-		} finally { this.acceptingPrompt = false; void this.tasks.drain(); }
+		};
+		this.activePrompt = accept();
+		try { await this.activePrompt; }
+		finally { this.activePrompt = null; this.acceptingPrompt = false; void this.tasks.drain(); }
 	}
 
 	/**
@@ -861,9 +865,8 @@ export class AgentSession {
 		await this.cancelTitleSummary();
 		if (this.running) {
 			this.abort();
-			if (this.activeTurn) {
-				await this.activeTurn.catch(() => {});
-			}
+			// Acceptance writes and follow-up draining also own the history, before/after driveTurn.
+			await (this.activePrompt ?? this.pendingResume)?.catch(() => {});
 		}
 		if (!(await this.log.truncateFrom(messageIndex))) {
 			throw new Error(`Failed to truncate message at index ${messageIndex}`);

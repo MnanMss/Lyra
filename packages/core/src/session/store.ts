@@ -265,7 +265,14 @@ export class SessionStore implements SessionStorage {
 	async load(
 		projectId: string,
 		sessionId: string,
-	): Promise<{ meta: SessionMeta; messages: Message[]; entries: { seq: number; message: Message }[]; compactions: number[]; commandRuns?: CommandRun[]; compaction: Boundary | null } | null> {
+	): Promise<{
+		meta: SessionMeta;
+		messages: Message[];
+		entries: { seq: number; message: Message }[];
+		compactions: number[];
+		commandRuns?: CommandRun[];
+		compaction: Boundary | null;
+	} | null> {
 		let meta: SessionMeta | null = null;
 		// Kept with their sequence numbers so a truncate record can drop the right tail.
 		let entries: { seq: number; message: Message }[] = [];
@@ -336,7 +343,14 @@ export class SessionStore implements SessionStorage {
 		}
 		// Seed the append queue's view so a reopened session keeps numbering where it left off.
 		this.latestMeta.set(this.keyFor(meta), meta);
-		return { meta, messages, entries, compactions, compaction, commandRuns: [...commandRuns.values()].map((entry) => entry.run) };
+		return {
+			meta,
+			messages,
+			entries,
+			compactions,
+			compaction,
+			commandRuns: [...commandRuns.values()].map((entry) => entry.run),
+		};
 	}
 
 	// -------------------------------------------------------------------------
@@ -431,7 +445,7 @@ export class SessionStore implements SessionStorage {
 		messageIndex: number,
 	): Promise<{ meta: SessionMeta; messages: Message[] } | null> {
 		const loaded = await this.load(projectId, sessionId);
-		if (!loaded || messageIndex < 0 || messageIndex >= loaded.messages.length) return null;
+		if (!loaded || !Number.isInteger(messageIndex) || messageIndex < 0 || messageIndex >= loaded.messages.length) return null;
 
 		/*
 		 * Turn atomicity: never cut inside a tool-call turn.
@@ -442,25 +456,9 @@ export class SessionStore implements SessionStorage {
 		while (targetIndex > 0 && loaded.messages[targetIndex]?.role === "toolResult") {
 			targetIndex -= 1;
 		}
-		// If targetIndex is inside or at the assistant message that spawned the tool calls,
-		// also drop the assistant message itself so no orphaned tool calls remain.
-		if (
-			targetIndex >= 0 &&
-			loaded.messages[targetIndex]?.role === "assistant" &&
-			loaded.messages[targetIndex]?.content.some((c) => c.type === "toolCall")
-		) {
-			// Check if all its tool results are within targetIndex; if not all results follow,
-			// or if we truncated into the results run, we must step back before this assistant.
-			if (messageIndex > targetIndex) {
-				targetIndex = Math.max(0, targetIndex);
-			}
-		}
 
-		// The seq to keep is the one just before the record carrying the first doomed message.
-		// Any events emitted before this message arrived belong to the retained turns.
-		const cutoff = targetIndex < loaded.entries.length
-			? Math.max(0, loaded.entries[targetIndex].seq - 1)
-			: loaded.meta.seq;
+		// The seq to keep is the one just before the record carrying the doomed message.
+		const cutoff = loaded.entries[targetIndex].seq - 1;
 
 		const meta = await this.append(loaded.meta, { type: "truncate", afterSeq: cutoff });
 		const messages = loaded.messages.slice(0, targetIndex);
