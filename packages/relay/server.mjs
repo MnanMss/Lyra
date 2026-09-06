@@ -401,5 +401,5 @@ function encode(payload, opcode = 0x1) {
 }
 
 server.listen(PORT, "0.0.0.0", () => {
-	process.stdout.write(`lyra-relay listening on :${PORT}\n`);
+	process.stdout.write(`lyra-relay listening on :${server.address().port}\n`);
 });

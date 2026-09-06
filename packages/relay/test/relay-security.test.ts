@@ -8,26 +8,29 @@ import { WebSocket } from "ws";
 
 const SERVER = new URL("../server.mjs", import.meta.url);
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
-let nextPort = 48900 + (process.pid % 150) * 8;
 
 async function relay(t: TestContext): Promise<number> {
-	const port = nextPort++;
+	// Fixed high ports may belong to Windows' excluded ranges; let the OS allocate one.
 	const child: ChildProcess = spawn(process.execPath, [fileURLToPath(SERVER)], {
-		env: { ...process.env, PORT: String(port) },
+		env: { ...process.env, PORT: "0" },
 		stdio: "pipe",
 	});
 	t.after(() => { child.kill("SIGKILL"); });
-	await new Promise<void>((resolve, reject) => {
-		const timer = setTimeout(() => reject(new Error("Relay did not start")), 10_000);
+	let output = "";
+	child.stderr?.on("data", (chunk: Buffer) => { output = (output + chunk.toString()).slice(-8192); });
+	return new Promise<number>((resolve, reject) => {
+		const timer = setTimeout(() => reject(new Error(`Relay did not start: ${output}`)), 10_000);
 		child.once("error", (error) => { clearTimeout(timer); reject(error); });
-		child.once("exit", (code) => { clearTimeout(timer); reject(new Error(`Relay exited (${code})`)); });
+		child.once("close", (code, signal) => { clearTimeout(timer); reject(new Error(`Relay exited (${code}, ${signal}): ${output}`)); });
+		let stdout = "";
 		child.stdout?.on("data", (chunk: Buffer) => {
-			if (!chunk.toString().includes("listening")) return;
+			stdout = (stdout + chunk.toString()).slice(-8192);
+			const match = /listening on :(\d+)\n/.exec(stdout);
+			if (!match) return;
 			clearTimeout(timer);
-			resolve();
+			resolve(Number(match[1]));
 		});
 	});
-	return port;
 }
 
 async function desktop(t: TestContext, port: number, room: string, assetKey: string) {

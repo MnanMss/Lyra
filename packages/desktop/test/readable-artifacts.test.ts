@@ -9,7 +9,8 @@ test("file access grants only the exact contextual artifact, never its directory
 	try {
 		const memory=join(root,"MEMORY.md"),secret=join(root,"settings.json");await writeFile(memory,"lesson");await writeFile(secret,"private");
 		assert.equal(readableArtifact(memory),null);grantArtifactRead(memory);
-		assert.equal(readableArtifact(memory),await realpath(memory));assert.equal(readableArtifact(root),null);assert.equal(readableArtifact(secret),null);
+		const granted=readableArtifact(memory);assert.ok(granted);
+		assert.equal(await realpath(granted),await realpath(memory));assert.equal(readableArtifact(root),null);assert.equal(readableArtifact(secret),null);
 		if(process.platform!=="win32") { await unlink(memory);await symlink(secret,memory);assert.equal(readableArtifact(memory),null); }
 	} finally {await rm(root,{recursive:true,force:true});}
 });

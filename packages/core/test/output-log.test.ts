@@ -24,9 +24,9 @@ test("the bash tool keeps raw output beyond 120k characters and links it from th
 	const root = await mkdtemp(join(tmpdir(), "lyra-bash-output-"));
 	try {
 		await writeFile(join(root, "generate.cjs"), `process.stdout.write('x'.repeat(150000) + 'RAW_OUTPUT_TAIL');`);
-		const result = await bashTool.execute({ command: `"${process.execPath}" generate.cjs` }, { cwd: root, sessionId: "test-output", state: new Map(), scratchDir: join(root, "scratch"), sandboxMode: "danger-full-access" });
+		const result = await bashTool.execute({ command: "node generate.cjs" }, { cwd: root, sessionId: "test-output", state: new Map(), scratchDir: join(root, "scratch"), sandboxMode: "danger-full-access" });
 		assert.ok(!(Symbol.asyncIterator in result));
-		assert.equal(result.isError, false);
+		assert.equal(result.isError, false, JSON.stringify(result));
 		const details = result.details;
 		assert.ok(details && typeof details === "object" && "outputPath" in details && typeof details.outputPath === "string");
 		assert.equal(await readFile(details.outputPath, "utf8"), "x".repeat(150000) + "RAW_OUTPUT_TAIL");
