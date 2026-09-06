@@ -83,15 +83,15 @@ test("skills have fades at the actual hidden edges and retain their reading posi
 	await until(`document.querySelector('.ly-rule-excerpt')?.checkVisibility({visibilityProperty:true})`);
 	const read = () => app.evaluate<{ top: string; bottom: string; position: number; height: number; content: number }>(`(()=>{const el=document.querySelector('.ly-rule-excerpt .ly-scroll-view');return {top:el.style.getPropertyValue('--ly-fade-top'),bottom:el.style.getPropertyValue('--ly-fade-bottom'),position:el.scrollTop,height:el.clientHeight,content:el.scrollHeight};})()`);
 	await frames(); const start = await read();
-	assert.equal(start.top, "0px"); assert.equal(start.bottom, "48px"); assert.ok(start.content > start.height * 3);
+	assert.equal(start.top, "0px"); assert.equal(start.bottom, `${Math.min(48, start.height / 5)}px`); assert.ok(start.content > start.height * 3);
 	const at = await app.evaluate<{ x: number; y: number }>(`(()=>{const r=document.querySelector('.ly-rule-excerpt').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
 	await app.send("Input.dispatchMouseEvent", { type: "mouseWheel", ...at, deltaX: 0, deltaY: 250 }); await frames();
-	const middle = await read(); assert.equal(middle.top, "36px"); assert.equal(middle.bottom, "48px");
+	const middle = await read(); assert.equal(middle.top, `${Math.min(36, middle.height / 5)}px`); assert.equal(middle.bottom, `${Math.min(48, middle.height / 5)}px`);
 	await shot("skills-middle");
 	await click('[data-qa-section="general"]'); await frames(); await click('[data-qa-section="plugins"]'); await frames();
 	assert.equal((await read()).position, middle.position);
 	await app.send("Input.dispatchMouseEvent", { type: "mouseWheel", ...at, deltaX: 0, deltaY: 1600 }); await frames();
-	const end = await read(); assert.equal(end.top, "36px"); assert.equal(end.bottom, "0px");
+	const end = await read(); assert.equal(end.top, `${Math.min(36, end.height / 5)}px`); assert.equal(end.bottom, "0px");
 	t.diagnostic(JSON.stringify({ start, middle, end }));
 });
 

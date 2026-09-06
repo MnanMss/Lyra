@@ -74,6 +74,7 @@ interface Sample {
 }
 interface Measurement {
 	frames: Sample[];
+	motion: { setting: string | null; systemReduced: boolean };
 	resizes: number;
 	retained: Record<string, boolean>;
 	scrollBefore: number;
@@ -100,8 +101,13 @@ async function measure(kind: string, restore: boolean): Promise<Measurement> {
 			out.push({interval:now-previous,left:box.left,top:box.top,width:box.width,height:box.height,layoutWidth:pane.offsetWidth,layoutHeight:pane.offsetHeight}); previous=now;
 		}
 		observer.disconnect();tasks.disconnect();loaf.disconnect();
-		return {frames:out,resizes,retained:Object.fromEntries(peers.map(([kind,old,content])=>[kind,old===document.querySelector('[data-dock-pane="'+kind+'"]')&&(!content||content.isConnected)])),scrollBefore,scrollAfter:scroller?.scrollTop??0,longTasks,longFrames};
+		return {frames:out,motion:{setting:document.documentElement.dataset.reduceMotion??null,systemReduced:matchMedia('(prefers-reduced-motion: reduce)').matches},resizes,retained:Object.fromEntries(peers.map(([kind,old,content])=>[kind,old===document.querySelector('[data-dock-pane="'+kind+'"]')&&(!content||content.isConnected)])),scrollBefore,scrollAfter:scroller?.scrollTop??0,longTasks,longFrames};
 	})()`);
+}
+
+// A runner's work area can stack the dock vertically without changing any pane's width.
+function geometry(frame: Sample): string {
+	return [frame.left, frame.top, frame.width, frame.height].map(Math.round).join(",");
 }
 
 test("fullscreen and restore retain heavy pane contents and resize each surface once", async (t) => {
@@ -110,7 +116,7 @@ test("fullscreen and restore retain heavy pane contents and resize each surface 
 		for (const restore of [false, true]) {
 			const result = await measure(kind, restore);
 			measurements.push({ kind, restore, ...result });
-			t.diagnostic(JSON.stringify({ kind, restore, resizes: result.resizes, retained: result.retained, maxFrame: Math.max(...result.frames.map(f=>f.interval)), longTasks: result.longTasks }));
+			t.diagnostic(JSON.stringify({ kind, restore, motion: result.motion, resizes: result.resizes, retained: result.retained, maxFrame: Math.max(...result.frames.map(f=>f.interval)), longTasks: result.longTasks }));
 		}
 	}
 	const directory = process.env.LYRA_E2E_ARTIFACTS;
@@ -121,9 +127,10 @@ test("fullscreen and restore retain heavy pane contents and resize each surface 
 		await writeFile(join(directory, "dock-fullscreen.png"), Buffer.from(shot.data, "base64"));
 	}
 	for (const result of measurements) {
+		assert.equal(result.motion.setting, "off", "normal motion uses an explicit fixture preference rather than the runner's accessibility setting");
 		assert.ok(Object.values(result.retained).every(Boolean), `${result.kind} restore=${result.restore}: pane contents were unmounted: ${JSON.stringify(result.retained)}`);
 		assert.ok(result.resizes <= 3, `${result.kind} restore=${result.restore}: ${result.resizes} layouts during one transition`);
-		assert.ok(new Set(result.frames.map(frame => Math.round(frame.width))).size > 2, "the pane visibly travels instead of cutting to its destination");
+		assert.ok(new Set(result.frames.map(geometry)).size > 2, `${result.kind} restore=${result.restore}: the pane visibly travels instead of cutting to its destination`);
 	}
 });
 
@@ -193,9 +200,10 @@ test("a large editable file keeps its editor and unsaved text; reduced motion la
 	try {
 		for (const restore of [false, true]) {
 			const result = await measure("file", restore);
-			assert.equal(new Set(result.frames.map(frame => Math.round(frame.width))).size, 1);
+			assert.equal(result.motion.setting, "on");
+			assert.equal(new Set(result.frames.map(geometry)).size, 1);
 		}
 	} finally {
-		await app.evaluate(`window.lyra.settings.get().then(s=>window.lyra.settings.save({...s,appearance:{...s.appearance,reduceMotion:'system'}}))`);
+		await app.evaluate(`window.lyra.settings.get().then(s=>window.lyra.settings.save({...s,appearance:{...s.appearance,reduceMotion:'off'}}))`);
 	}
 });

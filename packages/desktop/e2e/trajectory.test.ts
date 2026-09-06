@@ -28,7 +28,24 @@ before(async () => {
 	app = await startApp({ port: 9618, seed: async home => { await seedInteractions(home, address.port); await seedTrajectory(home); } });
 });
 after(async () => { await app?.stop(); await closeListeningServer(server); });
-afterEach(async t => { if (!t.passed) { await shot("failure"); t.diagnostic(await app.evaluate(`document.body.innerText.slice(-7000)`)); } });
+afterEach(async t => { if (!t.passed) { t.diagnostic(await trajectoryGeometry()); await shot("failure"); t.diagnostic(await app.evaluate(`document.body.innerText.slice(-7000)`)); } });
+
+async function trajectoryGeometry(): Promise<string> {
+	return app.evaluate(`JSON.stringify((()=>{
+		const first=document.querySelector('[data-dock-pane="trajectory"] .ly-scroll-view');
+		const geometry=e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return {visible:e.checkVisibility(),style:e.getAttribute('style'),display:s.display,visibility:s.visibility,opacity:s.opacity,height:s.height,minHeight:s.minHeight,maxHeight:s.maxHeight,flexShrink:s.flexShrink,overflowY:s.overflowY,overflowAnchor:s.overflowAnchor,top:e.scrollTop,scrollHeight:e.scrollHeight,clientHeight:e.clientHeight,offsetHeight:e.offsetHeight,rect:{top:r.top,bottom:r.bottom,width:r.width,height:r.height}};};
+		return {
+			label:'trajectory DOM geometry',
+			activeElement:document.activeElement?.outerHTML.slice(0,400),
+			panes:[...document.querySelectorAll('[data-dock-pane="trajectory"]')].map(p=>({geometry:geometry(p),inert:p.inert,count:p.querySelector('[data-trace-count]')?.textContent,scrollers:[...p.querySelectorAll('.ly-scroll-view')].map(s=>({first:s===first,containsList:Boolean(s.querySelector('[data-trace-list]')),geometry:geometry(s)}))})),
+			lists:[...document.querySelectorAll('[data-trace-list]')].map(list=>{
+				const viewport=list.closest('.ly-scroll-view'),rows=[...list.querySelectorAll('[role="listitem"]')];
+				const row=e=>e?{position:e.getAttribute('aria-posinset'),total:e.getAttribute('aria-setsize'),style:e.getAttribute('style'),geometry:geometry(e)}:null;
+				return {geometry:geometry(list),viewportIsFirst:viewport===first,viewport:viewport?geometry(viewport):null,renderedRows:rows.length,first:row(rows[0]),last:row(rows.at(-1)),ancestors:[...function*(e){for(let n=0;e&&n<6;n++,e=e.parentElement)yield e;}(list.parentElement)].map(e=>({tag:e.tagName,className:e.className,geometry:geometry(e)}))};
+			}),
+		};
+	})())`);
+}
 
 async function until(expression: string) {
 	await app.evaluate(`new Promise((resolve,reject)=>{let n=300;const f=()=>{if(${expression})resolve();else if(--n)requestAnimationFrame(f);else reject(new Error(${JSON.stringify(expression)}));};f();})`);
@@ -121,6 +138,7 @@ test("7500+ trajectory entries remain bounded; full output search and inspector 
 	await openPane("轨迹");
 	await until(`Boolean(document.querySelector('[data-trace-count] [data-ly-tip="2500 次工具"]'))`);
 	const baseline = await app.evaluate(`(()=>{const s=document.querySelector('[data-dock-pane="trajectory"] .ly-scroll-view');return {rows:document.querySelectorAll('[data-trace-entry]').length,top:s.scrollTop,height:s.scrollHeight};})()`);
+	t.diagnostic(await trajectoryGeometry());
 	assert.ok(baseline.rows < 55 && baseline.top > 200000, JSON.stringify(baseline));
 	const sample = await app.evaluate(`new Promise(resolve=>{const s=document.querySelector('[data-dock-pane="trajectory"] .ly-scroll-view');const out=[];let i=0,prev=performance.now();const f=()=>{const now=performance.now();out.push({ms:now-prev,rows:document.querySelectorAll('[data-trace-entry]').length});prev=now;s.scrollTop=(s.scrollHeight-s.clientHeight)*(1-i/60);if(++i<60)requestAnimationFrame(f);else resolve(out);};requestAnimationFrame(f);})`);
 	assert.ok(sample.every((frame: {rows: number}) => frame.rows < 55));

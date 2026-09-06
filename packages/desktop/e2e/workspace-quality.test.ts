@@ -3,8 +3,9 @@ import { createServer, type Server, type ServerResponse } from "node:http";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, afterEach, before, test } from "node:test";
-import { closeListeningServer, startApp, type RunningApp } from "./app.ts";
+import { startApp, type RunningApp } from "./app.ts";
 import { seedInteractions } from "./interaction-fixture.ts";
+import { stopWorkspaceFixture } from "./workspace-quality-lifecycle.ts";
 
 let app: RunningApp;
 let server: Server;
@@ -52,10 +53,7 @@ before(async () => {
 		await writeFile(join(memory,"MEMORY.md"),"# 项目记忆\n\nMEMORY_QA: 先检查当前项目的验证脚本。\n");
 	}});
 });
-after(async()=>{
-	if(app) { const jobs=await app.evaluate<{jobs:{id:string}[]}>("window.lyra.services.list('qa-short')").catch(()=>({jobs:[]})); for(const job of jobs.jobs) await app.evaluate(`window.lyra.services.stop('qa-short',${JSON.stringify(job.id)},true)`).catch(()=>{}); await app.stop(); }
-	await closeListeningServer(server);
-});
+after(async(t)=>{ await stopWorkspaceFixture(app, server, (message) => t.diagnostic(message)); });
 afterEach(async(t)=>{if(!t.passed){t.diagnostic(await app.evaluate<string>("document.body.innerText.slice(-4500)")); t.diagnostic(JSON.stringify({step,results})); await shot("workspace-failure");}});
 async function until(expression:string){await app.evaluate(`new Promise((resolve,reject)=>{let n=1200;const f=()=>{if(${expression})resolve();else if(--n)requestAnimationFrame(f);else reject(new Error(${JSON.stringify(expression)}));};f();})`);}
 async function click(selector:string){

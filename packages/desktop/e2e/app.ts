@@ -15,7 +15,7 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { access, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -49,19 +49,24 @@ export async function stopProcessGroup(
 	});
 	if (process.platform === "win32") {
 		// Node's child.kill only terminates the parent on Windows; Electron owns renderer/GPU children.
-		await new Promise<void>((resolve, reject) => {
-			const killer = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore", timeout: 5_000 });
-			killer.once("error", reject);
-			killer.once("exit", (code) => {
-				if (code !== 0 && child.exitCode === null && child.signalCode === null) {
-					reject(new Error(`taskkill failed for test process ${pid} (exit ${code})`));
-				} else resolve();
+		try {
+			await new Promise<void>((resolve, reject) => {
+				const killer = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"], timeout: 5_000 });
+				let output = "";
+				const record = (chunk: Buffer) => { output = (output + chunk.toString()).slice(-8_000); };
+				killer.stdout.on("data", record); killer.stderr.on("data", record);
+				killer.once("error", reject);
+				killer.once("close", (code, signal) => {
+					if (code !== 0 && child.exitCode === null && child.signalCode === null) {
+						reject(new Error(`taskkill failed for test process ${pid} (exit ${code}, signal ${signal}): ${output}`));
+					} else resolve();
+				});
 			});
-		});
-		await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 1_000))]);
-		child.stdout?.destroy();
-		child.stderr?.destroy();
-		child.unref();
+			await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 1_000))]);
+		} finally {
+			// A failed process-tree kill must still release the runner's own pipe handles.
+			child.stdout?.destroy(); child.stderr?.destroy(); child.unref();
+		}
 		return;
 	}
 
@@ -217,6 +222,17 @@ export async function startApp({
 	const home = await mkdtemp(join(tmpdir(), "lyra-e2e-"));
 	try {
 		await seed?.(home);
+		const settingsPath = join(home, "settings.json");
+		const raw = await readFile(settingsPath, "utf8").catch((error: NodeJS.ErrnoException) => {
+			if (error.code === "ENOENT") return "{}";
+			throw error;
+		});
+		const settings: unknown = JSON.parse(raw);
+		if (!settings || typeof settings !== "object" || Array.isArray(settings)) throw new Error("E2E settings must be an object");
+		const appearance = "appearance" in settings ? settings.appearance : {};
+		if (!appearance || typeof appearance !== "object" || Array.isArray(appearance)) throw new Error("E2E appearance must be an object");
+		// Text and animation assertions share defaults across runners; explicit fixtures still win.
+		await writeFile(settingsPath, JSON.stringify({ uiLocale: "zh-CN", ...settings, appearance: { reduceMotion: "off", ...appearance } }));
 	} catch (error) {
 		await rm(home, { recursive: true, force: true });
 		throw error;

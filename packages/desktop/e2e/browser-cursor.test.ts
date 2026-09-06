@@ -111,6 +111,9 @@ test("pointer stays 24 CSS pixels and aligns with real targets across zoom, view
 
 
 test("rounded pointer and click feedback remain visible on light and dark pages in both app themes", async (t) => {
+	const motion = await app.evaluate<{setting:string|null;systemReduced:boolean}>(`({setting:document.documentElement.dataset.reduceMotion??null,systemReduced:matchMedia('(prefers-reduced-motion: reduce)').matches})`);
+	t.diagnostic(JSON.stringify({motion}));
+	assert.equal(motion.setting, "off", "click feedback is measured with animations enabled, independently of the runner's accessibility setting");
 	for (const theme of ["light", "dark"]) {
 		await app.evaluate(`window.lyra.settings.get().then(s=>window.lyra.settings.save({...s,appearance:{...s.appearance,theme:${JSON.stringify(theme)}}}))`);
 		for (const background of ["white", "#22252b"]) {
@@ -119,14 +122,17 @@ test("rounded pointer and click feedback remain visible on light and dark pages 
 			await drive([{name:"browser_act",input:{action:"click",selector:"#target"}}]);
 			const painted=await pixels(`cursor-${theme}-${background === "white" ? "light-page" : "dark-page"}`);
 			const opacity=await app.evaluate<number>(`window.__sampleCursor=false;Math.max(...window.__cursorSamples)`);
-			assert.ok(painted>100,JSON.stringify({theme,background,painted}));assert.ok(opacity>0.2, `click ring opacity ${opacity}`);
 			t.diagnostic(JSON.stringify({theme,background,painted,clickOpacity:opacity}));
+			assert.ok(painted>100,JSON.stringify({theme,background,painted}));assert.ok(opacity>0.2, `click ring opacity ${opacity}`);
 		}
 	}
 	// Media emulation is scoped to a CDP connection, unlike the persistent viewport override.
 	const targets: {type:string;url:string;webSocketDebuggerUrl:string}[] = await (await fetch("http://127.0.0.1:9638/json/list")).json();
 	const mainUrl = await app.evaluate<string>("location.href");
 	const target = targets.find(entry=>entry.type === "page" && entry.url === mainUrl); assert.ok(target);
+	// The preceding cases explicitly enable motion; this case must follow the emulated OS choice.
+	await app.evaluate(`window.lyra.settings.get().then(s=>window.lyra.settings.save({...s,appearance:{...s.appearance,reduceMotion:'system'}}))`);
+	await app.evaluate(`new Promise((resolve,reject)=>{let left=180;const frame=()=>{if(document.documentElement.dataset.reduceMotion==='system')resolve();else if(--left)requestAnimationFrame(frame);else reject(new Error('system motion preference did not apply'));};frame();})`);
 	const socket = new WebSocket(target.webSocketDebuggerUrl);
 	try {
 		await new Promise<void>((resolve,reject)=>{socket.addEventListener("open",()=>resolve(),{once:true});socket.addEventListener("error",()=>reject(new Error("CDP media connection failed")),{once:true});});
@@ -138,6 +144,9 @@ test("rounded pointer and click feedback remain visible on light and dark pages 
 		socket.send(JSON.stringify({id:2,method:"Runtime.evaluate",params:{awaitPromise:true,returnByValue:true,expression:`(async()=>{await window.lyra.agent.prompt('qa-short',[{type:'text',text:'CURSOR_RUN_${run}'}]);await new Promise((resolve,reject)=>{let left=1800;const frame=()=>{if(document.body.innerText.includes('CURSOR_DONE_${run}'))resolve();else if(--left)requestAnimationFrame(frame);else reject(new Error('reduced-motion run did not finish'));};frame();});return {reduced:matchMedia('(prefers-reduced-motion: reduce)').matches,transition:getComputedStyle(document.querySelector('[data-browser-cursor]')).transitionDuration,rings:document.querySelector('[data-browser-click-ring]').getAnimations().length};})()`}}));
 		// The app-wide reduced-motion rule keeps a 0.01ms transition so lifecycle events still fire.
 		assert.deepEqual(await measured,{reduced:true,transition:'1e-05s',rings:0});
-	} finally { socket.close(); }
+	} finally {
+		socket.close();
+		await app.evaluate(`window.lyra.settings.get().then(s=>window.lyra.settings.save({...s,appearance:{...s.appearance,reduceMotion:'off'}}))`);
+	}
 
 });
