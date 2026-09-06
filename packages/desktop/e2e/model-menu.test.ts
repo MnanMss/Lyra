@@ -131,14 +131,25 @@ const UI = `
 	const click = (el) => el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 	const menu = () => document.querySelector('[aria-label="选择模型"]');
 	const openModelMenu = async () => {
-		if (menu()) return menu();
-		const chip = [...document.querySelectorAll('button[aria-haspopup="menu"]')].find((x) =>
-			(x.dataset.lyTip || "").endsWith("上下文"),
-		);
-		if (!chip) throw new Error("no model chip");
-		click(chip);
-		await wait(500);
-		if (!menu()) throw new Error("model menu did not open");
+		if (!menu()) {
+			const chip = [...document.querySelectorAll('button[aria-haspopup="menu"]')].find((x) =>
+				(x.dataset.lyTip || "").endsWith("上下文"),
+			);
+			if (!chip) throw new Error("no model chip");
+			click(chip);
+		}
+		// A timer can expire before the first paint on a busy runner. Measure the settled surface,
+		// including when an earlier test opened it, then let font/ResizeObserver updates commit.
+		const deadline = performance.now() + 5000;
+		while (
+			!menu() || getComputedStyle(menu()).opacity !== "1"
+			|| menu().getAnimations().some(animation => animation.playState !== "finished")
+		) {
+			if (performance.now() > deadline) throw new Error("model menu never finished entering");
+			await new Promise(requestAnimationFrame);
+		}
+		await document.fonts.ready;
+		await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 		return menu();
 	};
 	const row = (id) => menu().querySelector('[data-model="local/' + id + '"]');
@@ -210,7 +221,7 @@ test("a name too long for its row reads itself out when pointed at", async () =>
 	 * a scroll, the menu settling. `animation-name` is the fact itself: either the rule matched and
 	 * the marquee is running, or it did not.
 	 */
-	const box = await ui<{ x: number; y: number; track: boolean }>(`
+	const box = await ui<{ x: number; y: number; track: boolean; settled: boolean }>(`
 		await openModelMenu();
 		const target = row(${JSON.stringify(LONG)});
 		if (!target) throw new Error("the long-named model is not in the menu");
@@ -222,6 +233,7 @@ test("a name too long for its row reads itself out when pointed at", async () =>
 			x: Math.round(rect.left + rect.width / 2),
 			y: Math.round(rect.top + rect.height / 2),
 			track: Boolean(target.querySelector(".ly-marquee-track")),
+			settled: menu().getAnimations().every(animation => animation.playState === "finished"),
 			view: target.closest('.ly-scroll-view').getBoundingClientRect().toJSON(),
 		};
 	`);
@@ -230,6 +242,11 @@ test("a name too long for its row reads itself out when pointed at", async () =>
 	 * The second copy of the text is laid out only when the first one really overflows, so its
 	 * presence is `ScrollText` having measured the row and agreed there is something to scroll to.
 	 */
+	assert.equal(
+		box.settled,
+		true,
+		`pointer coordinates were sampled during the menu entrance: ${JSON.stringify(box)}`,
+	);
 	assert.equal(box.track, true, `the name was not measured as overflowing: ${JSON.stringify(box)}`);
 
 	await pointAt(box.x, box.y);

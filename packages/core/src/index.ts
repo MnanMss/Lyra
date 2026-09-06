@@ -213,7 +213,7 @@ export {
 } from "./runtime/previews.ts";
 
 export type { SubAgentDetail, SubAgentStatus, SubAgentSummary } from "./runtime/sub-agents.ts";
-export { collectRules, collectSkills, type RuleEntry } from "./runtime/session-setup.ts";
+export { collectAgents, collectRules, collectSkills, type RuleEntry } from "./runtime/session-setup.ts";
 export { FOREIGN_USER_SOURCES } from "./capability/providers/foreign.ts";
 export {
 	approveSkill,

@@ -1,3 +1,4 @@
+import { referenceFile } from "../reference-files.ts";
 /**
  * Reading and writing files on the renderer's behalf.
  *
@@ -9,7 +10,8 @@
  * what is opened are the same string — see `resolveInside`.
  */
 
-import { ipcMain } from "electron";
+import { dialog, ipcMain } from "electron";
+import { getWindow } from "../window.ts";
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { documentKind } from "../../shared/document-kind.ts";
 import { readDatabase, readWorkbook, type DocumentData } from "../documents.ts";
@@ -22,6 +24,26 @@ export interface FilesIpcDeps {
 }
 
 export function registerFilesIpc({ projectPath }: FilesIpcDeps): void {
+	ipcMain.handle("files:pick", async (_event, options?: { directory?: boolean; multiple?: boolean }): Promise<string[]> => {
+		const window = getWindow();
+		if (!window) return [];
+		const properties: Array<"openFile" | "openDirectory" | "multiSelections"> = [];
+		if (options?.directory) {
+			properties.push("openDirectory");
+		} else {
+			properties.push("openFile");
+		}
+		if (options?.multiple !== false) {
+			properties.push("multiSelections");
+		}
+		const result = await dialog.showOpenDialog(window, {
+			title: options?.directory ? "选择文件夹" : "选择文件",
+			properties,
+		});
+		if (result.canceled || !result.filePaths.length) return [];
+		return result.filePaths;
+	});
+
 	ipcMain.handle("files:list", async (_event, raw: string): Promise<FileEntry[]> => {
 		const dir = projectPath(raw);
 		if (!dir) return [];
@@ -82,7 +104,7 @@ export function registerFilesIpc({ projectPath }: FilesIpcDeps): void {
 	});
 
 	ipcMain.handle("files:read", async (_event, raw: string): Promise<FileContents | null> => {
-		const path = projectPath(raw);
+		const path = projectPath(raw) ?? await referenceFile(raw);
 		if (!path) return null;
 		const info = await stat(path).catch(() => null);
 		if (!info?.isFile()) return null;

@@ -398,6 +398,37 @@ textarea.ly-composer-text[data-highlighted="true"] {
 	box-decoration-break: clone;
 }
 
+
+.ly-mention-token {
+	color: var(--color-accent);
+	background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+	border-radius: 4px;
+	text-decoration: underline;
+	text-decoration-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+	text-underline-offset: 2px;
+	box-decoration-break: clone;
+}
+
+.ly-mention-menu {
+	opacity: 0;
+	visibility: hidden;
+	transform: translateY(4px);
+	transition: opacity var(--ly-t-quick) var(--ly-e-out), transform var(--ly-t-quick) var(--ly-e-out), visibility var(--ly-t-quick);
+}
+
+.ly-mention-menu[data-open="true"] {
+	opacity: 1;
+	visibility: visible;
+	transform: translateY(0);
+}
+
+.ly-mention-option[aria-selected="true"] .ly-marquee-track {
+	animation: ly-marquee var(--ly-scroll, 8s) linear 300ms infinite;
+}
+
+.ly-mention-option[aria-selected="true"] .ly-fade-edge {
+	--ly-fade-left: 13px;
+}
 .ly-command-hint {
 	/* A placeholder cannot create a line that the native value does not contain. */
 	position: absolute;

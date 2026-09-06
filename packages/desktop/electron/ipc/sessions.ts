@@ -67,7 +67,7 @@ export function registerSessionsIpc({
 	 */
 	const ensureSession = ensureLiveSession;
 
-	ipcMain.handle("sessions:create", async (_event, cwd: string, modelId: string, initial?: { content: UserContent[]; synthetic?: boolean }) => createSession(cwd, modelId, initial));
+	ipcMain.handle("sessions:create", async (_event, cwd: string, modelId: string, initial?: { content: UserContent[]; synthetic?: boolean; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }> }) => createSession(cwd, modelId, initial));
 
 	/**
 	 * Read a transcript without starting anything.
@@ -263,7 +263,7 @@ export function registerSessionsIpc({
 			_event,
 			sessionId: string,
 			content: UserContent[],
-			options?: { synthetic?: boolean; deliver?: "steer" | "followUp"; resumePending?: boolean },
+			options?: { synthetic?: boolean; deliver?: "steer" | "followUp"; resumePending?: boolean; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }> },
 		) => {
 			return promptSession(sessionId, content, options);
 		},
@@ -348,7 +348,7 @@ export function registerSessionsIpc({
 		) => {
 			const session = sessions.get(sessionId);
 			if (!session) return;
-			session.resolveApproval(requestId, decision);
+			if (!session.resolveApproval(requestId, decision)) throw new Error("Invalid or expired approval response");
 			if (decision === "always") {
 				const request = session
 					.listPendingApprovals()

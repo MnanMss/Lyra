@@ -594,6 +594,9 @@ export class AgentSession {
 			 * 唯一需要被区分的时候。
 			 */
 			deliver?: "steer" | "followUp";
+			displayText?: string;
+			skillRef?: { name: string; path?: string; pluginId?: string };
+			sessionRefs?: Array<{ id: string; title: string }>;
 		} = {},
 	): Promise<void> {
 		// A prompt waits for the manual boundary before creating a turn against that history.
@@ -604,6 +607,9 @@ export class AgentSession {
 			timestamp: Date.now(),
 			...(options.origin ? { origin: options.origin } : {}),
 			...(options.synthetic ? { synthetic: true } : {}),
+			...(options.displayText !== undefined ? { displayText: options.displayText } : {}),
+			...(options.skillRef ? { skillRef: options.skillRef } : {}),
+			...(options.sessionRefs?.length ? { sessionRefs: options.sessionRefs } : {}),
 		};
 
 		if (this.running) {
@@ -631,7 +637,7 @@ export class AgentSession {
 		// Names the conversation after its opening line — unless it already has a name someone
 		// chose, which this must not overwrite. See `SessionMeta.titleSetByUser`.
 		if (!this.log.meta.titleSetByUser && this.log.messages.filter((m) => m.role === "user").length === 1) {
-			await this.setTitleFromPrompt(content);
+			await this.setTitleFromPrompt(content, options.displayText === "" ? options.skillRef?.name ?? options.sessionRefs?.[0]?.title ?? "" : options.displayText);
 		}
 
 		if (this.abortEpoch !== epoch) return;
@@ -807,7 +813,7 @@ export class AgentSession {
 		return this.approvals.request(request);
 	}
 
-	resolveApproval(requestId: string, decision: ApprovalDecision): boolean {
+	resolveApproval(requestId: string, decision: unknown): boolean {
 		return this.approvals.resolve(requestId, decision);
 	}
 
@@ -843,8 +849,8 @@ export class AgentSession {
 		await this.prompt(content, options);
 	}
 
-	private async setTitleFromPrompt(content: UserContent[]): Promise<void> {
-		const text = content.find((c) => c.type === "text")?.text ?? "";
+	private async setTitleFromPrompt(content: UserContent[], displayText?: string): Promise<void> {
+		const text = displayText ?? content.find((c) => c.type === "text")?.text ?? "";
 		const title = text.replace(/\s+/g, " ").trim().slice(0, 60) || "New session";
 		await this.log.append({ type: "title", title });
 		await this.emit({ type: "title", title });

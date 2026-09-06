@@ -283,6 +283,7 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
             detail: event.detail,
             ...(event.reason ? { reason: event.reason } : {}),
             subject: event.subject,
+            ...(event.options ? { options: event.options } : {}), ...(event.allowCustomInput !== undefined ? { allowCustomInput: event.allowCustomInput } : {}),
           },
         ],
       });

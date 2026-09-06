@@ -138,6 +138,19 @@ export interface UserMessage {
 		/** False when the turn was allowed to finish and this rode the next one. */
 		interrupted: boolean;
 	};
+	/** Clean user input text for UI display, excluding injected skill or session instructions. */
+	displayText?: string;
+	/** Skill triggered by this prompt, along with its filesystem path for viewing. */
+	skillRef?: {
+		name: string;
+		path?: string;
+		pluginId?: string;
+	};
+	/** Historical sessions referenced by @ in this prompt. */
+	sessionRefs?: Array<{
+		id: string;
+		title: string;
+	}>;
 }
 
 export interface AssistantMessage {

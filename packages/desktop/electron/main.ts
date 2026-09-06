@@ -164,10 +164,7 @@ const BROWSER_PARTITION = "persist:ly-browser";
  * actually checked — see the note there on why comparing the raw one let `..` walk out.
  */
 function projectPath(target: string): string | null {
-	return resolveInside(
-		target,
-		(settings?.projects ?? []).map((project) => project.path),
-	);
+	return resolveInside(target, (settings?.projects ?? []).map((project) => project.path));
 }
 
 /**

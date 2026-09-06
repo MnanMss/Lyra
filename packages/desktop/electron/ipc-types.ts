@@ -222,7 +222,7 @@ export interface LyraApi {
 	};
 	sessions: {
 		list(): Promise<SessionMeta[]>;
-		create(cwd: string, modelId: string, initial?: { content: UserContent[]; synthetic?: boolean }): Promise<SessionSnapshot>;
+		create(cwd: string, modelId: string, initial?: { content: UserContent[]; synthetic?: boolean; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }> }): Promise<SessionSnapshot>;
 		/** Start the agent for this session — skills, MCP servers, the lot. For running things. */
 		open(projectId: string, sessionId: string): Promise<SessionSnapshot | null>;
 		/** Read the stored transcript without starting anything. For looking at things. */
@@ -249,7 +249,7 @@ export interface LyraApi {
 		 * `synthetic` marks a message the app composed on the user's behalf — 「继续」 — so the
 		 * transcript does not show it as something they typed. See `Session.prompt`.
 		 */
-		prompt(sessionId: string, content: UserContent[], options?: { synthetic?: boolean; deliver?: "steer" | "followUp"; resumePending?: boolean }): Promise<SessionMeta>;
+		prompt(sessionId: string, content: UserContent[], options?: { synthetic?: boolean; deliver?: "steer" | "followUp"; resumePending?: boolean; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }> }): Promise<SessionMeta>;
 		/** Replace a message and re-run from there, discarding everything after it. */
 		editMessage(sessionId: string, messageIndex: number, content: UserContent[]): Promise<void>;
 		abort(sessionId: string): Promise<void>;
@@ -421,6 +421,8 @@ export interface LyraApi {
 		 * transfer list before the event returns.
 		 */
 		pathForDrop(file: File): string;
+		/** Open native dialog to pick files or directories. */
+		pick(options?: { directory?: boolean; multiple?: boolean }): Promise<string[]>;
 	};
 	/**
 	 * The system clipboard, for text.
@@ -507,6 +509,7 @@ export interface LyraApi {
 			 * them, so the menu cannot offer something the agent does not have.
 			 */
 			skills: SkillEntry[];
+			agents?: Array<{ id: string; name: string; description: string }>;
 		}>;
 		/** Write a starter file and answer with its path, or say why it could not be written. */
 		create(

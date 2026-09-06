@@ -1,3 +1,4 @@
+import { registerReferenceFiles } from "../reference-files.ts";
 /**
  * Slash commands, from the four directories they can live in to the composer that lists them.
  *
@@ -9,7 +10,7 @@
 import { ipcMain, shell } from "electron";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { builtinCommandsFor, collectSkills, commandSources, loadCommands, loadPlugins, lyraHome, type BuiltinCommand, type SlashCommand } from "@lyra/core";
+import { builtinCommandsFor, collectAgents, collectSkills, commandSources, loadCommands, loadPlugins, lyraHome, type BuiltinCommand, type SlashCommand } from "@lyra/core";
 import { settings } from "../app-settings.ts";
 
 export interface CommandsList {
@@ -29,6 +30,7 @@ export interface CommandsList {
 	 * the agent does not have.
 	 */
 	skills: SkillEntry[];
+	agents?: Array<{ id: string; name: string; description: string }>;
 }
 
 /** What the menu needs to offer a skill. The body is not sent; the model reads it when asked. */
@@ -38,6 +40,8 @@ export interface SkillEntry {
 	source: "workspace" | "user" | "builtin";
 	/** Set when it came from a bundle, which is also how it is named: `<plugin>:<skill>`. */
 	pluginId?: string;
+	/** File path of SKILL.md for direct opening in editor/sidebar. */
+	path?: string;
 }
 
 /** Where a newly created command goes, per scope. Only ours — nothing writes into `.claude`. */
@@ -85,7 +89,10 @@ export function registerCommandsIpc(): void {
 			[],
 		).catch(() => ({ plugins: [] }));
 		const { skills } = await collectSkills(cwd || lyraHome(), bundles.plugins, settings()).catch(() => ({ skills: [] }));
+		await registerReferenceFiles(skills.map((skill) => skill.path));
+		const agents = await collectAgents(cwd || lyraHome(), settings());
 		return {
+			agents: agents.map((agent) => ({ id: agent.name, name: agent.name, description: agent.description })),
 			commands,
 			diagnostics,
 			/*
@@ -101,6 +108,7 @@ export function registerCommandsIpc(): void {
 				description: skill.description,
 				source: skill.source,
 				...(skill.pluginId ? { pluginId: skill.pluginId } : {}),
+				path: skill.path,
 			})),
 		};
 	});
