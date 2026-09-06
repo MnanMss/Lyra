@@ -28,6 +28,8 @@ before(async () => {
 		await writeFile(join(dirname(skill), "resource.txt"), "skill resource");
 		await writeFile(join(home, "window.json"), JSON.stringify({ width: 1200, height: 800 }));
 		await writeFile(join(home, "settings.json"), JSON.stringify({ providers: [], sync: { enabled: false },
+			// This test measures animation frames independently of the runner's accessibility settings.
+			appearance: { reduceMotion: "off" },
 			mcpServers: [{ id: "qa", name: "QA 服务", command: "unused", args: [], transport: "stdio", enabled: false }],
 			hooks: [{ id: "qa", command: "echo isolated", tools: [], event: "before-tool", enabled: false, blocking: false }],
 			projects: [{ id: "qa-project", path: cwd, name: "行操作验证", pinned: true, lastOpenedAt: 1 }],
@@ -120,11 +122,13 @@ test("command deletion fades in without shifting its row, works with keyboard/to
 	await app.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 10, y: 10 }); await frames();
 	const measure = () => app.evaluate<{ opacity: number; x: number; width: number; height: number; actionX: number }>(`(()=>{const b=document.querySelector('${selector}');const row=b.closest('[data-row-actions]');const r=row.getBoundingClientRect();return {opacity:Number(getComputedStyle(b.parentElement).opacity),x:r.x,width:r.width,height:r.height,actionX:b.getBoundingClientRect().x};})()`);
 	const resting = await measure(); assert.equal(resting.opacity, 0);
+	t.diagnostic(JSON.stringify(await app.evaluate(`({reduceMotion:document.documentElement.dataset.reduceMotion,systemReducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches,transition:getComputedStyle(document.querySelector('${selector}').parentElement).transitionDuration})`)));
 	// Arm sampling before the pointer moves; opening another CDP socket can outlast the transition.
 	await app.evaluate(`(()=>{const b=document.querySelector('${selector}');b.closest('[data-row-actions]').addEventListener('mouseenter',()=>{b._hoverSamples=(async()=>{const values=[];for(let n=0;n<20;n++){await new Promise(requestAnimationFrame);values.push(Number(getComputedStyle(b.parentElement).opacity));}return values;})()},{once:true});})()`);
 	await app.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...at });
 	const samples = await app.evaluate<number[]>(`document.querySelector('${selector}')._hoverSamples`);
 	const hovering = await measure();
+	t.diagnostic(JSON.stringify({ opacityFrames: samples }));
 	assert.equal(hovering.opacity, 1);
 	assert.ok(samples.some((value) => value > 0 && value < 1), "hover paints intermediate opacity frames");
 	assert.deepEqual({ ...hovering, opacity: 0 }, resting);
