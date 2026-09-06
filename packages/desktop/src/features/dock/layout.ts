@@ -210,18 +210,28 @@ export function fitTree(node: DockNode, span: { width: number; height: number },
 	if (node.type === "leaf") return node;
 	if (!(span.width > 0) || !(span.height > 0)) return node;
 
-	const along = node.dir === "row" ? span.width : span.height;
+	// The sidebar can leave less room than the window's layout mode promises. Prefer the
+	// other axis only when it keeps every floor; the persisted axis and shares remain intact.
+	const fits = (dir: Axis) => {
+		const candidate = { ...node, dir };
+		return floorOf(candidate, "row", floor) <= span.width + EPSILON
+			&& floorOf(candidate, "col", floor) <= span.height + EPSILON;
+	};
+	const other = node.dir === "row" ? "col" : "row";
+	const dir = !fits(node.dir) && fits(other) ? other : node.dir;
+	const along = dir === "row" ? span.width : span.height;
 	const sizes = node.children.map((_, i) => (node.sizes[i] ?? 0) * along);
-	const floors = node.children.map((child) => floorOf(child, node.dir, floor));
+	const floors = node.children.map((child) => floorOf(child, dir, floor));
 	const fitted = fitSizes(sizes, floors);
 
 	return {
 		...node,
+		dir,
 		sizes: fitted.map((size) => (along > 0 ? size / along : 0)),
 		children: node.children.map((child, i) =>
 			fitTree(
 				child,
-				node.dir === "row" ? { width: fitted[i], height: span.height } : { width: span.width, height: fitted[i] },
+				dir === "row" ? { width: fitted[i], height: span.height } : { width: span.width, height: fitted[i] },
 				floor,
 			),
 		),
