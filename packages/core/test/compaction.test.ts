@@ -658,7 +658,6 @@ test("compaction uses custom summarizer model when provided", async () => {
 		0,
 		false,
 		undefined,
-		undefined,
 		{ provider: customProvider, model: customModel },
 	);
 
