@@ -111,7 +111,6 @@ test("short prompt (<= 12 chars) uses immediate title and does not trigger LLM s
 
 		// 10 chars, <= 12
 		await session.prompt([{ type: "text", text: "写一个快速排序" }]);
-		await new Promise((r) => setTimeout(r, 50));
 
 		assert.equal(summarizeCalls, 0, "Should not call LLM for short prompt");
 		assert.equal(emittedTitles.length, 1);
@@ -124,12 +123,13 @@ test("short prompt (<= 12 chars) uses immediate title and does not trigger LLM s
 	}
 });
 
-test("long prompt (> 12 chars) uses immediate fallback then rewrites with summary", async () => {
+test("long prompt (> 12 chars) uses immediate fallback then rewrites with summary", { timeout: 5000 }, async () => {
 	const { store, cleanup } = await harness();
 	try {
 		let summarizeCalls = 0;
 		const meta = await store.create(process.cwd(), SESSION_MODEL.id);
 		const emittedTitles: string[] = [];
+		const summaryApplied = Promise.withResolvers<void>();
 		let resolveSummary: (value: AssistantMessage) => void;
 		const summaryPromise = new Promise<AssistantMessage>((r) => {
 			resolveSummary = r;
@@ -146,6 +146,7 @@ test("long prompt (> 12 chars) uses immediate fallback then rewrites with summar
 			},
 			emit: (event: AgentEvent) => {
 				if (event.type === "title") emittedTitles.push(event.title);
+				if (event.type === "title" && event.title === "重构用户权限验证") summaryApplied.resolve();
 			},
 			titleSummaryStream: () => {
 				// oxlint-disable-next-line require-yield
@@ -167,7 +168,7 @@ test("long prompt (> 12 chars) uses immediate fallback then rewrites with summar
 
 		// Now complete the async summary
 		resolveSummary!(reply("重构用户权限验证"));
-		await new Promise((r) => setTimeout(r, 50));
+		await summaryApplied.promise;
 
 		assert.equal(emittedTitles.length, 2);
 		assert.equal(emittedTitles[1], "重构用户权限验证");
@@ -179,11 +180,12 @@ test("long prompt (> 12 chars) uses immediate fallback then rewrites with summar
 	}
 });
 
-test("prefers fast model when modelRoles.fast is configured, falls back to session model otherwise", async () => {
+test("prefers fast model when modelRoles.fast is configured, falls back to session model otherwise", { timeout: 5000 }, async () => {
 	const { store, cleanup } = await harness();
 	try {
 		const modelsUsed: string[] = [];
 		const meta = await store.create(process.cwd(), SESSION_MODEL.id);
+		const summaryApplied = Promise.withResolvers<void>();
 
 		const session = new AgentSession({
 			cwd: process.cwd(),
@@ -195,7 +197,7 @@ test("prefers fast model when modelRoles.fast is configured, falls back to sessi
 				defaultModelId: SESSION_MODEL.id,
 				modelRoles: { fast: FAST_MODEL.id },
 			},
-			emit: () => {},
+			emit: (event) => { if (event.type === "title" && event.title === "使用fast总结") summaryApplied.resolve(); },
 			titleSummaryStream: (_provider, model) => {
 				// oxlint-disable-next-line require-yield
 				return (async function* () {
@@ -207,7 +209,7 @@ test("prefers fast model when modelRoles.fast is configured, falls back to sessi
 		});
 
 		await session.prompt([{ type: "text", text: "这是一条超过十二个字符的非常长的提示词内容" }]);
-		await new Promise((r) => setTimeout(r, 50));
+		await summaryApplied.promise;
 
 		assert.deepEqual(modelsUsed, [FAST_MODEL.id], "Summary should run with the configured @fast model");
 
@@ -217,10 +219,11 @@ test("prefers fast model when modelRoles.fast is configured, falls back to sessi
 	}
 });
 
-test("does not overwrite title if user renamed session before summary completes", async () => {
+test("does not overwrite title if user renamed session before summary completes", { timeout: 5000 }, async () => {
 	const { store, cleanup } = await harness();
 	try {
 		const meta = await store.create(process.cwd(), SESSION_MODEL.id);
+		const lateSummaryFinished = Promise.withResolvers<void>();
 		let resolveSummary: (value: AssistantMessage) => void;
 		const summaryPromise = new Promise<AssistantMessage>((r) => {
 			resolveSummary = r;
@@ -238,9 +241,15 @@ test("does not overwrite title if user renamed session before summary completes"
 			emit: () => {},
 			titleSummaryStream: () => {
 				// oxlint-disable-next-line require-yield
-				return (async function* () {
+				const iterator = (async function* () {
 					return summaryPromise;
 				})();
+				const next = iterator.next.bind(iterator);
+				iterator.next = (...args) => next(...args).then((result) => {
+					if (result.done) lateSummaryFinished.resolve();
+					return result;
+				});
+				return iterator;
 			},
 			streamFn: async () => reply("好的"),
 		});
@@ -253,7 +262,7 @@ test("does not overwrite title if user renamed session before summary completes"
 
 		// Async summary finishes after rename
 		resolveSummary!(reply("迟到的自动总结"));
-		await new Promise((r) => setTimeout(r, 50));
+		await lateSummaryFinished.promise;
 
 		// Must not overwrite
 		assert.equal(session.log.meta.title, "主人指定的名称");
@@ -264,11 +273,12 @@ test("does not overwrite title if user renamed session before summary completes"
 	}
 });
 
-test("model error degrades silently to fallback title", async () => {
+test("model error degrades silently to fallback title", { timeout: 5000 }, async () => {
 	const { store, cleanup } = await harness();
 	try {
 		const meta = await store.create(process.cwd(), SESSION_MODEL.id);
 		const emittedTitles: string[] = [];
+		const summaryFailed = Promise.withResolvers<void>();
 
 		const session = new AgentSession({
 			cwd: process.cwd(),
@@ -285,6 +295,7 @@ test("model error degrades silently to fallback title", async () => {
 			titleSummaryStream: () => {
 				// oxlint-disable-next-line require-yield
 				return (async function* () {
+					summaryFailed.resolve();
 					throw new Error("Network connection refused");
 				})();
 			},
@@ -293,7 +304,7 @@ test("model error degrades silently to fallback title", async () => {
 
 		const text = "这是一个长句子超过十二个字符但大模型抛错的场景";
 		await session.prompt([{ type: "text", text }]);
-		await new Promise((r) => setTimeout(r, 50));
+		await summaryFailed.promise;
 
 		// Emitted only once (fallback), didn't crash
 		assert.equal(emittedTitles.length, 1);
@@ -338,7 +349,6 @@ test("when autoSummarizeTitle is false, long prompt does not trigger summary", a
 
 		const text = "这是一条非常长的提问，但由于设置里关闭了智能标题总结所以不总结";
 		await session.prompt([{ type: "text", text }]);
-		await new Promise((r) => setTimeout(r, 50));
 
 		assert.equal(summarizeCalls, 0, "Must not invoke title summary when autoSummarizeTitle is false");
 		assert.equal(emittedTitles.length, 1);
@@ -351,10 +361,11 @@ test("when autoSummarizeTitle is false, long prompt does not trigger summary", a
 	}
 });
 
-test("session initialized via pendingPrompt (desktop new session flow) summarizes title", async () => {
+test("session initialized via pendingPrompt (desktop new session flow) summarizes title", { timeout: 5000 }, async () => {
 	const { store, cleanup } = await harness();
 	try {
 		const emittedTitles: string[] = [];
+		const summaryApplied = Promise.withResolvers<void>();
 		let summarizeCalls = 0;
 		let resolveSummary: (value: AssistantMessage) => void;
 		const summaryPromise = new Promise<AssistantMessage>((r) => {
@@ -389,6 +400,7 @@ test("session initialized via pendingPrompt (desktop new session flow) summarize
 			},
 			emit: (event: AgentEvent) => {
 				if (event.type === "title") emittedTitles.push(event.title);
+				if (event.type === "title" && event.title === "MCP 连接设置与会话管理") summaryApplied.resolve();
 			},
 			titleSummaryStream: () => {
 				// oxlint-disable-next-line require-yield
@@ -406,14 +418,14 @@ test("session initialized via pendingPrompt (desktop new session flow) summarize
 
 		// Desktop runs resumePendingPrompt()
 		const pendingRun = session.resumePendingPrompt();
-		await new Promise((r) => setTimeout(r, 50));
+		// Resumption must persist pendingPrompt and the fallback before starting the summary.
+		await pendingRun;
 
 		assert.equal(summarizeCalls, 1, "Should trigger summary for long pending prompt");
 
 		// Resolve summary
 		resolveSummary!(reply("MCP 连接设置与会话管理"));
-		await pendingRun;
-		await new Promise((r) => setTimeout(r, 50));
+		await summaryApplied.promise;
 
 		assert.ok(emittedTitles.includes("MCP 连接设置与会话管理"));
 		assert.equal(session.log.meta.title, "MCP 连接设置与会话管理");
