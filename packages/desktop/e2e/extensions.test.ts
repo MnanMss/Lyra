@@ -341,6 +341,8 @@ async function rowFor(summary: string): Promise<Row> {
 test("每种扩展都能在对话里用到，且行首说出它是哪一种", async () => {
 	await converse("试一下三种扩展");
 	await waitFor(`document.body.innerText.includes("都试过了")`, "the scripted turns never finished");
+	// Keep the cold scan busy enough that row text cannot stand in for image readiness.
+	await Promise.all(Array.from({ length: 256 }, (_, i) => mkdir(join(app.home, "plugins", `scan-fixture-${i}`), { recursive: true })));
 	// Closed work groups defer their cards; inspect the controls a user actually opens.
 	await app.evaluate(`document.querySelectorAll('[data-ly-run] > button[aria-expanded="false"]').forEach(button=>button.click())`);
 	await waitFor(`document.body.innerText.includes("Skill: translate")`, "opening tool work did not reveal the skill calls");
@@ -359,6 +361,14 @@ test("每种扩展都能在对话里用到，且行首说出它是哪一种", as
 	 * The installed server draws its own picture — the icon its bundle shipped, carried from the
 	 * directory it was installed into to the row reporting the call.
 	 */
+	// Opening deferred cards starts the bundle scan; the row text can precede its loaded picture.
+	await waitFor(`(() => {
+		const row = [...document.querySelectorAll("button")].find(
+			button => button.querySelector("span")?.textContent?.trim() === "Demo: echo",
+		);
+		const image = row?.querySelector("img");
+		return image?.complete && image.naturalWidth > 0;
+	})()`, "the installed MCP icon never finished loading");
 	const installed = await rowFor("Demo: echo");
 	assert.ok(installed.picture?.startsWith("data:image/svg+xml;"), `装来的服务画自己的图标，实际：${installed.picture}`);
 
