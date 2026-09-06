@@ -62,7 +62,7 @@ test("real mouse drag preserves other rows, suppresses navigation, and renders i
 	assert.deepEqual(await rows(), ["qa-long", "qa-short", "qa-third"]);
 	const current = await app.evaluate(`document.querySelector('[data-ly-row] [aria-current="page"]')?.closest('[data-ly-row]')?.dataset.lyRow ?? null`);
 	for (const theme of ["light", "dark"]) {
-		await app.evaluate(`window.lyra.settings.get().then(s=>window.lyra.settings.save({...s,appearance:{...s.appearance,theme:${JSON.stringify(theme)}}}))`);
+		await app.evaluate(`window.lyra.settings.get().then(s=>window.lyra.settings.save({...s,appearance:{...s.appearance,theme:${theme === "light" ? '"light"' : '"dark"'}}}))`);
 		const finish = await begin(source, target);
 		await waitFor(`document.querySelector('.ly-glass-solid.pointer-events-none.fixed')`);
 		const ghost = await app.evaluate<{ width: number; height: number; left: number; top: number; position: string; text: string }>(`(()=>{const e=document.querySelector('.ly-glass-solid.pointer-events-none.fixed');const r=e.getBoundingClientRect();return {width:r.width,height:r.height,left:r.left,top:r.top,position:getComputedStyle(e).position,text:e.textContent};})()`);
