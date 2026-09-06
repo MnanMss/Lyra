@@ -164,6 +164,16 @@ export function GeneralSettings() {
           }
         />
         <Row
+          title="智能标题总结"
+          detail="自动精简长消息标题，优先使用 @fast，会产生模型用量。"
+          control={
+            <Toggle
+              checked={settings.autoSummarizeTitle !== false}
+              onChange={(autoSummarizeTitle) => patch({ autoSummarizeTitle })}
+            />
+          }
+        />
+        <Row
           title="底部面板"
           detail="在会话底部显示用量与状态信息"
           control={

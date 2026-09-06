@@ -112,20 +112,24 @@ async function readLog(path: string, entry: FileEntry, size: number): Promise<vo
 	try {
 		for await (const line of lines) {
 			// Cheaper than parsing: most records in a busy log are events, not messages.
-			if (!line.includes('"type":"message"')) continue;
-			let record: { type?: string; message?: Record<string, unknown> };
+			if (!line.includes('"type":"message"') && !line.includes('"type":"usage"')) continue;
+			let record: { type?: string; message?: Record<string, unknown>; ts?: number; providerId?: string; modelId?: string; usage?: unknown };
 			try {
 				record = JSON.parse(line) as typeof record;
 			} catch {
 				continue;
 			}
-			const message = record.type === "message" ? record.message : undefined;
+			// Auxiliary model requests contribute spend without adding a conversation message.
+			const auxiliary = record.type === "usage";
+			const message = auxiliary
+				? { role: "assistant", timestamp: record.ts, provider: record.providerId, model: record.modelId, usage: record.usage }
+				: record.type === "message" ? record.message : undefined;
 			if (!message) continue;
 
 			const at = typeof message.timestamp === "number" ? message.timestamp : 0;
 			if (!at) continue;
 			const day = dayKey(at);
-			entry.days[day] = (entry.days[day] ?? 0) + 1;
+			entry.days[day] = (entry.days[day] ?? 0) + (auxiliary ? 0 : 1);
 
 			if (message.role !== "assistant") continue;
 			const usage = (message.usage ?? {}) as Record<string, number | undefined> & {

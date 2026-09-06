@@ -232,6 +232,8 @@ export interface Settings {
 	projects: ProjectEntry[];
 	/** Pinned session IDs across projects and loose chats. */
 	pinnedSessionIds?: string[];
+	/** Custom session ordering per project: maps project path to ordered session IDs. */
+	sessionOrder?: Record<string, string[]>;
 	/** Worktrees configuration and auto-cleanup preferences. */
 	worktrees?: {
 		/** Managed worktrees root directory. Defaults to ~/.lyra/worktrees or sibling directory if empty. */
@@ -328,6 +330,13 @@ export interface Settings {
 	 * cat」模型看了照样 cat——一个错误结果比一句劝告有效得多。管道和重定向永远放行。
 	 */
 	rerouteShellCommands?: boolean;
+	/**
+	 * 是否在会话开始时长文本输入时自动精炼生成会话标题。默认开。
+	 *
+	 * 开启时，若首条消息有效长度超过 12 个字符，后台自动使用 fast 模型（或当前会话模型）总结标题；
+	 * 关闭时，仅截取用户首条消息作为标题。
+	 */
+	autoSummarizeTitle?: boolean;
 	/**
 	 * How many sub-agents may run at once. Beyond this they queue.
 	 *
@@ -503,6 +512,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	enabledForeignUserRules: [],
 	capabilityPreferences: {},
 	rerouteShellCommands: true,
+	autoSummarizeTitle: true,
 	maxConcurrentSubAgents: 4,
 	modelRoles: {},
 	/*
@@ -652,6 +662,7 @@ export function normalizeSettings(parsed: Partial<Settings>): Settings {
 			enabledForeignUserRules: parsed.enabledForeignUserRules ?? [],
 			capabilityPreferences: parsed.capabilityPreferences ?? {},
 			rerouteShellCommands: parsed.rerouteShellCommands !== false,
+			autoSummarizeTitle: parsed.autoSummarizeTitle !== false,
 			maxConcurrentSubAgents:
 				typeof parsed.maxConcurrentSubAgents === "number" && parsed.maxConcurrentSubAgents >= 1
 					? Math.min(16, Math.floor(parsed.maxConcurrentSubAgents))

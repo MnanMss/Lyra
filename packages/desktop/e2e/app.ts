@@ -250,17 +250,33 @@ export async function startApp({
 		await rm(home, { recursive: true, force: true });
 		throw error;
 	}
-	const evaluate = <T>(expression: string) =>
-		call<T>(target, "Runtime.evaluate", {
-			expression,
-			awaitPromise: true,
-			returnByValue: true,
-			userGesture: true,
-		}).then((result) => {
-			const answer = result as { exceptionDetails?: { text: string }; result?: { value: T } };
+	const evaluate = <T>(expression: string) => call(target, async (send) => {
+		type Answer = { exceptionDetails?: { text: string }; result?: { value: T; objectId?: string; subtype?: string } };
+		const objectGroup = "lyra-e2e-evaluation";
+		try {
+			// V8 bug 536271637: awaitPromise alone holds a weak reference in Electron 43's V8.
+			// A remote handle owns the result until this same connection has awaited and released it.
+			let answer = await send<Answer>("Runtime.evaluate", {
+				expression, objectGroup, awaitPromise: false, returnByValue: false, userGesture: true,
+			});
+			if (!answer.exceptionDetails && answer.result?.objectId && answer.result.subtype !== "promise") {
+				// An async identity preserves awaitPromise's thenable assimilation as well as objects.
+				answer = await send<Answer>("Runtime.callFunctionOn", {
+					objectId: answer.result.objectId, functionDeclaration: "async function() { return this; }",
+					objectGroup, returnByValue: false, userGesture: true,
+				});
+			}
+			if (!answer.exceptionDetails && answer.result?.objectId) {
+				answer = await send<Answer>("Runtime.awaitPromise", {
+					promiseObjectId: answer.result.objectId, returnByValue: true,
+				});
+			}
 			if (answer.exceptionDetails) throw new Error(answer.exceptionDetails.text);
 			return answer.result?.value as T;
-		});
+		} finally {
+			await send("Runtime.releaseObjectGroup", { objectGroup });
+		}
+	});
 	try {
 		await waitForShell(evaluate);
 	} catch (error) {
@@ -272,7 +288,7 @@ export async function startApp({
 	return {
 		home,
 		evaluate,
-		send: <T>(method: string, params?: Record<string, unknown>) => call<T>(target, method, params ?? {}),
+		send: <T>(method: string, params?: Record<string, unknown>) => call(target, (send) => send<T>(method, params ?? {})),
 		stop: async () => {
 			await stopProcessGroup(app);
 			await rm(home, { recursive: true, force: true }).catch(() => {});
@@ -321,14 +337,14 @@ async function waitForShell(evaluate: <T>(expression: string) => Promise<T>): Pr
 	throw new Error(`the shell never rendered. What was on screen:\n${last}`);
 }
 
-/** One call, one socket. Slower than keeping it open, and far easier to reason about. */
-async function call<T>(target: string, method: string, params: Record<string, unknown>): Promise<T> {
+/** One operation, one socket: remote handles belong to the session that created them. */
+async function call<T>(target: string, operation: (send: <R>(method: string, params: Record<string, unknown>) => Promise<R>) => Promise<T>): Promise<T> {
 	const socket = new WebSocket(target);
 	try {
 		await new Promise<void>((resolve, reject) => {
 			const timer = setTimeout(() => {
 				socket.close();
-				reject(new Error(`${method} open timed out`));
+				reject(new Error("CDP connection open timed out"));
 			}, 10_000);
 			socket.addEventListener(
 				"open",
@@ -342,26 +358,32 @@ async function call<T>(target: string, method: string, params: Record<string, un
 				"error",
 				() => {
 					clearTimeout(timer);
-					reject(new Error(`${method} socket error`));
+					reject(new Error("CDP connection socket error"));
 				},
 				{ once: true },
 			);
 		});
-		const answer = new Promise<T>((resolve, reject) => {
-			const timer = setTimeout(() => reject(new Error(`${method} timed out`)), 40_000);
-			socket.addEventListener("message", (event) => {
-				const message = JSON.parse(String(event.data));
-				if (message.id !== 1) return;
-				clearTimeout(timer);
-				if (message.error) reject(new Error(`${method}: ${message.error.message}`));
-				else resolve(message.result as T);
+		let nextId = 0;
+		return await operation(<R>(method: string, params: Record<string, unknown>) => {
+			const id = ++nextId;
+			return new Promise<R>((resolve, reject) => {
+				const onMessage = (event: MessageEvent) => {
+					const message = JSON.parse(String(event.data));
+					if (message.id !== id) return;
+					clearTimeout(timer);
+					socket.removeEventListener("message", onMessage);
+					if (message.error) reject(new Error(`${method}: ${message.error.message}`));
+					else resolve(message.result as R);
+				};
+				// A toast-lifetime assertion intentionally awaits ten seconds in one evaluation.
+				const timer = setTimeout(() => {
+					socket.removeEventListener("message", onMessage);
+					reject(new Error(`${method} timed out`));
+				}, 40_000);
+				socket.addEventListener("message", onMessage);
+				socket.send(JSON.stringify({ id, method, params }));
 			});
-			// Generous, because a test that waits out a toast's lifetime is one expression that
-			// deliberately takes ten seconds — and a timeout shorter than that would call it a
-			// failure rather than a wait.
 		});
-		socket.send(JSON.stringify({ id: 1, method, params }));
-		return await answer;
 	} finally {
 		socket.close();
 	}

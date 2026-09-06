@@ -94,6 +94,58 @@ test("projects keep their configured order; unknown ones go last", () => {
 		["/a", "/z"],
 	);
 });
+test("project sessions follow custom sessionOrder only in manual sort mode", () => {
+	const s1 = session({ id: "s1", cwd: "/a", updatedAt: 100, createdAt: 300 });
+	const s2 = session({ id: "s2", cwd: "/a", updatedAt: 200, createdAt: 100 });
+	const s3 = session({ id: "s3", cwd: "/a", updatedAt: 300, createdAt: 200 });
+	const sNew = session({ id: "sNew", cwd: "/a", updatedAt: 400, createdAt: 400 });
+
+	// In manual sort mode
+	const { projects: manualRes } = groupSessions(
+		[s1, s2, s3, sNew],
+		[{ id: "p1", name: "A", path: "/a", pinned: false, lastOpenedAt: 0 }],
+		"",
+		[],
+		[],
+		{ "/a": ["s3", "s1", "s2"] },
+		"manual",
+	);
+	assert.deepEqual(
+		manualRes[0].sessions.map((s) => s.id),
+		["sNew", "s3", "s1", "s2"],
+	);
+
+	// In updatedAt mode, sessionOrder should be bypassed and sorted by updatedAt desc
+	const { projects: updateRes } = groupSessions(
+		[s1, s2, s3, sNew],
+		[{ id: "p1", name: "A", path: "/a", pinned: false, lastOpenedAt: 0 }],
+		"",
+		[],
+		[],
+		{ "/a": ["s3", "s1", "s2"] },
+		"updatedAt",
+	);
+	assert.deepEqual(
+		updateRes[0].sessions.map((s) => s.id),
+		["sNew", "s3", "s2", "s1"],
+	);
+
+	// In createdAt mode, sorted by createdAt desc
+	const { projects: createdRes } = groupSessions(
+		[s1, s2, s3, sNew],
+		[{ id: "p1", name: "A", path: "/a", pinned: false, lastOpenedAt: 0 }],
+		"",
+		[],
+		[],
+		{ "/a": ["s3", "s1", "s2"] },
+		"createdAt",
+	);
+	assert.deepEqual(
+		createdRes[0].sessions.map((s) => s.id),
+		["sNew", "s1", "s3", "s2"],
+	);
+});
+
 
 test("the settings row counts models across enabled providers only", () => {
 	const label = activeProviderLabel([

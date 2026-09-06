@@ -126,6 +126,8 @@ async function seed(home: string): Promise<void> {
 			mcpServers: [],
 			projects: [{ id: "e2e", name: "project", path: project, pinned: true, lastOpenedAt: 1 }],
 			defaultModelId: "local/scripted",
+			// This fixture counts orchestration requests; title summaries have separate coverage.
+			autoSummarizeTitle: false,
 			permissionMode: "full",
 			thinking: "off",
 			retryAttempts: 0,
