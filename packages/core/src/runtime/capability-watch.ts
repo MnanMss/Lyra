@@ -16,7 +16,7 @@
  *   **防抖。** 保存一个文件在 macOS 上能产生三四个事件，`git checkout` 一个分支能产生几百个。
  */
 
-import { watch, type FSWatcher } from "node:fs";
+import { realpathSync, watch, type FSWatcher } from "node:fs";
 
 /** 攒事件的窗口。一次保存产生的那几个事件要合成一次重载。 */
 export const DEBOUNCE_MS = 300;
@@ -42,9 +42,7 @@ export interface WatchOptions {
 /**
  * 盯着这些目录，改了就重载。
  *
- * 不递归：`fs.watch` 的 `recursive` 在 Linux 上要 Node 20+ 且行为不一，而能力目录本来就是
- * 一层——`~/.lyra/skills/<name>/SKILL.md` 里变的是子目录，而父目录的事件足够告诉我们
- * 「这下面有东西动了」。
+ * Watch recursively so editing an existing skill's nested SKILL.md also reloads it.
  */
 export class CapabilityWatcher {
 	private readonly watchers: FSWatcher[] = [];
@@ -65,7 +63,10 @@ export class CapabilityWatcher {
 			 * 监听整个项目根。
 			 */
 			try {
-				const watcher = (options.watchFactory ?? watch)(dir, { recursive: true }, () => this.touched());
+				// Windows short paths can abort libuv when a notification expands them to long names.
+				// Resolving first also rejects missing Linux paths before recursive watch starts asynchronously.
+				const canonical = realpathSync.native(dir);
+				const watcher = (options.watchFactory ?? watch)(canonical, { recursive: true }, () => this.touched());
 				watcher.on("error", () => {});
 				/*
 				 * `unref` 让它不成为进程退出的理由。

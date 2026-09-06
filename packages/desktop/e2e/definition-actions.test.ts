@@ -120,9 +120,12 @@ test("command deletion fades in without shifting its row, works with keyboard/to
 	await app.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 10, y: 10 }); await frames();
 	const measure = () => app.evaluate<{ opacity: number; x: number; width: number; height: number; actionX: number }>(`(()=>{const b=document.querySelector('${selector}');const row=b.closest('[data-row-actions]');const r=row.getBoundingClientRect();return {opacity:Number(getComputedStyle(b.parentElement).opacity),x:r.x,width:r.width,height:r.height,actionX:b.getBoundingClientRect().x};})()`);
 	const resting = await measure(); assert.equal(resting.opacity, 0);
+	// Arm sampling before the pointer moves; opening another CDP socket can outlast the transition.
+	await app.evaluate(`(()=>{const b=document.querySelector('${selector}');b.closest('[data-row-actions]').addEventListener('mouseenter',()=>{b._hoverSamples=(async()=>{const values=[];for(let n=0;n<20;n++){await new Promise(requestAnimationFrame);values.push(Number(getComputedStyle(b.parentElement).opacity));}return values;})()},{once:true});})()`);
 	await app.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...at });
-	const samples = await app.evaluate<number[]>(`(async()=>{const values=[];for(let n=0;n<20;n++){await new Promise(requestAnimationFrame);values.push(Number(getComputedStyle(document.querySelector('${selector}').parentElement).opacity));}return values;})()`);
-	const hovering = await measure(); assert.equal(hovering.opacity, 1);
+	const samples = await app.evaluate<number[]>(`document.querySelector('${selector}')._hoverSamples`);
+	const hovering = await measure();
+	assert.equal(hovering.opacity, 1);
 	assert.ok(samples.some((value) => value > 0 && value < 1), "hover paints intermediate opacity frames");
 	assert.deepEqual({ ...hovering, opacity: 0 }, resting);
 	await shot("command-hover-delete");
