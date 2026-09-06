@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { after, afterEach, before, test } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { closeListeningServer, startApp, type RunningApp } from "./app.ts";
 import { seedInteractions } from "./interaction-fixture.ts";
 
@@ -50,31 +51,46 @@ after(async () => { await app?.stop(); await closeListeningServer(server); });
 async function frames(count = 3) {
 	await app.evaluate(`new Promise(resolve=>{let n=${count};const frame=()=>--n?requestAnimationFrame(frame):resolve();requestAnimationFrame(frame);})`);
 }
-async function until(expression: string) {
-	await app.evaluate(`new Promise((resolve,reject)=>{let n=600;const frame=()=>{if(${expression})resolve();else if(--n)requestAnimationFrame(frame);else reject(new Error(${JSON.stringify(expression)}));};frame();})`);
+async function until<T = unknown>(expression: string, matches: (value: T) => boolean = Boolean) {
+	const deadline = Date.now() + 10000;
+	while (!matches(await app.evaluate<T>(expression))) {
+		if (Date.now() >= deadline) throw new Error(`Notification condition timed out: ${expression}`);
+		await delay(20);
+	}
 }
-async function click(selector: string) {
-	await until(`document.querySelector(${JSON.stringify(selector)})?.checkVisibility()`);
-	await app.evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'nearest',behavior:'instant'})`); await frames();
-	await until(`(()=>{const e=document.querySelector(${JSON.stringify(selector)}),r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));})()`);
-	const at = await app.evaluate<{ x: number; y: number }>(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+const targets = {
+	showSidebar: `document.querySelector('button[aria-label^="显示侧边栏"]')`,
+	hideSidebar: `document.querySelector('button[aria-label^="隐藏侧边栏"]')`,
+	short: `document.querySelector('[data-ly-row="qa-short"] > button')`,
+	long: `document.querySelector('[data-ly-row="qa-long"] > button')`,
+	composer: `document.querySelector('main textarea')`,
+	send: `document.querySelector('button[aria-label="发送"]')`,
+	jump: `document.querySelector('[role="status"] button[aria-label="跳转到该会话"]')`,
+	cancel: `document.querySelector('[data-qa-cancel]')`,
+};
+async function click(target: keyof typeof targets) {
+	const query = targets[target];
+	await until(`${query}?.checkVisibility()`);
+	await app.evaluate(`${query}.scrollIntoView({block:'nearest',behavior:'instant'})`); await frames();
+	await until(`(()=>{const e=${query},r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));})()`);
+	const at = await app.evaluate<{ x: number; y: number }>(`(()=>{const r=${query}.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
 	for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) await app.send("Input.dispatchMouseEvent", { type, ...at, ...(type === "mouseMoved" ? {} : { button: "left", clickCount: 1 }) });
 	await frames();
 }
-async function chooseSession(id: string) {
-	if (await app.evaluate<boolean>(`!!document.querySelector('button[aria-label^="显示侧边栏"]')`)) await click('button[aria-label^="显示侧边栏"]');
-	await click(`[data-ly-row="${id}"] > button`);
-	await until(`document.querySelector('.ly-transcript')?.textContent.includes(${JSON.stringify(id)})`);
+async function chooseSession(id: "qa-short" | "qa-long") {
+	if (await app.evaluate<boolean>(`!!document.querySelector('button[aria-label^="显示侧边栏"]')`)) await click("showSidebar");
+	await click(id === "qa-short" ? "short" : "long");
+	await until<string>(`document.querySelector('.ly-transcript')?.textContent ?? ''`, (text) => text.includes(id));
 }
 async function collapseSidebar() {
-	if (await app.evaluate<boolean>(`!!document.querySelector('button[aria-label^="隐藏侧边栏"]')`)) await click('button[aria-label^="隐藏侧边栏"]');
+	if (await app.evaluate<boolean>(`!!document.querySelector('button[aria-label^="隐藏侧边栏"]')`)) await click("hideSidebar");
 }
 async function begin(prompt: string) {
 	await chooseSession("qa-short");
 	held = undefined; holdNext = true;
 	const arrived = new Promise<void>((resolve) => { requestArrived = resolve; });
-	await click('main textarea'); await app.send("Input.insertText", { text: prompt });
-	await click('button[aria-label="发送"]');
+	await click("composer"); await app.send("Input.insertText", { text: prompt });
+	await click("send");
 	await arrived;
 	await chooseSession("qa-long"); await collapseSidebar();
 }
@@ -96,7 +112,7 @@ test("background completion stays compact in both themes and narrow windows, the
 		await appearance(theme, width);
 		const result = `完成通知回归 ${theme} ${width}`;
 		await begin(`触发后台完成 ${theme} ${width}`); assert.ok(held); reply(held, result);
-		await until(`document.querySelector('[role="status"] button[aria-label="跳转到该会话"]')`); await frames(20);
+		await until(`Boolean(document.querySelector('[role="status"] button[aria-label="跳转到该会话"]'))`); await frames(20);
 		const metrics = await app.evaluate<{ cards: number; text: string; x: number; right: number; height: number; scroll: number; client: number; buttons: string[]; background: string; color: string; badge: { width: number; height: number; animation: string; color: string } }>(`(()=>{const action=document.querySelector('[role="status"] button[aria-label="跳转到该会话"]'),card=action.closest('[role="status"]'),r=card.getBoundingClientRect(),s=getComputedStyle(card),badge=document.querySelector('button[aria-label*="有任务已完成"] span.bg-ok'),b=badge.getBoundingClientRect();return {cards:document.querySelectorAll('[role="status"] button[aria-label="跳转到该会话"]').length,text:card.innerText,x:r.x,right:r.right,height:r.height,scroll:card.scrollWidth,client:card.clientWidth,buttons:[...card.querySelectorAll('button')].map(e=>e.getAttribute('aria-label')),background:s.backgroundColor,color:s.color,badge:{width:b.width,height:b.height,animation:getComputedStyle(badge).animationName,color:getComputedStyle(badge).backgroundColor}};})()`);
 		assert.equal(metrics.cards, 1); assert.deepEqual(metrics.buttons, ["跳转到该会话", "关闭"]);
 		assert.ok(metrics.x >= 0 && metrics.right <= width && metrics.height <= 56, JSON.stringify(metrics));
@@ -104,11 +120,11 @@ test("background completion stays compact in both themes and narrow windows, the
 		assert.deepEqual({ ...metrics.badge, color: "" }, { width: 6, height: 6, animation: "none", color: "" });
 		assert.ok(metrics.text.length < 40); surfaces.set(theme, metrics.background);
 		t.diagnostic(JSON.stringify({ theme, width, ...metrics })); await shot(`completion-${theme}-${width}`);
-		await click('[role="status"] button[aria-label="跳转到该会话"]');
-		await until(`document.querySelector('.ly-transcript')?.textContent.includes(${JSON.stringify(result)})`);
+		await click("jump");
+		await until<string>(`document.querySelector('.ly-transcript')?.textContent ?? ''`, (text) => text.includes(result));
 		await until(`!document.querySelector('[role="status"] button[aria-label="跳转到该会话"]')`);
-		const painted = await app.evaluate<boolean[]>(`(async()=>{const out=[];for(let n=0;n<20;n++){await new Promise(requestAnimationFrame);out.push(document.querySelector('.ly-transcript')?.textContent.includes(${JSON.stringify(result)}));}return out;})()`);
-		assert.ok(painted.every(Boolean), "the source result remains visible throughout navigation settling");
+		const painted = await app.evaluate<string[]>(`(async()=>{const out=[];for(let n=0;n<20;n++){await new Promise(requestAnimationFrame);out.push(document.querySelector('.ly-transcript')?.textContent ?? '');}return out;})()`);
+		assert.ok(painted.every((text) => text.includes(result)), "the source result remains visible throughout navigation settling");
 		assert.equal(await app.evaluate(`!!document.querySelector('button[aria-label*="有任务已完成"]')`), false);
 	}
 	assert.notEqual(surfaces.get("light"), surfaces.get("dark"), "the toast surface uses the active theme");
@@ -116,24 +132,25 @@ test("background completion stays compact in both themes and narrow windows, the
 
 test("ordinary approvals and interactive questions expose one waiting badge and their own decision UI", async (t) => {
 	const cases = [
-		{ theme: "dark", width: 1200, name: "bash", input: { command: "rm -rf ./notification-e2e-unused", description: "通知验证：清理隔离测试目录" }, expected: "rm -rf ./notification-e2e-unused", cancel: "拒绝" },
-		{ theme: "light", width: 375, name: "ask_user", input: { question: "请选择通知验证方案", options: ["保留方案 A", "保留方案 B"], allowCustomInput: true }, expected: "请选择通知验证方案", cancel: "取消" },
+		{ theme: "dark", width: 1200, name: "bash", input: { command: "rm -rf ./notification-e2e-unused", description: "通知验证：清理隔离测试目录" }, expected: "rm -rf ./notification-e2e-unused", cancelQuery: `[...document.querySelectorAll('button')].find(b=>b.textContent.trim().startsWith("拒绝"))` },
+		{ theme: "light", width: 375, name: "ask_user", input: { question: "请选择通知验证方案", options: ["保留方案 A", "保留方案 B"], allowCustomInput: true }, expected: "请选择通知验证方案", cancelQuery: `[...document.querySelectorAll('button')].find(b=>b.textContent.trim().startsWith("取消"))` },
 	] as const;
 	for (const scenario of cases) {
 		await appearance(scenario.theme, scenario.width); await begin(`审批通知回归 ${scenario.name}`);
 		assert.ok(held); reply(held, "", { name: scenario.name, input: scenario.input });
-		await until(`document.querySelector('button[aria-label*="有任务等待处理"]')`);
+		await until(`Boolean(document.querySelector('button[aria-label*="有任务等待处理"]'))`);
 		const badge = await app.evaluate<{ animation: string; color: string }>(`(()=>{const b=document.querySelector('button[aria-label*="有任务等待处理"] span.bg-accent');return {animation:getComputedStyle(b).animationName,color:getComputedStyle(b).backgroundColor};})()`);
 		assert.equal(badge.animation, "none");
 		await chooseSession("qa-short"); await collapseSidebar();
-		await until(`document.querySelector('main')?.textContent.includes(${JSON.stringify(scenario.expected)}) && [...document.querySelectorAll('button')].some(b=>b.textContent.trim().startsWith(${JSON.stringify(scenario.cancel)}))`);
-		const card = await app.evaluate<{ text: string; left: number; right: number; top: number; bottom: number; buttons: { left: number; right: number; top: number; bottom: number }[] }>(`(()=>{const cancel=[...document.querySelectorAll('button')].find(b=>b.textContent.trim().startsWith(${JSON.stringify(scenario.cancel)}));const c=cancel.closest('.ly-glass'),r=c.getBoundingClientRect();return {text:c.innerText,left:r.left,right:r.right,top:r.top,bottom:r.bottom,buttons:[...c.querySelectorAll('button')].map(b=>{const r=b.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom};})};})()`);
+		await until<string>(`document.querySelector('main')?.textContent ?? ''`, (text) => text.includes(scenario.expected));
+		await until(`Boolean(${scenario.cancelQuery})`);
+		const card = await app.evaluate<{ text: string; left: number; right: number; top: number; bottom: number; buttons: { left: number; right: number; top: number; bottom: number }[] }>(`(()=>{const cancel=${scenario.cancelQuery};const c=cancel.closest('.ly-glass'),r=c.getBoundingClientRect();return {text:c.innerText,left:r.left,right:r.right,top:r.top,bottom:r.bottom,buttons:[...c.querySelectorAll('button')].map(b=>{const r=b.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom};})};})()`);
 		assert.ok(card.left >= 0 && card.right <= scenario.width && card.top >= 0 && card.bottom <= 800, JSON.stringify(card));
 		assert.ok(card.buttons.every((b) => b.left >= card.left && b.right <= card.right && b.top >= card.top && b.bottom <= card.bottom));
 		if (scenario.name === "ask_user") assert.ok(card.text.includes("保留方案 A") && card.text.includes("保留方案 B"));
 		t.diagnostic(JSON.stringify({ scenario: scenario.name, badge, card })); await shot(`approval-${scenario.name}-${scenario.theme}-${scenario.width}`);
-		await app.evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim().startsWith(${JSON.stringify(scenario.cancel)})).setAttribute('data-qa-cancel','')`);
-		await click('[data-qa-cancel]');
+		await app.evaluate(`(${scenario.cancelQuery}).setAttribute('data-qa-cancel','')`);
+		await click("cancel");
 		await until(`!document.querySelector('button[aria-label="停止"]')`);
 	}
 });
