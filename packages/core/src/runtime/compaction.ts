@@ -28,6 +28,7 @@ import { streamAssistant } from "../ai/index.ts";
 import { estimateTokens } from "../tokens.ts";
 import { dropUneventful, pruneToolResults, type ArtifactSink } from "./prune.ts";
 import { measureTotal } from "./context.ts";
+import { stripStaleHandles } from "./model-switch.ts";
 import type { AssistantMessage, Message, ModelConfig, ProviderConfig } from "../types.ts";
 
 /** Start compacting at this fraction of the context window. */
@@ -253,9 +254,7 @@ export async function compactIfNeeded(
 	artifacts?: ArtifactSink,
 	manual?: { instructions?: string; signal?: AbortSignal },
 	/**
-	 * 用于生成摘要的指定模型（来自 `@compact` 角色）。
-	 *
-	 * 未传或回退时，使用当前会话的模型与供应商生成摘要。
+	 * Selects the summarizer without changing the active model's compaction threshold or tail budget.
 	 */
 	summarizer?: { provider: ProviderConfig; model: ModelConfig },
 ): Promise<Compaction | null> {
@@ -357,7 +356,11 @@ export async function compactIfNeeded(
 
 	const summaryModel = summarizer?.model ?? model;
 	const summaryProvider = summarizer?.provider ?? provider;
-	let summary = await summarize(older, summaryModel, summaryProvider, streamFn, force ? manual ?? {} : undefined);
+	// Provider reasoning handles cannot be replayed by a different summarizer.
+	const summaryHistory = summaryModel.id !== model.id || summaryProvider.id !== provider.id
+		? stripStaleHandles(older, older.length)
+		: older;
+	let summary = await summarize(summaryHistory, summaryModel, summaryProvider, streamFn, force ? manual ?? {} : undefined);
 	if (!summary) {
 		summary = fallbackSummary(older);
 	}

@@ -7,9 +7,8 @@
  * silently falls back to whatever the session was using. So a definition says `@fast` and each
  * machine decides what fast means.
  *
- * Four roles, not omp's nine. `commit`, `vision` and `tiny` are too narrow to earn a name; `plan`
- * and `task` are covered by `deep` and `default`. Past four, "which role is this call" becomes its
- * own judgement to maintain, and the wrong answer is invisible.
+ * Roles describe reusable work: default conversation, summaries, fast work, deep reasoning and
+ * independent review. More specific jobs can choose one of these without another global setting.
  */
 
 import type { ModelConfig, ProviderConfig, ThinkingLevel } from "../types.ts";
@@ -34,7 +33,7 @@ export const MODEL_ROLES: ModelRole[] = ["default", "compact", "fast", "deep", "
 
 export const ROLE_DESCRIPTIONS: Record<ModelRole, string> = {
 	default: "日常对话与大部分工作",
-	compact: "对话超出上下文或手动压缩时生成摘要——未配置或选同会话模型时使用当前会话模型",
+	compact: "生成上下文摘要，未配置时使用当前会话模型",
 	fast: "子代理扇出、分类、补全——便宜且快比聪明更要紧的场合",
 	deep: "复杂推理与规划",
 	/*

@@ -366,7 +366,7 @@ export class AgentSession {
 			history,
 			resolved.model,
 			resolved.provider,
-			summaryStream(this.streamFn, summarizer.provider, summarizer.model),
+			summaryStream(this.streamFn, { sessionId: this.meta.id, cwd: this.cwd }),
 			0,
 			true,
 			// 剪掉的原文存下来，占位标记里给出 `artifact://` 地址。

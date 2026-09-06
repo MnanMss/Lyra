@@ -239,7 +239,6 @@ test("reopening a compacted session does not hand the model its whole history ba
 		assert.ok(
 			sent.length < loaded.messages.length,
 			`it sends the summary and the tail (${sent.length}), not the full transcript (${loaded.messages.length})`,
-			`it sends the summary and the tail (${sent.length}), not the full transcript (${loaded.messages.length})`,
 		);
 	} finally {
 		await rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 25 });

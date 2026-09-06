@@ -644,11 +644,11 @@ test("compaction uses custom summarizer model when provided", async () => {
 	let calledWithModel: ModelConfig | undefined;
 	let calledWithProvider: ProviderConfig | undefined;
 
-	const spyStream = ((provider: ProviderConfig, model: ModelConfig) => {
+	const spyStream: typeof streamAssistant = (provider, model) => {
 		calledWithModel = model;
 		calledWithProvider = provider;
 		return fakeStream("自定义模型摘要")();
-	}) as unknown as typeof streamAssistant;
+	};
 
 	const result = await compactIfNeeded(
 		messages,

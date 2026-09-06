@@ -27,6 +27,7 @@ import { dispatchTaskTool, controlMainTool } from "./sidechat-controls.ts";
 import { mainChatSnapshot, readMainChatTool } from "./sidechat-history.ts";
 import type { Settings } from "../config/settings.ts";
 import { resolveModel } from "../config/settings.ts";
+import { resolveModelRef } from "../config/model-roles.ts";
 import type { Message, ThinkingLevel, UserContent } from "../types.ts";
 import type { AgentSession } from "./session.ts";
 
@@ -194,7 +195,8 @@ export class SideChat {
 				maxTurns: 24,
 				streamFn: this.streamFn,
 				compact: async (messages, model) => {
-					const compacted = await compactWith(messages, model, resolved.provider, this.summaryStream, textTokens(systemPrompt) + toolTokens(tools));
+					const summarizer = resolveModelRef(this.settings, "@compact", { provider: resolved.provider, model });
+					const compacted = await compactWith(messages, model, resolved.provider, this.summaryStream, textTokens(systemPrompt) + toolTokens(tools), undefined, summarizer);
 					reading = [...(compacted?.messages ?? messages)];
 					return compacted;
 				},
