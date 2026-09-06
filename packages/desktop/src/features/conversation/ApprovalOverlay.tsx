@@ -9,6 +9,7 @@ const KIND_LABEL: Record<string, string> = {
   edit: "修改文件",
   mcp: "调用 MCP 工具",
   network: "访问网络",
+  interactive: "需要决策确认",
 };
 
 /**
@@ -85,41 +86,69 @@ export function ApprovalOverlay() {
           </pre>
         </Scroller>
 
-        <div className="flex flex-wrap items-center justify-end gap-2 px-4 py-2.5">
-          <button
-            type="button"
-            onClick={() => void respond(request.id, "reject")}
-            className="h-8 rounded-lg px-3 text-label text-ink-muted transition-colors hover:bg-card-hover hover:text-ink"
-          >
-            拒绝
-          </button>
-          {/*
-           * A permanent grant should say what it is granting.
-           *
-           * This was a bare 「始终允许」 — allow what, exactly? The answer is the subject the gate
-           * remembers, which for a network request is an origin and for a command is the command
-           * itself. Shown in the tooltip rather than the label so the button stays a button, and
-           * the label says 「不再问」 because that is the effect: this decision stops the question,
-           * it does not widen anything. Revocable in 设置 › 访问授权.
-           */}
-          <button
-            type="button"
-            data-ly-tip={request.subject ? `以后不再问：${request.subject}` : "以后不再问这一项"}
-            onClick={() => void respond(request.id, "always")}
-            className="h-8 rounded-lg border border-line px-3 text-label text-ink-muted transition-colors hover:border-ink-faint hover:text-ink"
-          >
-            以后不再问
-          </button>
-          <button
-            type="button"
-            autoFocus
-            onClick={() => void respond(request.id, "once")}
-            className="flex h-8 items-center gap-1.5 rounded-lg bg-ink px-3.5 text-label font-medium text-shell transition-opacity hover:opacity-90"
-          >
-            <Terminal size={13} strokeWidth={2} />
-            允许一次
-          </button>
-        </div>
+        {request.options && request.options.length > 0 ? (
+          <div className="flex flex-col gap-2 border-t border-line/60 bg-card/40 p-3">
+            <span className="text-detail font-medium text-ink-muted">请选择你的决策选项：</span>
+            <div className="flex flex-wrap gap-2">
+              {request.options.map((opt, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => {
+                    useApp.getState().send([{ type: "text", text: `用户选择了选项：${opt}` }]);
+                    void respond(request.id, "once");
+                  }}
+                  className="rounded-lg border border-line bg-card px-3 py-1.5 text-label font-medium text-ink shadow-sm transition-colors hover:border-accent hover:text-accent active:scale-[0.98]"
+                >
+                  {opt}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => void respond(request.id, "reject")}
+                className="rounded-lg border border-line-soft px-3 py-1.5 text-label text-ink-faint hover:bg-card-hover hover:text-ink"
+              >
+                取消 / 自行输入
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-end gap-2 px-4 py-2.5">
+            <button
+              type="button"
+              onClick={() => void respond(request.id, "reject")}
+              className="h-8 rounded-lg px-3 text-label text-ink-muted transition-colors hover:bg-card-hover hover:text-ink"
+            >
+              拒绝
+            </button>
+            {/*
+             * A permanent grant should say what it is granting.
+             *
+             * This was a bare 「始终允许」 — allow what, exactly? The answer is the subject the gate
+             * remembers, which for a network request is an origin and for a command is the command
+             * itself. Shown in the tooltip rather than the label so the button stays a button, and
+             * the label says 「不再问」 because that is the effect: this decision stops the question,
+             * it does not widen anything. Revocable in 设置 › 访问授权.
+             */}
+            <button
+              type="button"
+              data-ly-tip={request.subject ? `以后不再问：${request.subject}` : "以后不再问这一项"}
+              onClick={() => void respond(request.id, "always")}
+              className="h-8 rounded-lg border border-line px-3 text-label text-ink-muted transition-colors hover:border-ink-faint hover:text-ink"
+            >
+              以后不再问
+            </button>
+            <button
+              type="button"
+              autoFocus
+              onClick={() => void respond(request.id, "once")}
+              className="flex h-8 items-center gap-1.5 rounded-lg bg-ink px-3.5 text-label font-medium text-shell transition-opacity hover:opacity-90"
+            >
+              <Terminal size={13} strokeWidth={2} />
+              允许一次
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

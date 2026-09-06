@@ -38,6 +38,8 @@ export interface SkillEntry {
 	source: "workspace" | "user" | "builtin";
 	/** Set when it came from a bundle, which is also how it is named: `<plugin>:<skill>`. */
 	pluginId?: string;
+	/** File path of SKILL.md for direct opening in editor/sidebar. */
+	path?: string;
 }
 
 /** Where a newly created command goes, per scope. Only ours — nothing writes into `.claude`. */
@@ -101,6 +103,7 @@ export function registerCommandsIpc(): void {
 				description: skill.description,
 				source: skill.source,
 				...(skill.pluginId ? { pluginId: skill.pluginId } : {}),
+				path: skill.path,
 			})),
 		};
 	});

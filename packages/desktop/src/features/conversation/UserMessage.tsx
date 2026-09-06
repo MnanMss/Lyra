@@ -2,13 +2,16 @@ import type {
   UserContent,
   UserMessage as UserMessageType,
 } from "@lyra/core";
-import { MessageSquarePlus, Pencil } from "lucide-react";
+import { MessageSquarePlus, Pencil, Boxes, MessagesSquare } from "lucide-react";
 import { openFromEvent } from "../image/index.ts";
 import { useState } from "react";
 import { MessageActions } from "./MessageActions.tsx";
 import { MessageEditor } from "./message/MessageEditor.tsx";
 import { useApp } from "../../store/index.ts";
-
+import { useOpenFile } from "../../store/openFile.ts";
+import { useDock } from "../dock/index.ts";
+import { bridge } from "../../services/index.ts";
+import type { SkillEntry } from "../../../electron/ipc-types.ts";
 /**
  * A message you sent, with the two things you want from one afterwards: to copy it, and to
  * take it back.
@@ -28,13 +31,38 @@ export function UserMessage({
   const running = useApp((s) => s.running);
   const editMessage = useApp((s) => s.editMessage);
 
-  const text = message.content
+  const rawText = message.content
     .filter(
       (block): block is Extract<UserContent, { type: "text" }> =>
         block.type === "text",
     )
     .map((block) => block.text)
     .join("\n");
+
+  // Fallback to sanitizing injected text and detecting skill if not explicitly attached
+  let displayText = message.displayText;
+  let skillRef = message.skillRef;
+
+  if (!skillRef) {
+    const match = /使用\s*`([^`]+)`\s*(?:（来自插件\s*([^）]+)）)?\s*技能[。.]?/i.exec(rawText);
+    if (match) {
+      skillRef = {
+        name: match[1],
+        pluginId: match[2],
+      };
+    }
+  }
+
+  if (displayText === undefined) {
+    // Repeatedly strip all leading/embedded skill invocation phrases
+    displayText = rawText
+      .replace(/(?:使用\s*`[^`]+`\s*(?:（来自插件\s*[^）]+）)?\s*技能[。.]?\s*)+/gi, "")
+      .replace(/\n*\[上下文引用提示\][\s\S]*$/i, "")
+      .trim();
+  }
+
+  const hasCapsules = Boolean(skillRef || (message.sessionRefs && message.sessionRefs.length > 0));
+  const text = displayText || (hasCapsules ? "" : rawText);
   const images = message.content.filter((block) => block.type === "image");
 
   const [editing, setEditing] = useState(false);
@@ -127,8 +155,70 @@ export function UserMessage({
             ))}
           </div>
         )}
-      {text && <div className="ly-user-bubble max-w-[85%] rounded-2xl bg-card px-4 py-2.5 sm:max-w-[75%]">
-        <p className="text-body leading-relaxed whitespace-pre-wrap break-words text-ink">{text}</p>
+      {(text || hasCapsules) && <div className="ly-user-bubble max-w-[85%] rounded-2xl bg-card px-4 py-2.5 sm:max-w-[75%]">
+        {/* Render interactive Skill capsule if present */}
+        {skillRef && (
+          <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              data-ly-tip="在侧边栏打开技能文件"
+              onClick={async () => {
+                let targetPath = skillRef?.path;
+                if (!targetPath) {
+                  const cmdCwd = useApp.getState().workspace?.path ?? "";
+                  const list = await bridge.commands.list(cmdCwd).catch(() => null);
+                  const matched = list?.skills?.find(
+                    (s: SkillEntry) => s.name.toLowerCase() === skillRef?.name.toLowerCase()
+                  );
+                  targetPath = matched?.path;
+                }
+                if (targetPath) {
+                  const fileName = targetPath.split(/[/\\\\]/).pop() || `${skillRef?.name} (SKILL.md)`;
+                  void useOpenFile.getState().open({
+                    path: targetPath,
+                    name: fileName,
+                    isDirectory: false,
+                    size: 0,
+                  });
+                  useDock.getState().open("file", { kind: "conversation", side: "right", share: 0.45 });
+                } else {
+                  useApp.getState().notify(`无法找到技能「${skillRef?.name}」的定义文件`, "warn");
+                }
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-line-soft bg-card-hover/80 px-2.5 py-1 text-label font-medium text-accent transition-colors hover:bg-card-hover active:scale-[0.98]"
+            >
+              <Boxes size={13} strokeWidth={2} className="text-accent" />
+              <span>{skillRef.name}</span>
+            </button>
+          </div>
+        )}
+
+        {/* Render interactive Session mention capsules if present */}
+        {message.sessionRefs && message.sessionRefs.length > 0 && (
+          <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+            {message.sessionRefs.map((sRef) => (
+              <button
+                key={sRef.id}
+                type="button"
+                data-ly-tip="点击切换至该会话"
+                onClick={() => {
+                  const target = useApp.getState().sessions.find((s) => s.id === sRef.id);
+                  if (target) {
+                    void useApp.getState().openSession(target);
+                  } else {
+                    useApp.getState().notify(`无法找到会话：${sRef.title}`, "warn");
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-line-soft bg-card-hover/80 px-2 py-0.5 text-caption font-medium text-ink-muted transition-colors hover:bg-card-hover hover:text-ink active:scale-[0.98]"
+              >
+                <MessagesSquare size={12} strokeWidth={1.8} className="text-ink-faint" />
+                <span className="max-w-[180px] truncate">{sRef.title}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {text && <p className="text-body leading-relaxed whitespace-pre-wrap break-words text-ink">{text}</p>}
       </div>}
 
       {/* Editing is the one thing a sent message offers that a reply does not. */}

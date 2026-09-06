@@ -61,7 +61,7 @@ export interface SessionSnapshot {
 	meta: SessionMeta;
 	messages: import("@lyra/core").Message[];
 	running: boolean;
-	pendingApprovals: { id: string; kind: string; title: string; detail: string }[];
+	pendingApprovals: { id: string; kind: string; title: string; detail: string; options?: string[] }[];
 	/** Message positions where history was summarised, so the mark survives a reload. */
 	compactions?: number[];
 	commandRuns?: CommandRun[];
