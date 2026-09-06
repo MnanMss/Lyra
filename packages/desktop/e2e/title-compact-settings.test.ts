@@ -59,9 +59,9 @@ async function verifyRow(kind: "title" | "compact"): Promise<void> {
 	for (const theme of ["light", "dark"]) {
 		await app.evaluate(`(async () => {
 			const settings = await window.lyra.settings.get();
-			await window.lyra.settings.save({ ...settings, appearance: { ...settings.appearance, theme: ${JSON.stringify(theme)} } });
+			await window.lyra.settings.save({ ...settings, appearance: { ...settings.appearance, theme: ${theme === "light" ? '"light"' : '"dark"'} } });
 		})()`);
-		await waitFor(`document.documentElement.classList.contains(${JSON.stringify(theme)})`);
+		await waitFor(`document.documentElement.classList.contains(${theme === "light" ? '"light"' : '"dark"'})`);
 		for (const width of [1440, 760]) {
 			await resize(width);
 			const metrics = await app.evaluate<{ rowWidth: number; overflow: number; overlaps: boolean; controlWidth: number; visible: boolean; text: string }>(`(() => {

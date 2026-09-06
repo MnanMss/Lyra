@@ -60,8 +60,8 @@ async function shot(name: string) {
 }
 async function appearance(theme: "dark" | "light", width: number) {
 	await app.send("Emulation.setDeviceMetricsOverride", { width, height: 800, deviceScaleFactor: 1, mobile: false });
-	await app.evaluate(`(async()=>{const s=await window.lyra.settings.get();await window.lyra.settings.save({...s,appearance:{...s.appearance,theme:${JSON.stringify(theme)}}});})()`);
-	await until(`innerWidth === ${width} && document.documentElement.style.colorScheme === ${JSON.stringify(theme)} && !document.documentElement.hasAttribute('data-theme-switching')`);
+	await app.evaluate(`(async()=>{const s=await window.lyra.settings.get();await window.lyra.settings.save({...s,appearance:{...s.appearance,theme:${theme === "light" ? '"light"' : '"dark"'}}});})()`);
+	await until(`innerWidth === ${width} && document.documentElement.style.colorScheme === ${theme === "light" ? '"light"' : '"dark"'} && !document.documentElement.hasAttribute('data-theme-switching')`);
 }
 
 test("same-title references survive draft switching and fit dark, light and narrow composers", async (t) => {
