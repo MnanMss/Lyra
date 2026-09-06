@@ -17,6 +17,9 @@ import type { Grouped } from "./grouping.ts";
 import { ProjectGroup, SESSION_PAGE } from "./ProjectGroup.tsx";
 import { rowActions, SessionRow, type RowActions } from "./SessionRow.tsx";
 import { ShowMore } from "./ShowMore.tsx";
+import { useSidebarReorder } from "./useSidebarReorder.ts";
+import { SidebarReorderContext } from "./reorder-context.ts";
+import { CarriedPill } from "./DropIndicator.tsx";
 
 /**
  * Fold keys for the two sections, which are not projects and have no path.
@@ -38,6 +41,7 @@ export function ProjectList({
 	onLooseMore,
 	onLooseCollapse,
 	actions,
+	onReordered,
 	empty,
 }: {
 	groups: Grouped;
@@ -52,10 +56,12 @@ export function ProjectList({
 	onLooseMore: () => void;
 	onLooseCollapse: () => void;
 	actions: RowActions;
+	onReordered?: () => void;
 	/** What an empty list says, which differs between the sidebar and the archive. */
 	empty: React.ReactNode;
 }) {
 	const { compact } = useLayout();
+	const reorder = useSidebarReorder(onReordered);
 	const pinnedShut = collapsed.includes(PINNED);
 	const hasPinned = (groups.pinnedSessions?.length ?? 0) > 0 || groups.pinned.length > 0;
 	const pinnedCount = (groups.pinnedSessions?.length ?? 0) + groups.pinned.length;
@@ -63,9 +69,9 @@ export function ProjectList({
 	if (!hasPinned && groups.projects.length === 0 && groups.loose.length === 0) {
 		return <>{empty}</>;
 	}
-
 	return (
-		<>
+		<SidebarReorderContext.Provider value={reorder.contextValue}>
+			{reorder.dragging && <CarriedPill item={reorder.dragging} pointer={reorder.pointer} />}
 			{hasPinned && (
 				<>
 					<SectionLabel sessions={[...groups.pinnedSessions, ...groups.pinned.flatMap((group) => group.sessions)]} count={pinnedCount} collapsed={pinnedShut} onToggle={() => onToggleCollapsed(PINNED)}>
@@ -142,7 +148,7 @@ export function ProjectList({
 					</Collapsible>
 				</>
 			)}
-		</>
+		</SidebarReorderContext.Provider>
 	);
 }
 

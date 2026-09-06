@@ -22,6 +22,8 @@ const w = new Window({ url: "http://localhost" });
  * this file is being evaluated, so every test in the run fails with a stack that points here rather
  * than at any test. It reads like a broken install of happy-dom.
  */
+process.env.NODE_ENV = "test";
+
 const globals: Record<string, unknown> = {
 	window: w,
 	document: w.document,
