@@ -238,7 +238,7 @@ export class UpdateDownload {
 		this.set({ at: "downloading", received: have, total: this.target.size });
 
 		try {
-			await mkdir(dirname(this.partial), { recursive: true });
+			await mkdir(dirname(this.partial), { recursive: true, mode: 0o700 });
 
 			const response = await fetch(this.target.url, {
 				signal: aborter.signal,
@@ -273,7 +273,7 @@ export class UpdateDownload {
 			let received = plan.from;
 			this.set({ at: "downloading", received, total });
 
-			const sink = await open(this.partial, plan.append ? "a" : "w");
+			const sink = await open(this.partial, plan.append ? "a" : "w", 0o600);
 			const reader = response.body.getReader();
 			try {
 				while (true) {
