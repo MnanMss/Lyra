@@ -196,6 +196,20 @@ test("a download that runs to the end leaves the whole file, byte for byte", asy
 	}
 });
 
+test("new update directories and installers are private to the current user", { skip: process.platform === "win32" }, async () => {
+	const server = await serve();
+	const dir = join(await workdir(), "updates", "version");
+	try {
+		const download = downloadInto(dir, server.url);
+		assert.equal((await download.start()).at, "preparing");
+		assert.equal((await stat(dir)).mode & 0o777, 0o700);
+		assert.equal((await stat(join(dir, ".."))).mode & 0o777, 0o700);
+		assert.equal((await stat(join(dir, "Lyra.zip"))).mode & 0o777, 0o600);
+	} finally {
+		await server.close();
+	}
+});
+
 test("pausing keeps what came down, and resuming asks only for the rest", async () => {
 	const server = await serve({ hold: true });
 	const dir = await workdir();
