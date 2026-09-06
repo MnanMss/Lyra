@@ -9,7 +9,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -53,11 +53,13 @@ async function until(check: () => boolean, ms = 20_000): Promise<boolean> {
  */
 function fakeWatch() {
 	const fired: (() => void)[] = [];
-	const factory = ((_dir: string, _opts: unknown, listener: () => void) => {
+	const paths: string[] = [];
+	const factory = ((dir: string, _opts: unknown, listener: () => void) => {
+		paths.push(dir);
 		fired.push(listener);
 		return { on: () => {}, close: () => {}, unref: () => {} };
 	}) as never;
-	return { factory, fire: () => fired.forEach((f) => f()) };
+	return { factory, paths, fire: () => fired.forEach((f) => f()) };
 }
 
 async function scratch(name: string): Promise<string> {
@@ -91,6 +93,25 @@ test("真的用的是 fs.watch，不只是我们自己的替身", async () => {
 	const dir = await scratch("real");
 	const watcher = new CapabilityWatcher({ dirs: [dir], idle: () => true, reload: async () => {} });
 	try {
+		assert.equal(watcher.watching, 1);
+	} finally {
+		watcher.close();
+	}
+});
+
+test("监听交给系统的是实际路径，别名和不存在的目录不会传进 fs.watch", async () => {
+	const dir = await scratch("canonical");
+	const alias = join(root, "alias");
+	await symlink(dir, alias, "junction");
+	const fake = fakeWatch();
+	const watcher = new CapabilityWatcher({
+		dirs: [alias, join(root, "missing")],
+		idle: () => true,
+		reload: async () => {},
+		watchFactory: fake.factory,
+	});
+	try {
+		assert.deepEqual(fake.paths, [await realpath(dir)]);
 		assert.equal(watcher.watching, 1);
 	} finally {
 		watcher.close();
