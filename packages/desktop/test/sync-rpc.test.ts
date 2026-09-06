@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { allowedMethods, callRpc, RPC, type RpcDeps } from "../electron/sync-rpc.ts";
-import { DEFAULT_SETTINGS, type SessionMeta } from "@lyra/core";
+import { DEFAULT_SETTINGS, type SessionMeta, type Settings } from "@lyra/core";
 
 /** Deps that record what was asked of them, so a call can be traced without a real session. */
 function deps(overrides: Partial<RpcDeps> = {}): RpcDeps {
@@ -39,7 +39,7 @@ function deps(overrides: Partial<RpcDeps> = {}): RpcDeps {
 		tasksCancel: async () => false,
 		tasksDismiss: async () => false,
 		tasksResume: async () => false,
-		commandsList: async () => ({ commands: [], builtins: [], diagnostics: [], skills: [] }),
+		commandsList: async () => ({ commands: [], builtins: [], diagnostics: [], skills: [], agents: [] }),
 		filesList: async () => [],
 		filesRead: async () => null,
 		scratchRoots: async () => [],
@@ -124,27 +124,35 @@ test("approving a tool call is allowed, because that is the point of having a ph
 	assert.ok(allowedMethods().includes("agent.approve"));
 });
 
-test("approval decisions are checked as the wire enum", async () => {
+test("approval decisions accept structured answers and persist only the consumed trusted subject", async () => {
 	const resolved: unknown[] = [];
+	let pending = [{ id: "r1", request: { subject: "approved command" } }];
+	const saved: Settings[] = [];
 	const session = {
+		listPendingApprovals: () => pending,
 		resolveApproval: (requestId: string, decision: unknown) => {
 			resolved.push([requestId, decision]);
+			pending = [];
 			return true;
 		},
 	} as never;
 
-	assert.deepEqual(await callRpc(deps({ live: () => session }), "agent.approve", ["s1", "r1", "always"]), {
+	assert.deepEqual(await callRpc(deps({ live: () => session, saveSettings: async value => { saved.push(value); } }), "agent.approve", ["s1", "r1", "always"]), {
 		ok: true,
 		value: null,
 	});
 	assert.deepEqual(resolved, [["r1", "always"]]);
+	assert.ok(saved[0].alwaysAllow.includes("approved command"));
+	assert.equal((await callRpc(deps({ live: () => session }), "agent.approve", ["s1", "r2", { answer: "保留" }])).ok, true);
 
-	for (const invalid of [{ allow: true }, "yes", null]) {
+	for (const invalid of [{ allow: true }, { answer: "" }, { answer: 42 }, "yes", null]) {
 		const result = await callRpc(deps({ live: () => session }), "agent.approve", ["s1", "r2", invalid]);
 		assert.equal(result.ok, false);
 		assert.match(String(result.error), /invalid-args.*decision/);
 	}
-	assert.deepEqual(resolved, [["r1", "always"]], "invalid decisions must not reach the session");
+	assert.deepEqual(resolved, [["r1", "always"], ["r2", { answer: "保留" }]], "invalid decisions must not reach the session");
+	const missing = await callRpc(deps(), "agent.approve", ["missing", "r", { answer: "保留" }]);
+	assert.equal(missing.ok, false, "a closed session must not acknowledge an answer");
 });
 
 test("thinking accepts a bounded string or null", async () => {
@@ -247,6 +255,7 @@ test("每个 handler 都能经 callRpc 到达", async () => {
 		"sessions.open": ["p1", "s1"],
 		"sessions.transcript": ["p1", "s1"],
 		"sessions.trajectory": ["p1", "s1"],
+		"sessions.trajectoryChanges": ["p1", "s1"],
 		"sessions.fork": ["p1", "s1", 1],
 		"sessions.remove": ["p1", "s1"],
 		"sessions.capabilities": ["s1"],

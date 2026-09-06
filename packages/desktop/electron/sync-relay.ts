@@ -12,8 +12,8 @@
  * to know which kind of connection it is holding.
  *
  * The room is the SHA-256 of the pairing token. The token itself never reaches the relay, so a
- * relay operator learns that two devices want to meet and nothing else; and since the hash is what
- * addresses the room, only something that already knows the token can arrive in it.
+ * relay can route the devices without receiving the token. The room remains a bearer capability:
+ * its holder and the relay operator can inject session frames, so the relay must be trusted.
  */
 
 import { createHash } from "node:crypto";
@@ -26,7 +26,7 @@ export function roomFor(token: string): string {
 
 /** Separate from the conversation room so an asset URL never grants access to session frames. */
 export function assetKeyFor(token: string): string {
-	return createHash("sha256").update(`lyra-assets\0${token}`).digest("hex");
+	return createHash("sha256").update(`lyra-assets\0${roomFor(token)}`).digest("hex");
 }
 
 /**

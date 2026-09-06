@@ -165,6 +165,11 @@ test("truncateFrom refuses an index that is not there", async () => {
 		const meta = await store.create("/tmp/a", "m");
 		assert.equal(await store.truncateFrom(meta.projectId, meta.id, 0), null);
 		assert.equal(await store.truncateFrom(meta.projectId, meta.id, -1), null);
+		await store.append(meta, { type: "message", message: { role: "user", content: [{ type: "text", text: "keep" }], timestamp: 1 } });
+		for (const index of [0.5, NaN, Infinity]) {
+			assert.equal(await store.truncateFrom(meta.projectId, meta.id, index), null);
+		}
+		assert.equal((await store.load(meta.projectId, meta.id))?.messages.length, 1);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}

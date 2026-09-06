@@ -23,17 +23,23 @@ let server: ChildProcess;
 
 before(async () => {
 	server = spawn(process.execPath, [SERVER], { env: { ...process.env, PORT: String(PORT) }, stdio: "pipe" });
+	await listening(server);
+});
+
+async function listening(child: ChildProcess): Promise<void> {
 	// Wait for the line it prints once it is listening, rather than guessing at a delay.
 	await new Promise<void>((resolve, reject) => {
 		const timer = setTimeout(() => reject(new Error("中转没有在 10 秒内启动")), 10_000);
-		server.stdout?.on("data", (chunk: Buffer) => {
+		child.once("error", (error) => { clearTimeout(timer); reject(error); });
+		child.once("exit", (code) => { clearTimeout(timer); reject(new Error(`Relay exited before listening (${code})`)); });
+		child.stdout?.on("data", (chunk: Buffer) => {
 			if (chunk.toString().includes("listening")) {
 				clearTimeout(timer);
 				resolve();
 			}
 		});
 	});
-});
+}
 
 after(() => {
 	server?.kill("SIGKILL");
@@ -201,7 +207,7 @@ test("the health endpoint answers, for a deployment to point a check at", async 
 test("renderer assets are fetched through the paired desktop only", async () => {
 	const token = "renderer-tunnel";
 	const room = roomFor(token);
-	const assetKey = createHash("sha256").update(`lyra-assets\0${token}`).digest("hex");
+	const assetKey = createHash("sha256").update(`lyra-assets\0${room}`).digest("hex");
 	const desktop = client(room, "desktop", PORT, assetKey);
 	await desktop.ready;
 	await desktop.until((lines) => lines.some((line) => line.includes("waiting")), "waiting");
@@ -279,11 +285,11 @@ test("限流只挡新房间，已经在房里的两端不受影响", async () =>
 	const port = PORT + 1;
 	const own = spawn(process.execPath, [SERVER], {
 		env: { ...process.env, PORT: String(port) },
-		stdio: "ignore",
+		stdio: "pipe",
 	});
-	await new Promise((r) => setTimeout(r, 400));
 
 	try {
+		await listening(own);
 		const room = roomFor("still-working");
 		const host = client(room, "host", port);
 		const guest = client(room, "guest", port);

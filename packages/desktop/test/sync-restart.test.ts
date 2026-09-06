@@ -13,6 +13,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { request } from "node:http";
 import { SyncServer } from "../electron/sync-server.ts";
 import { DEFAULT_SETTINGS, type Settings } from "@lyra/core";
 
@@ -142,3 +143,35 @@ test("stop leaves the port free for the next start", async () => {
 		await sync.stop();
 	}
 });
+
+for (const upgrade of [false, true]) {
+	for (const malformed of ["host", "target"]) {
+		test(`malformed ${malformed} cannot terminate sync ${upgrade ? "WebSocket upgrade" : "HTTP"}`, async () => {
+			const sync = server();
+			try {
+				await sync.start(PORT, "tok");
+				const status = await new Promise<number | undefined>((resolve, reject) => {
+					const req = request({
+						hostname: "127.0.0.1", port: PORT,
+						agent: false,
+						path: malformed === "target" ? "http://[" : upgrade ? "/ws?token=invalid" : "/api/ping",
+						headers: {
+							Host: malformed === "host" ? "[" : "localhost",
+							...(upgrade ? { Connection: "Upgrade", Upgrade: "websocket" } : {}),
+						},
+						signal: AbortSignal.timeout(1500),
+					}, (res) => {
+						res.resume();
+						res.once("end", () => resolve(res.statusCode));
+					});
+					req.once("error", reject);
+					req.end();
+				});
+				assert.equal(status, malformed === "target" ? 400 : upgrade ? 401 : 200);
+				assert.equal((await fetch(`http://127.0.0.1:${PORT}/api/ping`, { headers: { Connection: "close" } })).status, 200);
+			} finally {
+				await sync.stop();
+			}
+		});
+	}
+}

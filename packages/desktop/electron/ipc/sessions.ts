@@ -22,7 +22,9 @@ import {
 } from "@lyra/core";
 import { grantArtifactRead } from "../readable-artifacts.ts";
 import { exportTrajectory } from "../trajectory-export.ts";
+import { readTrajectoryChanges } from "../trajectory-changes.ts";
 import { ipcMain } from "electron";
+import { resolveSessionApproval } from "../approval-response.ts";
 import { cleanOldWorktrees } from "../git-worktrees.ts";
 import type { AgentCapabilities } from "../ipc-types.ts";
 import {
@@ -71,7 +73,7 @@ export function registerSessionsIpc({
 	 */
 	const ensureSession = ensureLiveSession;
 
-	ipcMain.handle("sessions:create", async (_event, cwd: string, modelId: string, initial?: { content: UserContent[]; synthetic?: boolean }) => createSession(cwd, modelId, initial));
+	ipcMain.handle("sessions:create", async (_event, cwd: string, modelId: string, initial?: { content: UserContent[]; synthetic?: boolean; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }> }) => createSession(cwd, modelId, initial));
 
 	/**
 	 * Read a transcript without starting anything.
@@ -92,6 +94,8 @@ export function registerSessionsIpc({
 		async (_event, projectId: string, sessionId: string) =>
 			readTrajectory(store, projectId, sessionId, sessions.get(sessionId)?.running ?? false),
 	);
+	ipcMain.handle("sessions:trajectoryChanges", (_event, projectId: string, sessionId: string, cursor?: string) =>
+		readTrajectoryChanges(store, projectId, sessionId, cursor, sessions.get(sessionId)?.running ?? false));
 
 	ipcMain.handle(
 		"sessions:fork",
@@ -160,12 +164,7 @@ export function registerSessionsIpc({
 			}
 			const meta = (await store.listSessions()).find((s) => s.id === sessionId);
 			if (!meta) return null;
-			const renamed = await store.append(meta, { type: "title", title: cleanTitle });
-			// Same flag the live path sets, or the name is lost to the first prompt after this
-			// session is woken up. See `SessionMeta.titleSetByUser`.
-			const updated = renamed.titleSetByUser
-				? renamed
-				: await store.append(renamed, { type: "meta", meta: { ...renamed, titleSetByUser: true } });
+			const updated = await store.append(meta, { type: "title", title: cleanTitle, source: "user" });
 			broadcast(sessionId, { type: "title", title: cleanTitle });
 			return updated;
 		},
@@ -269,7 +268,7 @@ export function registerSessionsIpc({
 			_event,
 			sessionId: string,
 			content: UserContent[],
-			options?: { synthetic?: boolean; deliver?: "steer" | "followUp"; resumePending?: boolean },
+			options?: { synthetic?: boolean; deliver?: "steer" | "followUp"; resumePending?: boolean; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }> },
 		) => {
 			return promptSession(sessionId, content, options);
 		},
@@ -338,22 +337,15 @@ export function registerSessionsIpc({
 		) => {
 			const session = sessions.get(sessionId);
 			if (!session) return;
-			session.resolveApproval(requestId, decision);
-			if (decision === "always") {
-				const request = session
-					.listPendingApprovals()
-					.find((p) => p.id === requestId);
+			await resolveSessionApproval(session, requestId, decision, async (subject) => {
 				const settings = readSettings();
-				if (
-					request &&
-					!settings.alwaysAllow.includes(request.request.subject)
-				) {
+				if (!settings.alwaysAllow.includes(subject)) {
 					await saveSettings({
 						...settings,
-						alwaysAllow: [...settings.alwaysAllow, request.request.subject],
+						alwaysAllow: [...settings.alwaysAllow, subject],
 					});
 				}
-			}
+			});
 		},
 	);
 

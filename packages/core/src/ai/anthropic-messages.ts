@@ -6,6 +6,7 @@
  */
 
 import { toAnthropicMessages, toAnthropicTools } from "./anthropic-messages-request.ts";
+import { sanitizeToolPairing } from "./sanitize-history.ts";
 import type {
 	AssistantContent,
 	AssistantMessage,
@@ -68,7 +69,7 @@ async function* streamAnthropic(
 		model: model.modelId,
 		max_tokens: maxTokens,
 		stream: true,
-		messages: toAnthropicMessages(context.messages),
+		messages: toAnthropicMessages(sanitizeToolPairing(context.messages)),
 		...(context.systemPrompt
 			? {
 					system: [

@@ -267,8 +267,7 @@ export default function DeskScreen() {
 				// Native layout handles IME overlap; the page still covers visualViewport cases.
 				automaticallyAdjustContentInsets={false}
 				contentInsetAdjustmentBehavior="never"
-				// The app is one origin; anything else is a link someone tapped, and belongs in a
-				// browser rather than inside the session view.
+				// Other relay capabilities belong in the external browser, outside this session bridge.
 				originWhitelist={["http://*", "https://*", "about:blank"]}
 				onShouldStartLoadWithRequest={(request) => {
 					if (isAppUrl(request.url, connection)) return true;

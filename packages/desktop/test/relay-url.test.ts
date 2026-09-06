@@ -68,6 +68,6 @@ test("the room is the token's digest, and nothing else travels", () => {
 
 test("the renderer asset capability is namespaced away from the room", () => {
 	const token = "abc123";
-	assert.equal(assetKeyFor(token), createHash("sha256").update(`lyra-assets\0${token}`).digest("hex"));
+	assert.equal(assetKeyFor(token), createHash("sha256").update(`lyra-assets\0${roomFor(token)}`).digest("hex"));
 	assert.notEqual(assetKeyFor(token), roomFor(token));
 });

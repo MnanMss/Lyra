@@ -13,6 +13,12 @@
 用 Node 自带的 `node:test`，不引测试框架。跑在 `--experimental-strip-types` 下，所以测试文件
 是 `.ts` 而不能是 `.tsx`。
 
+跨平台测试用 `node:fs` 遍历源码，不依赖 POSIX shell 或 `grep`；文件路径断言用 `node:path`
+构造完整预期值。隔离用户目录时同时设置 `HOME` 与 `USERPROFILE`，清理文件前先释放会话。
+能力监听用真实路径交给 `fs.watch`，避免 Windows 短路径通知导致 libuv 断言退出，并在 Linux
+递归监听异步启动前拒绝不存在的目录。扩展入口经 `pathToFileURL` 加载，Windows 盘符和文件名中
+的 `#`、`%` 都按文件路径处理。对应回归在 `capability-watch.test.ts` 与 `extension-host.test.ts`。
+
 ## 组件测试
 
 在 `packages/desktop/test/ui/`，`pnpm --filter @lyra/desktop test:ui`。用 happy-dom 真的挂载再
@@ -44,11 +50,17 @@ pnpm --filter @lyra/desktop exec node --test --experimental-strip-types e2e/tran
 启动 `pnpm.cmd`。退出时 Windows 用 `taskkill /T` 回收 Electron 的进程树，启动失败同样清理
 临时 profile。
 
+CDP 求值先取得远程对象句柄，在同一连接内等待 Promise 或读取对象值，最后释放对象组。
+Electron 43 携带的 V8 尚未包含 [536271637 的修复](https://chromium-review.googlesource.com/c/v8/v8/+/8123081)，
+直接使用 `Runtime.evaluate(awaitPromise: true)` 只保留弱引用，GC 会让待完成求值报
+`Promise was collected`。`cdp-lifetime.test.ts` 强制 GC 验证等待期间保活，并检查完成、拒绝及
+序列化失败后的释放；不改变应用 IPC，也不重试失败的操作。
+
 ### Windows 桌面回归
 
 CI 的 `windows-ui` 在 push、PR 和手动执行时运行真实 Windows Electron，并纳入 `all-green`。
 它跑 `desktop-compatibility.test.ts`、`transcript-stability.test.ts`、`interaction-polish.test.ts`、
-`session-startup.test.ts`、`definition-actions.test.ts`、`command-workflow.test.ts`、`visual-details.test.ts`、`agent-profiles-sidechat.test.ts`、`navigation-models.test.ts`、`model-menu-polish.test.ts`、`usage-dashboard.test.ts`、`workspace-quality.test.ts` 与 `browser-workspace.test.ts`：
+`session-startup.test.ts`、`definition-actions.test.ts`、`command-workflow.test.ts`、`visual-details.test.ts`、`agent-profiles-sidechat.test.ts`、`navigation-models.test.ts`、`model-menu-polish.test.ts`、`usage-dashboard.test.ts`、`workspace-quality.test.ts`、`browser-workspace.test.ts`、`menu-scroll.test.ts` 与 `cdp-lifetime.test.ts`：
 
 - 100%、125%、150%、200% Chromium 显示缩放，深浅主题和 380px 起的窗口宽度。
 - 从 Window Controls Overlay API 读取系统按钮区域，验证应用按钮没有进入它。
@@ -73,7 +85,7 @@ CI 的 `windows-ui` 在 push、PR 和手动执行时运行真实 Windows Electro
 
 ```bash
 pnpm build
-pnpm --filter @lyra/desktop exec node --test --test-concurrency=1 --experimental-strip-types e2e/desktop-compatibility.test.ts e2e/transcript-stability.test.ts e2e/interaction-polish.test.ts e2e/session-startup.test.ts e2e/definition-actions.test.ts e2e/command-workflow.test.ts e2e/visual-details.test.ts e2e/agent-profiles-sidechat.test.ts e2e/navigation-models.test.ts e2e/model-menu-polish.test.ts e2e/usage-dashboard.test.ts e2e/workspace-quality.test.ts e2e/browser-workspace.test.ts
+pnpm --filter @lyra/desktop exec node --test --test-concurrency=1 --experimental-strip-types e2e/desktop-compatibility.test.ts e2e/transcript-stability.test.ts e2e/interaction-polish.test.ts e2e/session-startup.test.ts e2e/definition-actions.test.ts e2e/command-workflow.test.ts e2e/visual-details.test.ts e2e/agent-profiles-sidechat.test.ts e2e/navigation-models.test.ts e2e/model-menu-polish.test.ts e2e/usage-dashboard.test.ts e2e/workspace-quality.test.ts e2e/browser-workspace.test.ts e2e/menu-scroll.test.ts e2e/cdp-lifetime.test.ts
 ```
 
 macOS 上运行这些测试可验证共享 Chromium 布局，不能证明 Windows 的 DirectWrite、GPU 驱动、

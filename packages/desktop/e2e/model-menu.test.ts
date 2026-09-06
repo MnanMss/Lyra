@@ -54,6 +54,8 @@ async function seed(home: string): Promise<void> {
 		join(home, "settings.json"),
 		JSON.stringify({
 			version: 1,
+			// Marquee assertions exercise normal motion regardless of the runner's OS preference.
+			appearance: { reduceMotion: "off" },
 			providers: [
 				{
 					id: "local",
@@ -129,14 +131,25 @@ const UI = `
 	const click = (el) => el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 	const menu = () => document.querySelector('[aria-label="选择模型"]');
 	const openModelMenu = async () => {
-		if (menu()) return menu();
-		const chip = [...document.querySelectorAll('button[aria-haspopup="menu"]')].find((x) =>
-			(x.dataset.lyTip || "").endsWith("上下文"),
-		);
-		if (!chip) throw new Error("no model chip");
-		click(chip);
-		await wait(500);
-		if (!menu()) throw new Error("model menu did not open");
+		if (!menu()) {
+			const chip = [...document.querySelectorAll('button[aria-haspopup="menu"]')].find((x) =>
+				(x.dataset.lyTip || "").endsWith("上下文"),
+			);
+			if (!chip) throw new Error("no model chip");
+			click(chip);
+		}
+		// A timer can expire before the first paint on a busy runner. Measure the settled surface,
+		// including when an earlier test opened it, then let font/ResizeObserver updates commit.
+		const deadline = performance.now() + 5000;
+		while (
+			!menu() || getComputedStyle(menu()).opacity !== "1"
+			|| menu().getAnimations().some(animation => animation.playState !== "finished")
+		) {
+			if (performance.now() > deadline) throw new Error("model menu never finished entering");
+			await new Promise(requestAnimationFrame);
+		}
+		await document.fonts.ready;
+		await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 		return menu();
 	};
 	const row = (id) => menu().querySelector('[data-model="local/' + id + '"]');
@@ -208,15 +221,20 @@ test("a name too long for its row reads itself out when pointed at", async () =>
 	 * a scroll, the menu settling. `animation-name` is the fact itself: either the rule matched and
 	 * the marquee is running, or it did not.
 	 */
-	const box = await ui<{ x: number; y: number; track: boolean }>(`
+	const box = await ui<{ x: number; y: number; track: boolean; settled: boolean }>(`
 		await openModelMenu();
 		const target = row(${JSON.stringify(LONG)});
 		if (!target) throw new Error("the long-named model is not in the menu");
+		// Focus may have scrolled the selected model into view instead of this test's target.
+		target.scrollIntoView({ block: "center", behavior: "instant" });
+		await new Promise(requestAnimationFrame);
 		const rect = target.getBoundingClientRect();
 		return {
 			x: Math.round(rect.left + rect.width / 2),
 			y: Math.round(rect.top + rect.height / 2),
 			track: Boolean(target.querySelector(".ly-marquee-track")),
+			settled: menu().getAnimations().every(animation => animation.playState === "finished"),
+			view: target.closest('.ly-scroll-view').getBoundingClientRect().toJSON(),
 		};
 	`);
 
@@ -224,7 +242,12 @@ test("a name too long for its row reads itself out when pointed at", async () =>
 	 * The second copy of the text is laid out only when the first one really overflows, so its
 	 * presence is `ScrollText` having measured the row and agreed there is something to scroll to.
 	 */
-	assert.equal(box.track, true, "the name was not measured as overflowing, so there is nothing to read out");
+	assert.equal(
+		box.settled,
+		true,
+		`pointer coordinates were sampled during the menu entrance: ${JSON.stringify(box)}`,
+	);
+	assert.equal(box.track, true, `the name was not measured as overflowing: ${JSON.stringify(box)}`);
 
 	await pointAt(box.x, box.y);
 	// Past the 300ms the animation waits before it starts, so a "not running" reading means it.
@@ -235,11 +258,17 @@ test("a name too long for its row reads itself out when pointed at", async () =>
 		const other = row(${JSON.stringify(SHORT)});
 		return {
 			long: getComputedStyle(track).animationName,
+			reduceMotion: document.documentElement.dataset.reduceMotion,
+			systemReducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+			hover: track.closest('[data-model]').matches(':hover'),
+			hit: document.elementFromPoint(${box.x}, ${box.y})?.closest('[data-model]')?.getAttribute('data-model'),
+			row: track.closest('[data-model]').getBoundingClientRect().toJSON(),
+			view: track.closest('.ly-scroll-view').getBoundingClientRect().toJSON(),
 			short: other?.querySelector(".ly-marquee-track") ? "has-track" : null,
 		};
 	`);
 
-	assert.equal(running.long, "ly-marquee", `hovering the row did not set its name moving: ${running.long}`);
+	assert.equal(running.long, "ly-marquee", `hovering the row did not set its name moving: ${JSON.stringify(running)}`);
 	/*
 	 * The control, and it matters: `ScrollText` animates nothing that fits, so a row which already
 	 * shows its whole name must not twitch as the pointer crosses it.

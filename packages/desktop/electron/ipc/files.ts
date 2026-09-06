@@ -1,3 +1,4 @@
+import { referenceFile } from "../reference-files.ts";
 /**
  * Reading and writing files on the renderer's behalf.
  *
@@ -10,8 +11,9 @@
  */
 
 import { readableArtifact } from "../readable-artifacts.ts";
-import { ipcMain } from "electron";
+import { dialog, ipcMain } from "electron";
 import { readFile, stat, writeFile } from "node:fs/promises";
+import { getWindow } from "../window.ts";
 import { documentKind } from "../../shared/document-kind.ts";
 import { readDatabase, readWorkbook, type DocumentData } from "../documents.ts";
 import type { FileContents, FileEntry } from "../ipc-types.ts";
@@ -23,6 +25,26 @@ export interface FilesIpcDeps {
 }
 
 export function registerFilesIpc({ projectPath }: FilesIpcDeps): void {
+	ipcMain.handle("files:pick", async (_event, options?: { directory?: boolean; multiple?: boolean }): Promise<string[]> => {
+		const window = getWindow();
+		if (!window) return [];
+		const properties: Array<"openFile" | "openDirectory" | "multiSelections"> = [];
+		if (options?.directory) {
+			properties.push("openDirectory");
+		} else {
+			properties.push("openFile");
+		}
+		if (options?.multiple !== false) {
+			properties.push("multiSelections");
+		}
+		const result = await dialog.showOpenDialog(window, {
+			title: options?.directory ? "选择文件夹" : "选择文件",
+			properties,
+		});
+		if (result.canceled || !result.filePaths.length) return [];
+		return result.filePaths;
+	});
+
 	ipcMain.handle("files:list", async (_event, raw: string): Promise<FileEntry[]> => listReadableFiles(projectPath(raw)));
 	/**
 	 * And a much larger one for documents, which are compressed archives rather than source.
@@ -66,7 +88,7 @@ export function registerFilesIpc({ projectPath }: FilesIpcDeps): void {
 
 	ipcMain.handle("files:read", async (_event, raw: string): Promise<FileContents | null> => {
 		const writable = projectPath(raw);
-		const path = writable ?? readableArtifact(raw);
+		const path = writable ?? readableArtifact(raw) ?? await referenceFile(raw);
 		return readReadableFile(path, !writable);
 	});
 

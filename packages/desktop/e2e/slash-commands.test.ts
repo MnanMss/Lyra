@@ -83,28 +83,23 @@ after(async () => {
 	await app?.stop();
 });
 
-/** Type into the composer the way a person does: set the value, then fire what React listens for. */
+/** Native editing keeps focus, selection and React's caret tracking in the same event sequence. */
 async function type(text: string): Promise<void> {
 	await app.evaluate(`(() => {
 		const field = document.querySelector("main textarea");
 		field.focus();
-		const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-		setter.call(field, ${JSON.stringify(text)});
-		field.dispatchEvent(new Event("input", { bubbles: true }));
-		field.setSelectionRange(field.value.length, field.value.length);
-		field.dispatchEvent(new Event("select", {bubbles:true}));
+		field.select();
 		return true;
 	})()`);
+	await app.send("Input.insertText", { text });
 	await new Promise((r) => setTimeout(r, 350));
 }
 
 /** One key, on the field itself, so the composer's own handler decides what it means. */
 async function press(key: string): Promise<void> {
-	await app.evaluate(`(() => {
-		const field = document.querySelector("main textarea");
-		field.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(key)}, bubbles: true, cancelable: true }));
-		return true;
-	})()`);
+	const codes: Record<string, number> = { Enter: 13, Tab: 9, Escape: 27, ArrowUp: 38, ArrowDown: 40 };
+	await app.send("Input.dispatchKeyEvent", { type: "keyDown", key, windowsVirtualKeyCode: codes[key] });
+	await app.send("Input.dispatchKeyEvent", { type: "keyUp", key, windowsVirtualKeyCode: codes[key] });
 	await new Promise((r) => setTimeout(r, 250));
 }
 
@@ -133,9 +128,9 @@ test("a slash opens the list, and it holds commands from both conventions", asyn
 });
 
 test("typing filters, and reaches into the middle of a name", async () => {
-	await type("/diff");
+	await type("/w-diff");
 	const rows = await menu();
-	assert.equal(rows.length, 1, `only one command contains "diff" (${rows.join(" | ")})`);
+	assert.equal(rows.length, 1, `only one command contains "w-diff" (${rows.join(" | ")})`);
 	assert.ok(rows[0].includes("review-diff"));
 	assert.ok(rows[0].includes("审查当前改动"), "the description shares the command row");
 
@@ -161,7 +156,7 @@ test("a namespaced command is reachable by its last segment", async () => {
 });
 
 test("Enter picks the highlighted command instead of sending the message", async () => {
-	await type("/diff");
+	await type("/w-diff");
 	await press("Enter");
 
 	assert.equal(await value(), "/review-diff ", "the name is in the field, with room for arguments");

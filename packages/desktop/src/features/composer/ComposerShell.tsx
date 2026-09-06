@@ -2,7 +2,7 @@ import { Textarea } from "../../ui/inputs/NativeField.tsx";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { CommandText } from "./CommandText.tsx";
-import type { CommandDecoration } from "./command-catalog.ts";
+import type { ComposerDecorations } from "./CommandText.tsx";
 import { OverlayScrollbar } from "../../ui/scroll/OverlayScrollbar.tsx";
 import { FIT_LEVELS, FIT_PROBE, settle, tight } from "./fit.ts";
 import { ROLL_VALUE } from "../../ui/motion/RollingText.tsx";
@@ -40,7 +40,7 @@ export function ComposerShell({
 	onBlur,
 	commandMenu,
 }: {
-	decoration?: CommandDecoration;
+	decoration?: ComposerDecorations;
 	onSelect?: () => void;
 	onFocus?: () => void;
 	onBlur?: () => void;
@@ -80,7 +80,7 @@ export function ComposerShell({
   const field = fieldRef ?? own;
 	const mirror = useRef<HTMLDivElement>(null);
 	const [composing, setComposing] = useState(false);
-	const highlighted = !composing ? decoration : undefined;
+	const highlighted = !composing && decoration && (Boolean(decoration.command) || Boolean(decoration.mentions?.length)) ? decoration : undefined;
 	const syncMirror = () => {
 		if (mirror.current && field.current) mirror.current.style.transform = `translateY(${-field.current.scrollTop}px)`;
 	};

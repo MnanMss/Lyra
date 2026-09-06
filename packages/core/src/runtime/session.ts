@@ -33,6 +33,9 @@ import { driveTurn, modelHistory, summaryStream } from "./session-turn.ts";
 import { SubAgentRegistry } from "./sub-agents.ts";
 import { sessionTaskQueue, type TaskQueue } from "./task-queue.ts";
 import { stripStaleHandles } from "./model-switch.ts";
+import { resolveModelRef } from "../config/model-roles.ts";
+import { streamAssistant } from "../ai/index.ts";
+import { summarizeTitle, TITLE_SUMMARY_THRESHOLD, TITLE_SUMMARY_TIMEOUT_MS } from "./title-summary.ts";
 
 export interface AgentSessionOptions {
 	cwd: string;
@@ -52,6 +55,8 @@ export interface AgentSessionOptions {
 	 * queue, in particular — can be exercised without a network round trip.
 	 */
 	streamFn?: AgentRunConfig["streamFn"];
+	/** A turn override suppresses title requests unless this separate stream is supplied. */
+	titleSummaryStream?: typeof streamAssistant;
 }
 
 /**
@@ -93,11 +98,17 @@ export class AgentSession {
 	/** 盯着技能和规则目录的那个，没有可听的目录时是 null。 */
 	private watcher: CapabilityWatcher | null = null;
 	private streamFn?: AgentRunConfig["streamFn"];
+	private titleSummaryStream?: typeof streamAssistant;
+	private titleSummaryAbort: AbortController | null = null;
+	private titleSummaryTask: Promise<void> | null = null;
+	private titleSummaryEpoch = 0;
 	private controller: AbortController | null = null;
+	private activeTurn: Promise<void> | null = null;
 	private compactionTask: Promise<{ ok: boolean; reason?: string; before?: number; after?: number }> | null = null;
 	private pendingResume: Promise<void> | null = null;
 	private acceptingPrompt = false;
 	private abortEpoch = 0;
+	private activePrompt: Promise<void> | null = null;
 	private steering: Message[] = [];
 	/**
 	 * 说了「等这一轮做完再说」的那些消息。
@@ -129,6 +140,7 @@ export class AgentSession {
 		this.globalSettings = options.settings;
 		this.store = options.store;
 		this.streamFn = options.streamFn;
+		this.titleSummaryStream = options.titleSummaryStream;
 		this.log = new SessionLog(options.store, options.emit, options.meta);
 		this.can = new SessionCapabilities(options.extraTools ?? []);
 		this.approvals = sessionApprovalGate({
@@ -360,16 +372,18 @@ export class AgentSession {
 		const history = modelHistory(this.log, resolved.provider, resolved.model);
 		if (history.length <= 6) return { ok: false, reason: "对话还太短，没什么可压缩的。" };
 
+		const summarizer = resolveModelRef(this.settings, "@compact", resolved);
 		const compaction = await compactIfNeeded(
 			history,
 			resolved.model,
 			resolved.provider,
-			summaryStream(this.streamFn, resolved.provider, resolved.model),
+			summaryStream(this.streamFn, { sessionId: this.meta.id, cwd: this.cwd }),
 			0,
 			true,
 			// 剪掉的原文存下来，占位标记里给出 `artifact://` 地址。
 			{ keep: (tool, content) => this.can.keepArtifact(tool, content) },
 			{ instructions, signal },
+			summarizer,
 		);
 		/*
 		 * Two different outcomes, and they used to say the same thing.
@@ -426,6 +440,7 @@ export class AgentSession {
 	}
 
 	updateSettings(settings: Settings): void {
+		if (settings.autoSummarizeTitle === false) void this.cancelTitleSummary();
 		this.globalSettings = settings;
 		this.settings = settings;
 		this.can.state.set(PROJECT_MEMORY_ENABLED_KEY, projectMemoryEnabled(settings));
@@ -552,6 +567,19 @@ export class AgentSession {
 		const resume = async () => {
 			await this.cancelPendingPrompt();
 			if (this.abortEpoch !== epoch) { await this.emit({ type: "agent_end", reason: "aborted" }); return; }
+			/*
+			 * A fresh session restored with pendingPrompt (e.g. from the desktop new session flow)
+			 * has its first prompt already written to disk before the session object exists. Trigger
+			 * title summarisation here if the user has not explicitly provided a custom title.
+			 */
+			if (!this.log.meta.titleSetByUser) {
+				const userMessages = this.log.messages.filter((m) => m.role === "user");
+				if (userMessages.length === 1) {
+					const first = userMessages[0];
+					await this.setTitleFromPrompt(first.content, first.displayText === "" ? first.skillRef?.name ?? first.sessionRefs?.[0]?.title ?? "" : first.displayText);
+				}
+			}
+			if (this.abortEpoch !== epoch) { await this.emit({ type: "agent_end", reason: "aborted" }); return; }
 			await this.run();
 			await this.drainPending();
 		};
@@ -590,6 +618,9 @@ export class AgentSession {
 			 * 唯一需要被区分的时候。
 			 */
 			deliver?: "steer" | "followUp";
+			displayText?: string;
+			skillRef?: { name: string; path?: string; pluginId?: string };
+			sessionRefs?: Array<{ id: string; title: string }>;
 		} = {},
 	): Promise<void> {
 		// A prompt waits for the manual boundary before creating a turn against that history.
@@ -600,6 +631,9 @@ export class AgentSession {
 			timestamp: Date.now(),
 			...(options.origin ? { origin: options.origin } : {}),
 			...(options.synthetic ? { synthetic: true } : {}),
+			...(options.displayText !== undefined ? { displayText: options.displayText } : {}),
+			...(options.skillRef ? { skillRef: options.skillRef } : {}),
+			...(options.sessionRefs?.length ? { sessionRefs: options.sessionRefs } : {}),
 		};
 
 		if (this.running) {
@@ -618,7 +652,7 @@ export class AgentSession {
 		// Reserve the turn before the first disk write; another submission must queue during it.
 		this.acceptingPrompt = true;
 		const epoch = this.abortEpoch;
-		try {
+		const accept = async () => {
 		await this.cancelPendingPrompt();
 		await this.log.commit(message);
 		await this.emit({ type: "message_start", message });
@@ -627,13 +661,16 @@ export class AgentSession {
 		// Names the conversation after its opening line — unless it already has a name someone
 		// chose, which this must not overwrite. See `SessionMeta.titleSetByUser`.
 		if (!this.log.meta.titleSetByUser && this.log.messages.filter((m) => m.role === "user").length === 1) {
-			await this.setTitleFromPrompt(content);
+			await this.setTitleFromPrompt(content, options.displayText === "" ? options.skillRef?.name ?? options.sessionRefs?.[0]?.title ?? "" : options.displayText);
 		}
 
 		if (this.abortEpoch !== epoch) { await this.emit({ type: "agent_end", reason: "aborted" }); return; }
 		await this.run(options.thinking);
 		await this.drainPending();
-		} finally { this.acceptingPrompt = false; void this.tasks.drain(); }
+		};
+		this.activePrompt = accept();
+		try { await this.activePrompt; }
+		finally { this.activePrompt = null; this.acceptingPrompt = false; void this.tasks.drain(); }
 	}
 
 	/**
@@ -682,7 +719,7 @@ export class AgentSession {
 
 		this.controller = new AbortController();
 		try {
-			await driveTurn({
+			this.activeTurn = driveTurn({
 				cwd: this.cwd,
 				settings: this.settings,
 				getSettings: () => this.settings,
@@ -699,7 +736,9 @@ export class AgentSession {
 				drainSteering: () => this.steering.splice(0, this.steering.length),
 				subAgents: this.subAgents,
 			});
+			await this.activeTurn;
 		} finally {
+			this.activeTurn = null;
 			this.controller = null;
 			// Anything still waiting for approval would hang forever once the run is over.
 			this.approvals.rejectAll();
@@ -719,6 +758,7 @@ export class AgentSession {
 	}
 
 	abort(): void {
+		void this.cancelTitleSummary();
 		this.abortEpoch++;
 		// The prompt owner records a cancelled startup before resolving, so disposal cannot race
 		// an unawaited append after the caller has already finished the opening submission.
@@ -801,7 +841,7 @@ export class AgentSession {
 		return this.approvals.request(request);
 	}
 
-	resolveApproval(requestId: string, decision: ApprovalDecision): boolean {
+	resolveApproval(requestId: string, decision: unknown): boolean {
 		return this.approvals.resolve(requestId, decision);
 	}
 
@@ -824,18 +864,81 @@ export class AgentSession {
 		content: UserContent[],
 		options: { thinking?: ThinkingLevel } = {},
 	): Promise<void> {
-		if (this.running) return;
-		if (!(await this.log.truncateFrom(messageIndex))) return;
+		await this.cancelTitleSummary();
+		if (this.running) {
+			this.abort();
+			// Acceptance writes and follow-up draining also own the history, before/after driveTurn.
+			await (this.activePrompt ?? this.pendingResume)?.catch(() => {});
+		}
+		if (!(await this.log.truncateFrom(messageIndex))) {
+			throw new Error(`Failed to truncate message at index ${messageIndex}`);
+		}
 
 		await this.emit({ type: "rewound", messageCount: this.log.messages.length });
 		await this.prompt(content, options);
 	}
 
-	private async setTitleFromPrompt(content: UserContent[]): Promise<void> {
-		const text = content.find((c) => c.type === "text")?.text ?? "";
-		const title = text.replace(/\s+/g, " ").trim().slice(0, 60) || "New session";
-		await this.log.append({ type: "title", title });
-		await this.emit({ type: "title", title });
+	private async setTitleFromPrompt(content: UserContent[], displayText?: string): Promise<void> {
+		const pending = this.cancelTitleSummary();
+		const epoch = this.titleSummaryEpoch;
+		await pending;
+		if (epoch !== this.titleSummaryEpoch || this.log.meta.titleSetByUser) return;
+		// Structured display text excludes injected context; ordinary prose must never be guessed away.
+		const raw = displayText ?? content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
+		const cleanText = raw.replace(/\s+/g, " ").trim();
+		const fallbackTitle = [...cleanText].slice(0, 60).join("") || (content.some((block) => block.type === "image") ? "图片消息" : "New session");
+		await this.log.append({ type: "title", title: fallbackTitle, source: "auto" });
+		if (epoch !== this.titleSummaryEpoch || this.log.meta.titleSetByUser) return;
+		await this.emit({ type: "title", title: fallbackTitle });
+
+		if (epoch === this.titleSummaryEpoch && this.settings.autoSummarizeTitle !== false && [...cleanText].length > TITLE_SUMMARY_THRESHOLD && !this.log.meta.titleSetByUser) {
+			this.summarizeTitleInBackground(cleanText, epoch);
+		}
+	}
+
+	private async cancelTitleSummary(): Promise<void> {
+		this.titleSummaryEpoch++;
+		this.titleSummaryAbort?.abort();
+		this.titleSummaryAbort = null;
+		await this.titleSummaryTask;
+	}
+
+	private summarizeTitleInBackground(text: string, epoch: number): void {
+		if (!this.titleSummaryStream && this.streamFn) return;
+		const stream = this.titleSummaryStream ?? streamAssistant;
+
+		const resolved = resolveModel(this.settings, this.log.meta.modelId || this.settings.defaultModelId);
+		if (!resolved) return;
+		const chosen = resolveModelRef(this.settings, "@fast", resolved);
+		const controller = new AbortController();
+		this.titleSummaryAbort = controller;
+		const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(TITLE_SUMMARY_TIMEOUT_MS)]);
+		const current = () => epoch === this.titleSummaryEpoch && !signal.aborted && !this.log.meta.titleSetByUser;
+		const run = async () => {
+			try {
+				const summary = await summarizeTitle({
+					text,
+					provider: chosen.provider,
+					model: chosen.model,
+					stream,
+					signal,
+				});
+				if (!summary) return;
+				// Cancellation invalidates the title, not usage already reported by the provider.
+				await this.log.append({ type: "usage", source: "title-summary", providerId: chosen.provider.id, modelId: chosen.model.modelId, usage: summary.usage });
+				if (!summary.title || !current()) return;
+				await this.log.append({ type: "title", title: summary.title, source: "auto" });
+				if (current()) await this.emit({ type: "title", title: summary.title });
+			} catch {
+				// Title summary failure is non-fatal; the initial fallback title remains in place.
+			}
+		};
+		const task = run();
+		this.titleSummaryTask = task;
+		void task.finally(() => {
+			if (this.titleSummaryTask === task) this.titleSummaryTask = null;
+			if (this.titleSummaryAbort === controller) this.titleSummaryAbort = null;
+		});
 	}
 
 	/**
@@ -843,23 +946,21 @@ export class AgentSession {
 	 *
 	 * The title record is what the store already understands, so this is only the writing half.
 	 * The other half is `titleSetByUser`: without it the first prompt renames the session after
-	 * itself and the name typed a moment earlier is gone. Recorded through a `meta` write of its
-	 * own so a phone syncing with `?since=N` learns it too.
+	 * itself and the name typed a moment earlier is gone. Title and ownership share one record so
+	 * cold-session renames and late automatic writes are ordered at the store boundary too.
 	 */
 	async rename(title: string): Promise<void> {
 		const cleanTitle = title.trim();
 		if (!cleanTitle) return;
-		await this.log.append({ type: "title", title: cleanTitle });
-		if (!this.log.meta.titleSetByUser) {
-			const meta: SessionMeta = { ...this.log.meta, titleSetByUser: true };
-			this.log.meta = meta;
-			await this.log.append({ type: "meta", meta });
-		}
+		await this.cancelTitleSummary();
+		await this.log.append({ type: "title", title: cleanTitle, source: "user" });
 		await this.emit({ type: "title", title: cleanTitle });
 	}
 
 	async dispose(): Promise<void> {
 		this.abort();
+		// A host may delete the log as soon as disposal returns; finish any title write first.
+		await this.titleSummaryTask;
 		// 没人关的 fs.watch 会一直拿着描述符，而一天里会开关几十个会话。
 		this.watcher?.close();
 		this.watcher = null;

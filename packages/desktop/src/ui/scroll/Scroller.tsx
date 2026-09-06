@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { scrollFade } from "./fade.ts";
 
 /** How deep the softening reaches. The bottom is the edge content moves through — a list grows
  *  downwards, a transcript streams into it — and a shallow fade there reads as a cut.
@@ -6,8 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
  *  The top is exported because a scroller with rows pinned in it has to know: a row within this
  *  distance of its rail is already inside the softening, and holding it whole from there is what
  *  keeps it from dissolving on the way up. See `sidebar/sticky.ts`. */
-export const FADE_TOP = 36;
-const FADE_BOTTOM = 48;
+export { FADE_TOP } from "./fade.ts";
 
 /**
  * The app's only scrolling surface.
@@ -76,7 +76,7 @@ export function Scroller({
 		return () => { if (el.clientHeight > 0) retainedTop.current = el.scrollTop; };
 	}, [viewport]);
 
-	const [metrics, setMetrics] = useState({ thumbTop: 0, thumbHeight: 0, overflow: false, atTop: true, atBottom: true });
+	const [metrics, setMetrics] = useState({ height: 0, thumbTop: 0, thumbHeight: 0, overflow: false, atTop: true, atBottom: true });
 	const [active, setActive] = useState(false);
 
 	const measure = useCallback(() => {
@@ -95,6 +95,7 @@ export function Scroller({
 
 		setMetrics((prev) => {
 			if (
+				prev.height === clientHeight &&
 				Math.abs(prev.thumbTop - newThumbTop) < 0.5 &&
 				Math.abs(prev.thumbHeight - thumbHeight) < 0.5 &&
 				prev.overflow === overflow &&
@@ -104,6 +105,7 @@ export function Scroller({
 				return prev;
 			}
 			return {
+				height: clientHeight,
 				thumbTop: newThumbTop,
 				thumbHeight,
 				overflow,
@@ -262,8 +264,8 @@ export function Scroller({
 				style={
 					fades
 						? ({
-								"--ly-fade-top": showTopFade ? `${FADE_TOP}px` : "0px",
-								"--ly-fade-bottom": showBottomFade ? `${FADE_BOTTOM}px` : "0px",
+								"--ly-fade-top": showTopFade ? `${scrollFade(metrics.height, "top")}px` : "0px",
+								"--ly-fade-bottom": showBottomFade ? `${scrollFade(metrics.height, "bottom")}px` : "0px",
 							} as React.CSSProperties)
 						: undefined
 				}

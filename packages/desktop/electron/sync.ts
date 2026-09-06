@@ -13,9 +13,8 @@ import type { SyncStatus } from "./ipc-types.ts";
 import { editSessionMessage, activateSession, createSession, abortSession, disposeSession, promptSession, getOrCreateSession, sessions, snapshot, touchSession } from "./session-hub.ts";
 import { SyncServer } from "./sync-server.ts";
 import { listCommands } from "./commands-service.ts";
-import { listReadableFiles, readReadableFile } from "./file-read-service.ts";
+import { listReadableFiles, readReadableFile, resolveReadablePath } from "./file-read-service.ts";
 import { generalScratchDir, scratchRoots } from "./scratch.ts";
-import { resolveInside } from "./file-ops.ts";
 import {
 	sideChatAbort,
 	sideChatAsk,
@@ -50,8 +49,8 @@ let readStore: () => SessionStorage = () => {
 };
 
 /** A phone may browse only files inside projects already opened on the desktop. */
-function phoneProjectPath(target: string): string | null {
-	return resolveInside(
+function phoneProjectPath(target: string): Promise<string | null> {
+	return resolveReadablePath(
 		target,
 		[...settings().projects.map((project) => project.path), ...scratchRoots()],
 	);
@@ -83,8 +82,8 @@ export async function startSync(): Promise<SyncStatus> {
 			tasksDismiss: async (id, taskId) => tasksDismiss(id, taskId),
 			tasksResume: async (id, taskId) => tasksResume(id, taskId),
 			commandsList: (cwd) => listCommands(cwd, settings()),
-			filesList: (dir) => listReadableFiles(phoneProjectPath(dir)),
-			filesRead: (path) => readReadableFile(phoneProjectPath(path), true),
+			filesList: async (dir) => listReadableFiles(await phoneProjectPath(dir)),
+			filesRead: async (path) => readReadableFile(await phoneProjectPath(path), true),
 			scratchRoots: async () => scratchRoots(),
 			generalScratch: generalScratchDir,
 			resolveSession: activateSession,

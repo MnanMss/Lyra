@@ -51,6 +51,7 @@ export {
 	matchRanges,
 	messagesUpTo,
 	readTrajectory,
+	TrajectoryReader,
 	replaySession,
 	SOURCE_LABEL,
 	SOURCE_ORDER,
@@ -58,6 +59,7 @@ export {
 	type ForkResult,
 	type Source as TrajectorySourceKind,
 	type TrajectoryFilter,
+	type TrajectoryChanges,
 } from "./trajectory/index.ts";
 export { nextTask, useScheduler } from "./runtime/scheduling.ts";
 export { isDue, nextRunAt } from "./config/schedule.ts";
@@ -217,7 +219,7 @@ export {
 } from "./runtime/previews.ts";
 
 export type { SubAgentDetail, SubAgentStatus, SubAgentSummary } from "./runtime/sub-agents.ts";
-export { collectRules, collectSkills, type RuleEntry } from "./runtime/session-setup.ts";
+export { collectAgents, collectRules, collectSkills, type RuleEntry } from "./runtime/session-setup.ts";
 export { FOREIGN_USER_SOURCES } from "./capability/providers/foreign.ts";
 export {
 	approveSkill,

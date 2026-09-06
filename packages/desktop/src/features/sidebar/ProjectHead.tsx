@@ -22,6 +22,7 @@ import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
 import { GroupActivity } from "./GroupActivity.tsx";
 import type { Group } from "./grouping.ts";
 import { startProjectSession } from "./newSession.ts";
+import { useSidebarReorderContext } from "./reorder-context.ts";
 
 export function ProjectHead({
 	group,
@@ -36,12 +37,27 @@ export function ProjectHead({
 }) {
 	const { compact } = useLayout();
 	const menu = usePopover();
+	const reorder = useSidebarReorderContext();
 
 	return (
 		/* Same hover-owner arrangement as the session rows: the fill belongs to the row so
 		   reaching for the menu button does not drop it. */
 		<div
 			className="ly-scroll group/project relative rounded-lg transition-colors duration-[var(--ly-t-quick)] hover:bg-card-hover active:bg-elevated"
+			onPointerMove={(event) => {
+				if (reorder) {
+					const rect = event.currentTarget.getBoundingClientRect();
+					reorder.registerTarget("project", group.path, rect, event.clientY);
+				}
+			}}
+			onPointerUp={(event) => {
+				reorder?.registerTarget("project", group.path, event.currentTarget.getBoundingClientRect(), event.clientY);
+			}}
+			onPointerLeave={() => {
+				if (reorder) {
+					reorder.clearTarget(group.path);
+				}
+			}}
 			onContextMenu={(event) => {
 				event.preventDefault();
 				// At the cursor: right-click acts on the row as a whole, so there is no one
@@ -59,6 +75,9 @@ export function ProjectHead({
 			 * one target and the fold never existing.
 			 */}
 			<button
+				onPointerDown={(event) => {
+					reorder?.startDrag({ kind: "project", id: group.path, title: group.name }, event);
+				}}
 				type="button"
 				aria-expanded={!collapsed}
 				onClick={onToggleCollapsed}

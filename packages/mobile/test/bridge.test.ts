@@ -16,6 +16,7 @@ import { test } from "node:test";
 import { bridgeScript } from "../src/bridge.ts";
 import { roomFor } from "../src/sha256.ts";
 import type { Connection } from "../src/connection.ts";
+import type { LyraApi } from "../../desktop/electron/ipc-types.ts";
 
 const LAN: Connection = { host: "192.168.1.5", port: 4517, token: "tok", platform: "darwin" };
 
@@ -102,7 +103,7 @@ function install(
 	opened.at(-1)?.onopen?.();
 
 	return {
-		lyra: window.lyra as Record<string, never>,
+		lyra: window.lyra,
 		probe() { (window.__lyraProbe as () => void)(); },
 		calls,
 		sockets,
@@ -123,6 +124,78 @@ function install(
 			opened.at(-1)?.onmessage?.({ data: JSON.stringify(message) });
 		},
 	};
+}
+
+function trajectoryChanges(page: ReturnType<typeof install>, ...args: Parameters<LyraApi["sessions"]["trajectoryChanges"]>): Promise<unknown> {
+	const api = page.lyra;
+	assert.ok(api && typeof api === "object" && "sessions" in api);
+	const sessions = api.sessions;
+	assert.ok(sessions && typeof sessions === "object");
+	const read: unknown = Reflect.get(sessions, "trajectoryChanges");
+	assert.ok(typeof read === "function");
+	return Promise.resolve(read(...args));
+}
+
+function rpcFrames(page: ReturnType<typeof install>) {
+	return page.calls.flatMap(({ body }) => {
+		if (!body || typeof body !== "object" || !("type" in body) || body.type !== "rpc") return [];
+		assert.ok("id" in body && typeof body.id === "string");
+		assert.ok("method" in body && typeof body.method === "string");
+		assert.ok("args" in body && Array.isArray(body.args));
+		return [{ id: body.id, method: body.method, args: body.args }];
+	});
+}
+
+const TRAJECTORY_DELTA: Awaited<ReturnType<LyraApi["sessions"]["trajectoryChanges"]>> = {
+	cursor: "next-revision",
+	reset: false,
+	upserts: [{ id: "message:2", seq: 2, ts: 1234, source: "assistant", summary: "Recovered reply", detail: "Recovered reply", status: "done" }],
+	removals: ["request:1"],
+};
+
+test("trajectory changes send project, session and optional cursor through the installed bridge", async () => {
+	const page = install(LAN, () => ({ ok: true, value: TRAJECTORY_DELTA }));
+	assert.deepEqual(await trajectoryChanges(page, "p1", "s1", "previous-revision"), TRAJECTORY_DELTA);
+	assert.deepEqual(await trajectoryChanges(page, "p1", "s1"), TRAJECTORY_DELTA);
+	assert.deepEqual(rpcFrames(page).map(({ method, args }) => ({ method, args })), [
+		{ method: "sessions.trajectoryChanges", args: ["p1", "s1", "previous-revision"] },
+		{ method: "sessions.trajectoryChanges", args: ["p1", "s1"] },
+	]);
+});
+
+for (const relay of [false, true]) {
+	test(`trajectory read retries retain their cursor across ${relay ? "relay peer departure" : "socket reconnection"}`, async () => {
+		const page = install({ ...LAN, relay }, () => undefined);
+		if (relay) page.receive({ type: "ready" });
+		const inflight = trajectoryChanges(page, "p1", "s1", "previous-revision");
+		const first = rpcFrames(page)[0];
+		assert.ok(first, "the bridge must send the trajectory RPC instead of resolving an absent method");
+		if (relay) page.receive({ type: "peer-left" });
+		else page.opened[0].onclose?.();
+		await assert.rejects(inflight, /连接已断开/);
+
+		let settled = false;
+		const retry = trajectoryChanges(page, "p1", "s1", "previous-revision").then(
+			(value) => { settled = true; return { ok: true, value }; },
+			(error: unknown) => { settled = true; return { ok: false, error }; },
+		);
+		assert.equal(rpcFrames(page).length, 1, "a read made while disconnected waits for recovery");
+		if (relay) page.receive({ type: "ready" });
+		else {
+			assert.equal(page.runTimer(500), true);
+			page.opened[1].onopen?.();
+		}
+		const frames = rpcFrames(page);
+		assert.equal(frames.length, 2);
+		assert.deepEqual(frames[1].args, ["p1", "s1", "previous-revision"]);
+		assert.equal(frames[1].method, "sessions.trajectoryChanges");
+		assert.notEqual(frames[1].id, first.id);
+		page.receive({ type: "rpc_result", id: first.id, ok: true, value: TRAJECTORY_DELTA });
+		await Promise.resolve();
+		assert.equal(settled, false, "the retired request cannot settle its replacement");
+		page.receive({ type: "rpc_result", id: frames[1].id, ok: true, value: TRAJECTORY_DELTA });
+		assert.deepEqual(await retry, { ok: true, value: TRAJECTORY_DELTA });
+	});
 }
 
 test("a foreground probe retires a silent socket and reconnects only once", () => {

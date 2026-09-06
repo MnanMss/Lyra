@@ -113,8 +113,9 @@ export class SyncServer {
 		this.wss = new WebSocketServer({ noServer: true });
 
 		server.on("upgrade", (request, socket, head) => {
-			const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
-			if (url.pathname !== "/ws" || !this.authorize(url.searchParams.get("token"))) {
+			const target = request.url ?? "/";
+			const url = URL.canParse(target, "http://localhost") ? new URL(target, "http://localhost") : null;
+			if (!url || url.pathname !== "/ws" || !this.authorize(url.searchParams.get("token"))) {
 				/*
 				 * The refusal is a courtesy, and the socket may already be gone.
 				 *
@@ -126,7 +127,7 @@ export class SyncServer {
 				 */
 				socket.on("error", () => {});
 				try {
-					socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+					socket.write(`HTTP/1.1 ${url ? "401 Unauthorized" : "400 Bad Request"}\r\n\r\n`);
 				} catch {}
 				socket.destroy();
 				return;
@@ -355,7 +356,13 @@ export class SyncServer {
 	// -------------------------------------------------------------------------
 
 	private async handleHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {
-		const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+		// Neither routing nor authentication needs the caller-controlled Host header.
+		const target = req.url ?? "/";
+		if (!URL.canParse(target, "http://localhost")) {
+			res.writeHead(400).end();
+			return;
+		}
+		const url = new URL(target, "http://localhost");
 		const send = (status: number, body: unknown) => {
 			res.writeHead(status, { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": "*" });
 			res.end(JSON.stringify(body));

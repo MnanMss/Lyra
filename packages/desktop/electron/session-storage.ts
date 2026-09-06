@@ -34,6 +34,7 @@ export function observeSessionStorage(store: SessionStorage, changed: (change: S
 			for (const target of targets) changed({ ...target, meta: null });
 		},
 		read: (...args) => store.read(...args),
+		readChanges: store.readChanges?.bind(store),
 		messages: (...args) => store.messages(...args),
 		load: (...args) => store.load(...args),
 		listSessions: () => store.listSessions(),

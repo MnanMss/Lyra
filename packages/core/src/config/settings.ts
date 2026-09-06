@@ -256,6 +256,8 @@ export interface Settings {
 	projects: ProjectEntry[];
 	/** Pinned session IDs across projects and loose chats. */
 	pinnedSessionIds?: string[];
+	/** Custom session ordering per project: maps project path to ordered session IDs. */
+	sessionOrder?: Record<string, string[]>;
 	/** Worktrees configuration and auto-cleanup preferences. */
 	worktrees?: {
 		/** Managed worktrees root directory. Defaults to ~/.lyra/worktrees or sibling directory if empty. */
@@ -353,6 +355,13 @@ export interface Settings {
 	 */
 	rerouteShellCommands?: boolean;
 	/**
+	 * 是否在会话开始时长文本输入时自动精炼生成会话标题。默认开。
+	 *
+	 * 开启时，若首条消息有效长度超过 12 个字符，后台自动使用 fast 模型（或当前会话模型）总结标题；
+	 * 关闭时，仅截取用户首条消息作为标题。
+	 */
+	autoSummarizeTitle?: boolean;
+	/**
 	 * How many sub-agents may run at once. Beyond this they queue.
 	 *
 	 * A limit rather than a refusal, because wanting to look at eight things is a reasonable thought
@@ -362,13 +371,13 @@ export interface Settings {
 	 */
 	maxConcurrentSubAgents: number;
 	/**
-	 * Which model answers to `@fast`, `@deep` and `@review`.
+	 * Which model answers to `@compact`, `@fast`, `@deep` and `@review`.
 	 *
 	 * Lets a sub-agent definition name what it needs rather than a specific model — the definition
 	 * then works on a machine with a different set of providers, which is what makes one shareable
 	 * at all. Empty entries fall through to the session's own model.
 	 */
-	modelRoles?: Partial<Record<"default" | "fast" | "deep" | "review", string>>;
+	modelRoles?: Partial<Record<"default" | "compact" | "fast" | "deep" | "review", string>>;
 	subAgentProfiles?: Record<string, SubAgentProfile>;
 	/**
 	 * Whether finished sessions may be read by a model to build project memory.
@@ -535,6 +544,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	enabledForeignUserRules: [],
 	capabilityPreferences: {},
 	rerouteShellCommands: true,
+	autoSummarizeTitle: true,
 	maxConcurrentSubAgents: 4,
 	modelRoles: {},
 	/*
@@ -685,6 +695,7 @@ export function normalizeSettings(parsed: Partial<Settings>): Settings {
 			enabledForeignUserRules: parsed.enabledForeignUserRules ?? [],
 			capabilityPreferences: parsed.capabilityPreferences ?? {},
 			rerouteShellCommands: parsed.rerouteShellCommands !== false,
+			autoSummarizeTitle: parsed.autoSummarizeTitle !== false,
 			maxConcurrentSubAgents:
 				typeof parsed.maxConcurrentSubAgents === "number" && parsed.maxConcurrentSubAgents >= 1
 					? Math.min(16, Math.floor(parsed.maxConcurrentSubAgents))
@@ -704,7 +715,7 @@ export function normalizeSettings(parsed: Partial<Settings>): Settings {
 				parsed.modelRoles && typeof parsed.modelRoles === "object"
 					? Object.fromEntries(
 							Object.entries(parsed.modelRoles as Record<string, unknown>).filter(
-								([key, value]) => ["default", "fast", "deep", "review"].includes(key) && typeof value === "string" && value,
+								([key, value]) => ["default", "compact", "fast", "deep", "review"].includes(key) && typeof value === "string" && value,
 							),
 						)
 					: {},

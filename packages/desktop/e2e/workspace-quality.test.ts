@@ -60,7 +60,11 @@ afterEach(async(t)=>{if(!t.passed){t.diagnostic(await app.evaluate<string>("docu
 async function until(expression:string){await app.evaluate(`new Promise((resolve,reject)=>{let n=1200;const f=()=>{if(${expression})resolve();else if(--n)requestAnimationFrame(f);else reject(new Error(${JSON.stringify(expression)}));};f();})`);}
 async function click(selector:string){
 	await until(`document.querySelector(${JSON.stringify(selector)})`);
-	const point=await app.evaluate<{x:number;y:number}>(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.scrollIntoView({block:'nearest',behavior:'instant'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+	// Dock closure animates the toolbar; measure only after it reaches its actual hit target.
+	await app.evaluate("Promise.all(document.getAnimations().filter(a=>Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a=>a.finished.catch(()=>{})))");
+	await app.evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'nearest',behavior:'instant'})`);
+	await app.evaluate("new Promise(requestAnimationFrame)");
+	const point=await app.evaluate<{x:number;y:number}>(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.scrollIntoView({block:'nearest',behavior:'instant'});const r=e.getBoundingClientRect();if(!e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)))throw new Error('control is covered: '+${JSON.stringify(selector)});return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
 	await app.send("Input.dispatchMouseEvent",{type:"mouseMoved",...point});await app.send("Input.dispatchMouseEvent",{type:"mousePressed",button:"left",clickCount:1,...point});await app.send("Input.dispatchMouseEvent",{type:"mouseReleased",button:"left",clickCount:1,...point});
 }
 async function label(text:string,selector="button"){await app.evaluate(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.textContent.trim()===${JSON.stringify(text)});if(!e)throw new Error('No label '+${JSON.stringify(text)});e.setAttribute('data-qa-label','');})()`);await click('[data-qa-label]');await app.evaluate("document.querySelector('[data-qa-label]')?.removeAttribute('data-qa-label')");}
@@ -105,11 +109,15 @@ test("engineering delivery shows net syntax diffs, a real report and a live owne
 	const delivery=await app.evaluate<{reportPath:string;files:{added:number;removed:number}[];commands:{status:string}[]}>(`window.lyra.delivery.get('qa-short',${timestamp})`);
 	assert.equal(delivery.files.length,1);assert.equal(delivery.files[0].removed,0);assert.ok(delivery.commands.some(c=>c.status==='exit 0'));
 	assert.match(await readFile(delivery.reportPath,"utf8"),/answer = 2/);assert.match(await readFile(delivery.reportPath,"utf8"),/本轮实现与验证记录/);
-	const row=await app.evaluate<{x:number;y:number;height:number}>(`(()=>{const r=document.querySelector('[data-turn-delivery] [data-delivery-file]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,height:r.height}})()`);
+	await until(`document.querySelector('[aria-label="内置浏览器打开服务"]')`);
+	await app.evaluate("Promise.all(document.getAnimations().filter(a=>Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a=>a.finished.catch(()=>{}))).then(()=>document.fonts.ready)");
+	await app.evaluate(`document.querySelector('[data-turn-delivery] [data-delivery-file]').scrollIntoView({block:'nearest',behavior:'instant'})`);
+	await app.evaluate("new Promise(requestAnimationFrame)");
+	const row=await app.evaluate<{x:number;y:number;height:number}>(`(()=>{const e=document.querySelector('[data-turn-delivery] [data-delivery-file]'),r=e.getBoundingClientRect();if(!e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)))throw new Error('delivery row is covered');return {x:r.x+r.width/2,y:r.y+r.height/2,height:r.height}})()`);
 	await app.send("Input.dispatchMouseEvent",{type:"mouseMoved",x:row.x,y:row.y});await until(`document.querySelector('[aria-label="文件变更预览"] .ly-diff-add')`);
 	await until(`document.querySelector('[aria-label="内置浏览器打开服务"]')`);await shot("turn-delivery-diff");
 	assert.equal(await app.evaluate(`document.querySelector('[data-turn-delivery] [data-delivery-file]').getBoundingClientRect().height`),row.height);
-	assert.ok(await app.evaluate(`document.querySelector('[aria-label="文件变更预览"]').getBoundingClientRect().bottom <= document.querySelector('[data-delivery-file]').getBoundingClientRect().top`), "late service results must not leave the preview over the file row");await escape();
+	assert.ok(await app.evaluate(`document.querySelector('[aria-label="文件变更预览"]').getBoundingClientRect().bottom <= document.querySelector('[data-delivery-file]').getBoundingClientRect().top`), "the preview must stay above its file row");await escape();
 	await click('[aria-label="查看实现与验证记录"]');await until(`document.querySelector('[data-dock-pane="file"]')?.innerText.includes('命令与验证证据')`);
 	await shot("delivery-report-preview");await click('[data-dock-pane="file"] button[aria-label^="关闭"]');
 	await click('[aria-label="面板"]');await until(`document.querySelector('[role="menuitem"]')`);

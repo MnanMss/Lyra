@@ -216,25 +216,17 @@
   height: 44px;
 }
 
-/* A wrapping filter catalogue would consume the entire transcript on short phone screens. */
-[data-lyra-host="mobile"] [data-trace-sources] {
-  flex-wrap: nowrap;
-  overflow-x: auto;
-}
-
-[data-lyra-host="mobile"] [data-trace-sources] button {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
 [data-lyra-host="mobile"] [data-trajectory] button,
 [data-lyra-host="mobile"] [data-trajectory] select,
+[data-lyra-host="mobile"] .ly-trace-inspector button,
+[data-lyra-host="mobile"] [data-trace-timeline] button,
 [data-lyra-host="mobile"] [aria-label="重命名会话"] button {
   min-width: 44px;
   min-height: 44px;
 }
 
-[data-lyra-host="mobile"] [data-trace-inspector-header] {
+[data-lyra-host="mobile"] [data-trace-inspector-header],
+[data-lyra-host="mobile"] [data-trace-timeline] > div:first-child {
   height: 44px;
 }
 

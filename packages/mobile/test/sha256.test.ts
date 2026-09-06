@@ -60,7 +60,7 @@ test("tokens that differ by one character land in different rooms", () => {
 
 test("renderer assets use a separate capability from the conversation room", () => {
 	const token = "1111111111111111111111111111abcd";
-	assert.equal(assetKeyFor(token), expected(`lyra-assets\0${token}`));
+	assert.equal(assetKeyFor(token), expected(`lyra-assets\0${roomFor(token)}`));
 	assert.notEqual(assetKeyFor(token), roomFor(token));
 	assert.match(assetKeyFor(token), /^[a-f0-9]{64}$/);
 });

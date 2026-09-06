@@ -68,6 +68,17 @@ test("WebView navigation compares origins rather than trusting a host prefix", (
 	assert.equal(isAppUrl("about:blank", connection), true);
 });
 
+test("WebView bridge stays inside the paired relay capability", () => {
+	const connection = { host: "relay.example.com", port: 443, token: "owner", tls: true, relay: true };
+	const app = appUrlOf(connection);
+	assert.equal(isAppUrl(`${app}#/session/123`, connection), true);
+	assert.equal(isAppUrl(`${app}assets/app.js`, connection), true);
+	assert.equal(isAppUrl(appUrlOf({ ...connection, token: "attacker" }), connection), false);
+	assert.equal(isAppUrl(`${app}../${assetKeyFor("attacker")}/`, connection), false);
+	assert.equal(isAppUrl(`${app}%2e%2e/${assetKeyFor("attacker")}/`, connection), false);
+	assert.equal(isAppUrl("https://relay.example.com/health", connection), false);
+});
+
 test("whitespace around the code is what a clipboard adds, not an error", () => {
 	assert.equal(ok("  lyra://pair?host=10.0.0.5&port=4517&token=abc\n").host, "10.0.0.5");
 });

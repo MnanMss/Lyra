@@ -127,6 +127,7 @@ async function seed(home: string): Promise<void> {
 
 before(async () => {
 	app = await startApp({ port: 9502, seed });
+	await app.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 });
 
 after(async () => {
@@ -152,6 +153,17 @@ const UI = `
 	const label = (element) => element.innerText.replace(/\\s+/g, " ").trim();
 	const click = (element) => element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 	const byText = (selector, text) => [...document.querySelectorAll(selector)].find((element) => element.checkVisibility({ visibilityProperty: true }) && label(element) === text);
+	const heatmap = () => {
+		const scroller = [...document.querySelectorAll("div")].find((d) => d.className.includes("justify-content:safe_center"));
+		if (!scroller) throw new Error("heatmap scroller not found");
+		return scroller;
+	};
+	const heatmapBox = () => {
+		const scroller = heatmap(), outer = scroller.getBoundingClientRect(), inner = scroller.firstElementChild.getBoundingClientRect();
+		return { left: inner.left - outer.left, right: outer.right - inner.right, card: outer.width,
+			grid: inner.width, scrollWidth: scroller.scrollWidth, clientWidth: scroller.clientWidth,
+			scrollLeft: scroller.scrollLeft, justify: getComputedStyle(scroller).justifyContent };
+	};
 	const typeValue = (input, value) => {
 		const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
 		setter.call(input, value);
@@ -273,6 +285,60 @@ test("the dashboard reflows in a narrow desktop window without horizontal overfl
 	await shot("usage-dashboard-760x900");
 	await app.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 });
+
+interface HeatmapBox {
+	left: number;
+	right: number;
+	card: number;
+	grid: number;
+	scrollWidth: number;
+	clientWidth: number;
+	scrollLeft: number;
+	justify: string;
+}
+
+test("the heatmap centres when it fits and keeps both ends reachable when narrow", async (t) => {
+	const viewport = await app.evaluate<{ width: number; height: number }>("({ width: innerWidth, height: innerHeight })");
+	try {
+		// A requested native window size can be clamped to the CI display; set the layout viewport.
+		await app.send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 900, deviceScaleFactor: 1, mobile: false });
+		const wide = await ui<HeatmapBox>(`
+			const all = [...document.querySelectorAll("button")].find((b) => label(b) === "全部");
+			click(all);
+			await new Promise(requestAnimationFrame);
+			heatmap().scrollIntoView({ block: "center" });
+			return heatmapBox();
+		`);
+		assert.match(wide.justify, /safe center/);
+		assert.ok(wide.card > wide.grid, `the wide card fits the grid: ${JSON.stringify(wide)}`);
+		assert.ok(Math.abs(wide.left - wide.right) <= 2, `equal margins: ${JSON.stringify(wide)}`);
+		assert.ok(wide.left > 0);
+		await shot("heatmap-wide");
+
+		await app.send("Emulation.setDeviceMetricsOverride", { width: 375, height: 900, deviceScaleFactor: 1, mobile: false });
+		const recent = await ui<HeatmapBox>(`
+			heatmap().scrollLeft = 0;
+			heatmap().scrollIntoView({ block: "center" });
+			await new Promise(requestAnimationFrame);
+			return heatmapBox();
+		`);
+		assert.ok(recent.scrollWidth > recent.clientWidth, `the narrow card scrolls: ${JSON.stringify(recent)}`);
+		assert.ok(Math.abs(recent.right) <= 1 && recent.left < 0, `the recent end starts visible: ${JSON.stringify(recent)}`);
+		await shot("heatmap-narrow-recent");
+
+		const oldest = await ui<HeatmapBox>(`
+			heatmap().scrollLeft = -heatmap().scrollWidth;
+			await new Promise(requestAnimationFrame);
+			return heatmapBox();
+		`);
+		assert.ok(oldest.scrollLeft < 0 && Math.abs(oldest.left) <= 1, `the oldest end remains reachable: ${JSON.stringify(oldest)}`);
+		await shot("heatmap-narrow-oldest");
+		t.diagnostic(JSON.stringify({ wide, recent, oldest }));
+	} finally {
+		await app.send("Emulation.setDeviceMetricsOverride", { ...viewport, deviceScaleFactor: 1, mobile: false });
+	}
+});
+
 
 test("the model editor synchronises offline catalogue values and offers upstream references for relays", async () => {
 	const expected = catalogModelFor({ id: "openai", baseUrl: "https://api.openai.com/v1" }, "gpt-5.2");

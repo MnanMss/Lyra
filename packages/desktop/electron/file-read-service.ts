@@ -1,9 +1,22 @@
-import { readdir, readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import type { FileContents, FileEntry } from "./ipc-types.ts";
+import { resolveInside } from "./file-ops.ts";
 
 /** Enough for source and text files without pulling generated output into a renderer. */
 export const FILE_READ_CAP = 512 * 1024;
+
+/** Resolve both sides before IO so project symlinks cannot grant access to files outside it. */
+export async function resolveReadablePath(target: string, roots: readonly string[]): Promise<string | null> {
+	if (!isAbsolute(target)) return null;
+	// Listings return canonical paths, so later clicks must compare against canonical roots too.
+	const [resolved, realRoots] = await Promise.all([
+		realpath(target).catch(() => null),
+		Promise.all(roots.filter((root) => isAbsolute(root)).map((root) => realpath(root).catch(() => null))),
+	]);
+	if (!resolved) return null;
+	return resolveInside(resolved, realRoots.filter((root) => root !== null));
+}
 
 /** List one already-authorised directory. Path authorisation stays at the calling boundary. */
 export async function listReadableFiles(dir: string | null): Promise<FileEntry[]> {

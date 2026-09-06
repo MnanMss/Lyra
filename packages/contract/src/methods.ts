@@ -83,6 +83,7 @@ export const METHODS = {
 		open: { channel: "sessions:open", remote: true },
 		transcript: { channel: "sessions:transcript", remote: true },
 		trajectory: { channel: "sessions:trajectory", remote: true },
+		trajectoryChanges: { channel: "sessions:trajectoryChanges", remote: true },
 		exportTrajectory: { channel: "sessions:exportTrajectory", remote: false, why: "生成本机完整轨迹检查文件" },
 		fork: { channel: "sessions:fork", remote: true },
 		remove: { channel: "sessions:remove", remote: true },
@@ -148,6 +149,7 @@ export const METHODS = {
 		uniquePath: { channel: "files:uniquePath", remote: false, why: "读写任意路径" },
 		exists: { channel: "files:exists", remote: false, why: "读写任意路径" },
 		importInto: { channel: "files:import", remote: false, why: "读写任意路径" },
+		pick: { channel: "files:pick", remote: false, why: "弹出系统原生文件/目录选择框" },
 	},
 	clipboard: {
 		read: { channel: "clipboard:read", remote: false, why: "手机有自己的剪贴板" },

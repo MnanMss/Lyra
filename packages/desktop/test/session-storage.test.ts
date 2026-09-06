@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { SessionStore } from "@lyra/core";
 import { observeSessionStorage } from "../electron/session-storage.ts";
 import type { SessionChange } from "../electron/ipc-shapes.ts";
+import { readTrajectoryChanges } from "../electron/trajectory-changes.ts";
 
 test("committed cold-session changes notify every persistence path without broadcasting tokens", async () => {
 	const root = await mkdtemp(join(tmpdir(), "lyra-session-sync-"));
@@ -42,4 +43,27 @@ test("failed persistence never claims a successful change", async () => {
 	const store = observeSessionStorage(source, (change) => changes.push(change));
 	await assert.rejects(store.delete("project", "session"), /disk unavailable/);
 	assert.deepEqual(changes, []);
+});
+
+test("the desktop observer preserves incremental log reads through the real trajectory service", async () => {
+	const root = await mkdtemp(join(tmpdir(), "lyra-observed-trajectory-"));
+	const source = new SessionStore(root);
+	let fullReads = 0;
+	const read = source.read.bind(source);
+	source.read = async function* (...args) { fullReads++; yield* read(...args); };
+	const store = observeSessionStorage(source, () => {});
+	try {
+		const meta = await store.create(root, "model");
+		await store.append(meta, { type: "message", message: { role: "user", content: [{ type: "text", text: "A large persisted body" }], timestamp: 1 } });
+		const baselineReads = fullReads;
+		const first = await readTrajectoryChanges(store, meta.projectId, meta.id);
+		const unchanged = await readTrajectoryChanges(store, meta.projectId, meta.id, first.cursor);
+		assert.equal(unchanged.reset, false);
+		assert.deepEqual(unchanged.upserts, []);
+		await store.append(meta, { type: "event", event: { type: "notice", level: "info", message: "appended" } });
+		const next = await readTrajectoryChanges(store, meta.projectId, meta.id, first.cursor);
+		assert.equal(next.upserts.length, 1);
+		assert.equal(next.upserts[0].detail, "appended");
+		assert.equal(fullReads, baselineReads, "wrapping the store must not silently restore full-file scans");
+	} finally { await rm(root, { recursive: true, force: true }); }
 });

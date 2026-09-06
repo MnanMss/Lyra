@@ -31,7 +31,13 @@ export class BackgroundJobs {
 		catch (error) { job.info.status = "failed"; job.info.error = String(error); throw error; }
 		return true;
 	}
-	dispose(): void { for (const id of this.entries.keys()) this.stop(id, true); }
+	dispose(): void {
+		const errors: unknown[] = [];
+		for (const id of this.entries.keys()) {
+			try { this.stop(id, true); } catch (error) { errors.push(error); }
+		}
+		if (errors.length) throw new AggregateError(errors, "Failed to stop background jobs");
+	}
 }
 
 export function backgroundJobs(state: Map<string, unknown>): BackgroundJobs {

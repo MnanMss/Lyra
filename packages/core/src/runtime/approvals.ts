@@ -51,29 +51,42 @@ export class ApprovalGate {
 		return [...this.pending.values()].map(({ id, request }) => ({ id, request }));
 	}
 
-	resolve(requestId: string, decision: ApprovalDecision): boolean {
+	resolve(requestId: string, decision: unknown): boolean {
 		const entry = this.pending.get(requestId);
 		if (!entry) return false;
-		entry.resolve(decision);
+		if (entry.request.kind === "interactive") {
+			if (decision === "reject") entry.resolve(decision);
+			else if (typeof decision === "object" && decision !== null && "answer" in decision && typeof decision.answer === "string") {
+				const answer = decision.answer.trim();
+				if (!answer || (!entry.request.allowCustomInput && !entry.request.options?.includes(answer))) return false;
+				entry.resolve({ answer });
+			} else return false;
+		} else {
+			if (decision !== "once" && decision !== "always" && decision !== "reject") return false;
+			entry.resolve(decision);
+		}
 		return true;
 	}
 
 	/**
 	 * Decide whether one action may proceed, asking the user if it may not.
 	 *
-	 * `full` never asks; `auto` asks only about what cannot be taken back, which is judged by the
+	 * For permissions, `full` never asks; `auto` asks only about what cannot be taken back, judged by the
 	 * approval policy rather than here — that judgement is a matter of where the agent is running,
 	 * and a plugin can replace it. Anything else asks.
 	 */
 	async request(request: ApprovalRequest): Promise<ApprovalDecision> {
 		const mode = this.options.mode();
-		if (mode === "full") return "once";
-		if (this.allowList.has(request.subject)) return "once";
+		// A permission grant cannot answer a question, even in unattended/full-access mode.
+		if (request.kind !== "interactive") {
+			if (mode === "full") return "once";
+			if (this.allowList.has(request.subject)) return "once";
 
-		if (mode === "auto") {
-			const verdict = approvalPolicy().assess(request.kind, request.subject, this.options.cwd());
-			if (!verdict.risky) return "once";
-			if (verdict.reason) request.detail = `${verdict.reason}\n\n${request.detail ?? ""}`.trim();
+			if (mode === "auto") {
+				const verdict = approvalPolicy().assess(request.kind, request.subject, this.options.cwd());
+				if (!verdict.risky) return "once";
+				if (verdict.reason) request.detail = `${verdict.reason}\n\n${request.detail ?? ""}`.trim();
+			}
 		}
 
 		const id = randomUUID();
@@ -137,6 +150,8 @@ export function sessionApprovalGate(deps: {
 		detail: ApprovalRequest["detail"];
 		reason?: string;
 		subject: string;
+		options?: string[];
+		allowCustomInput?: boolean;
 	}): Promise<void>;
 	alwaysAllow: Iterable<string>;
 }): ApprovalGate {
@@ -154,6 +169,8 @@ export function sessionApprovalGate(deps: {
 					detail: pending.request.detail,
 					...(pending.request.reason ? { reason: pending.request.reason } : {}),
 					subject: pending.request.subject,
+					...(pending.request.options ? { options: pending.request.options } : {}),
+					...(pending.request.allowCustomInput !== undefined ? { allowCustomInput: pending.request.allowCustomInput } : {}),
 				}),
 			// Persisting an "always" answer is the host's job; the settings are not ours to write.
 			remember: () => {},

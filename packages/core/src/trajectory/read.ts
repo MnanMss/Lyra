@@ -12,9 +12,11 @@
 import type { SessionRecord } from "../session/store.ts";
 import type { Entry } from "./types.ts";
 import { projectTrajectory } from "./project.ts";
+import type { SessionReadCursor, SessionRecordChanges } from "../session/read-changes.ts";
 
 export interface TrajectorySource {
 	read(projectId: string, sessionId: string, sinceSeq?: number): AsyncGenerator<SessionRecord>;
+	readChanges?(projectId: string, sessionId: string, cursor?: SessionReadCursor): Promise<SessionRecordChanges<SessionRecord>>;
 }
 
 export async function readTrajectory(

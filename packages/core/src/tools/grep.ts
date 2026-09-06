@@ -32,7 +32,6 @@ export const grepTool: Tool<GrepArgs> = {
 	parameters: {
 		type: "object",
 		properties: {
-			description: { type: "string", description: "Optional description of what this search operation is doing." },
 			pattern: { type: "string", description: "Regular expression to search for." },
 			query: { type: "string", description: "Alias for pattern." },
 			search: { type: "string", description: "Alias for pattern." },
@@ -64,7 +63,7 @@ export const grepTool: Tool<GrepArgs> = {
 						? extractGrepPattern(raw.description)
 						: "";
 
-		if (!pattern) return errorResult("`pattern` is required.");
+		if (!pattern) return errorResult("`pattern` is required. Please specify the regex/pattern to search for in the `pattern` parameter, e.g. {\"pattern\": \"your_regex\"}.");
 		const normalizedArgs: GrepArgs = {
 			...args,
 			pattern,
@@ -244,5 +243,6 @@ export function extractGrepPattern(desc: unknown): string {
 	if (labeled?.[1]) return labeled[1].replace(/[`'"]+$/, "").trim();
 	const quoted = desc.match(/[`'"]([^`'"]+)['`"]/);
 	if (quoted?.[1]) return quoted[1].trim();
-	return "";
+	/* Fallback: if the model passed the raw pattern directly as description */
+	return desc.trim();
 }

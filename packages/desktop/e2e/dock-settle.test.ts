@@ -90,6 +90,7 @@ async function seed(home: string): Promise<void> {
 
 before(async () => {
 	app = await startApp({ port: 9448, seed });
+	await app.evaluate(`document.documentElement.dataset.reduceMotion = "off"`);
 });
 
 after(async () => {
@@ -165,16 +166,19 @@ test("a pane that is genuinely new still arrives rather than appearing", async (
  * So: arrange a layout in one conversation, leave, and come back to it. The panel is inserted by
  * the adoption, and it must be there rather than arrive.
  */
-test("a pane the adoption brings in lands rather than fading, on every switch back", async () => {
+for (const motion of ["off", "on"]) test(`a pane the adoption brings in lands rather than fading (reduced motion ${motion})`, async (t) => {
+	await app.evaluate(`document.documentElement.dataset.reduceMotion = ${motion === "on" ? '"on"' : '"off"'}`);
 	// Open the first conversation and give it a second pane, which saves that layout under its id.
 	await app.evaluate(`(async () => {
 		const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 		document.querySelector('[data-ly-row="settle-a"] button').click();
 		await wait(900);
-		document.querySelector('button[aria-label="面板"]').click();
-		await wait(250);
-		[...document.querySelectorAll('[role="menuitem"]')].find((i) => i.textContent.trim().startsWith("终端"))?.click();
-		await wait(900);
+		if (!document.querySelector('[data-dock-pane="terminal"]')) {
+			document.querySelector('button[aria-label="面板"]').click();
+			await wait(250);
+			[...document.querySelectorAll('[role="menuitem"]')].find((i) => i.textContent.trim().startsWith("终端"))?.click();
+			await wait(900);
+		}
 		if (document.querySelectorAll("[data-dock-pane]").length < 2) throw new Error("the panel never opened");
 		// Away to the other conversation, whose own layout is a single pane.
 		document.querySelector('[data-ly-row="settle-b"] button').click();
@@ -202,6 +206,7 @@ test("a pane the adoption brings in lands rather than fading, on every switch ba
 	})()`);
 
 	const drawn = samples.filter((value): value is number => value !== null);
+	t.diagnostic(JSON.stringify({ motion, opacity: drawn }));
 	assert.ok(drawn.length > 0, `the panel never came back: ${samples.join(" ")}`);
 	assert.deepEqual(
 		drawn.filter((value) => value < 0.99),
@@ -227,7 +232,8 @@ test("a pane the adoption brings in lands rather than fading, on every switch ba
  *
  * So it is measured over consecutive frames, from `getBoundingClientRect`.
  */
-test("a pane put down does not drift after it arrives", async () => {
+for (const motion of ["off", "on"]) test(`a pane put down does not drift after it arrives (reduced motion ${motion})`, async (t) => {
+	await app.evaluate(`document.documentElement.dataset.reduceMotion = ${motion === "on" ? '"on"' : '"off"'}`);
 	// One panel beside the conversation, then carry it to the bottom of the dock and let go.
 	const positions = await app.evaluate<{ left: number; top: number; width: number }[]>(`(async () => {
 		const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -293,19 +299,18 @@ test("a pane put down does not drift after it arrives", async () => {
 	 * after it disagrees.
 	 */
 	const final = positions[positions.length - 1];
-	const same = (p: { left: number; top: number; width: number }) =>
-		Math.abs(p.left - final.left) <= 1 && Math.abs(p.top - final.top) <= 1 && Math.abs(p.width - final.width) <= 1;
-
-	const arrived = positions.findIndex(same);
-	assert.ok(arrived >= 0, "the pane never reached a resting position");
-
-	const after = positions.slice(arrived);
-	const left = after.findIndex((p) => !same(p));
-	assert.equal(
-		left,
-		-1,
-		`the pane arrived at ${final.left},${final.top} on frame ${arrived} and then moved again` +
-			(left >= 0 ? ` to ${after[left].left},${after[left].top}` : "") +
-			`.\nleft edge per frame: ${positions.map((p) => p.left).join(" ")}`,
-	);
+	t.diagnostic(JSON.stringify({ motion, positions }));
+	// Position and size can finish on different frames; one must not hide a jump in another.
+	for (const dimension of ["left", "top", "width"] as const) {
+		const same = (p: { left: number; top: number; width: number }) => Math.abs(p[dimension] - final[dimension]) <= 1;
+		const arrived = positions.findIndex(same);
+		assert.ok(arrived >= 0, `the pane's ${dimension} never reached a resting value`);
+		const after = positions.slice(arrived);
+		const moved = after.findIndex((p) => !same(p));
+		assert.equal(moved, -1,
+			`the pane's ${dimension} arrived at ${final[dimension]} on frame ${arrived} and then moved again` +
+				(moved >= 0 ? ` to ${after[moved][dimension]}` : "") +
+				`.\n${dimension} per frame: ${positions.map((p) => p[dimension]).join(" ")}`,
+		);
+	}
 });

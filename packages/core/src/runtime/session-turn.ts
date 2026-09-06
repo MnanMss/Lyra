@@ -118,7 +118,7 @@ export async function driveTurn(input: TurnInputs): Promise<void> {
 		settings: input.settings,
 		provider: input.provider,
 		model: input.model,
-		stream: summaryStream(input.streamFn, input.provider, input.model) ?? streamAssistant,
+		stream: summaryStream(input.streamFn, { sessionId: log.meta.id, cwd }) ?? streamAssistant,
 		budget: input.can.correctionBudget,
 		signal: input.signal,
 		emit: input.emit,
@@ -261,7 +261,7 @@ async function assembleTurn(input: TurnInputs): Promise<{ config: AgentRunConfig
 			streamFn: input.streamFn,
 			requestApproval: input.requestApproval,
 			emit: input.emit,
-			summaryStream: (provider) => summaryStream(input.streamFn, provider, input.model),
+			summaryStream: summaryStream(input.streamFn, { sessionId: log.meta.id, cwd }),
 			// 压缩剪掉的大块输出存进会话，占位标记里给出 `artifact://` 地址。
 			artifacts: { keep: (tool, content) => can.keepArtifact(tool, content) },
 			beforeToolCall: makeBeforeToolCall(settings.hooks, cwd, input.signal, can.extensions),
@@ -286,17 +286,20 @@ async function assembleTurn(input: TurnInputs): Promise<{ config: AgentRunConfig
  */
 export function summaryStream(
 	override: AgentRunConfig["streamFn"] | undefined,
-	provider: ProviderConfig,
-	model: ModelConfig,
+	scope: Pick<AgentRunConfig, "sessionId" | "cwd">,
 ): typeof streamAssistant | undefined {
 	if (!override) return undefined;
-	return (_provider, _model, context) => {
+	return (provider, model, context, options) => {
 		const call = override;
 		// A generator that only returns: compaction asks for a stream, the override answers with a
 		// whole message. The generator shape is the adaptor; there is nothing to yield along the way.
 		// oxlint-disable-next-line require-yield
 		async function* once(): AsyncGenerator<StreamEvent, AssistantMessage> {
-			return call({ ...context }, { provider, model } as AgentRunConfig);
+			return call({ ...context }, {
+				...scope, provider, model, messages: context.messages,
+				systemPrompt: context.systemPrompt ?? "", tools: [],
+				thinking: options?.thinking, maxTokens: options?.maxTokens, signal: options?.signal,
+			});
 		}
 		return once();
 	};

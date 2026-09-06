@@ -42,7 +42,7 @@ export function Toaster() {
 	const remove = useApp((s) => s.dismissNotice);
 	const newSession = useApp((s) => s.newSession);
 	const setComposerDraft = useApp((s) => s.setComposerDraft);
-
+	const openSessionById = useApp((s) => s.openSessionById);
 	/**
 	 * Hand an error to a fresh conversation, already written up, and stop there.
 	 *
@@ -197,7 +197,7 @@ export function Toaster() {
 						{/* The colour lives on the mark, not on the words: a paragraph of red on pink is
 						    the least legible way to say something went wrong. */}
 						<tone.Icon size={13} strokeWidth={2} className={`mt-[2.5px] shrink-0 ${tone.mark}`} />
-						<span className="min-w-0 leading-[18px] break-words">
+						<span className="min-w-0 leading-[18px] break-words flex-1">
 							{group.message}
 							{/*
 							 * What to do about it, a step back from what happened.
@@ -207,6 +207,19 @@ export function Toaster() {
 							 */}
 							{group.hint && <span className="block pt-0.5 text-caption text-ink-faint">{group.hint}</span>}
 						</span>
+						{group.sessionId && (
+							<button
+								type="button"
+								onClick={() => {
+									if (group.sessionId) void openSessionById(group.sessionId).then((opened) => { if (opened) dismiss(group); });
+								}}
+								className="flex h-[18px] shrink-0 items-center gap-1 rounded px-1 text-caption text-accent transition-colors hover:bg-card-hover"
+								data-ly-tip="跳转到该会话"
+								aria-label="跳转到该会话"
+							>
+								<span>查看</span>
+							</button>
+						)}
 						{/*
 						 * Only on errors, and only ever one per card.
 						 *
@@ -215,7 +228,7 @@ export function Toaster() {
 						 * would be a button nobody presses. An error is the case where the next thing
 						 * the user wants is an explanation.
 						 */}
-						{group.level === "error" && (
+						{group.level === "error" && !group.sessionId && (
 							<button
 								type="button"
 								onClick={() => {

@@ -17,8 +17,9 @@ type Set = (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>
 
 export function turnSlice(set: Set, get: Get) {
 	const creating = new Map<number, ReturnType<typeof bridge.sessions.create>>();
+	const prompting = new Map<string, symbol>();
 	return {
-	async send(content: UserContent[], options: { synthetic?: boolean; carryOn?: boolean; deliver?: "steer" | "followUp" } = {}) {
+	async send(content: UserContent[], options: { synthetic?: boolean; carryOn?: boolean; deliver?: "steer" | "followUp"; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }> } = {}) {
 		const { workspace, settings, scratchCwd, selectionEpoch: epoch } = get();
 		let sessionId = get().activeSessionId;
 		const cwd = workspace?.path ?? scratchCwd;
@@ -30,12 +31,20 @@ export function turnSlice(set: Set, get: Get) {
 			catch { return false; }
 		}
 		const ownsSelection = () => get().selectionEpoch === epoch;
-		const pending: Message = { role: "user", content, timestamp: Date.now(), ...(options.synthetic ? { synthetic: true } : {}) };
+		const pending: Message = {
+			role: "user",
+			content,
+			timestamp: Date.now(),
+			...(options.synthetic ? { synthetic: true } : {}),
+			...(options.displayText !== undefined ? { displayText: options.displayText } : {}),
+			...(options.skillRef ? { skillRef: options.skillRef } : {}),
+			...(options.sessionRefs?.length ? { sessionRefs: options.sessionRefs } : {}),
+		};
 		const carriedMeter = sessionId ? (get().carried[sessionId] ?? loadCarried(sessionId)) : null;
 		const meter = relight(options.carryOn && sessionId ? carriedMeter : null, Date.now());
 		if (sessionId) saveCarried(sessionId, null);
 		if (ownsSelection()) set({
-			messages: [...get().messages, pending], pendingUserMessage: pending,
+			messages: [...get().messages, pending], pendingUserMessage: { sessionId: sessionId ?? null, message: pending },
 			running: true, stopped: null, turnStartedAt: meter.startedAt, turnTokens: meter.tokens,
 		});
 		if (sessionId) set({
@@ -45,7 +54,13 @@ export function turnSlice(set: Set, get: Get) {
 		});
 		let resumePending = false;
 		if (!sessionId && cwd) {
-			const creation = bridge.sessions.create(cwd, settings?.defaultModelId ?? "", { content, synthetic: options.synthetic });
+			const creation = bridge.sessions.create(cwd, settings?.defaultModelId ?? "", {
+				content,
+				synthetic: options.synthetic,
+				displayText: options.displayText,
+				skillRef: options.skillRef,
+				sessionRefs: options.sessionRefs,
+			});
 			creating.set(epoch, creation);
 			try {
 				const snapshot = await creation;
@@ -74,6 +89,8 @@ export function turnSlice(set: Set, get: Get) {
 		}
 		if (!sessionId) return false;
 		const id = sessionId;
+		const submission = Symbol();
+		prompting.set(id, submission);
 		let accepted = false;
 		try {
 			const meta = await bridge.agent.prompt(id, content, { ...options, resumePending });
@@ -96,6 +113,11 @@ export function turnSlice(set: Set, get: Get) {
 				get().notify(`消息已发送，刷新会话状态失败：${cause instanceof Error ? cause.message : String(cause)}`, "error");
 				return true;
 			}
+			// A later prompt owns this session even after its optimistic message is acknowledged.
+			if (prompting.get(id) !== submission) {
+				get().notify(`发送失败：${cause instanceof Error ? cause.message : String(cause)}`, "error");
+				return false;
+			}
 			const cached = get().sessionCache[id];
 			set({ activity: { ...get().activity, [id]: "failed" }, turns: without(get().turns, id),
 				...(cached?.state ? { sessionCache: { ...get().sessionCache, [id]: { ...cached, state: { ...cached.state, running: false, stopped: "error", pendingUserMessage: null } } } } : {}),
@@ -103,7 +125,7 @@ export function turnSlice(set: Set, get: Get) {
 			if (get().activeSessionId === id) set({ running: false, stopped: "error", pendingUserMessage: null, turnStartedAt: null });
 			get().notify(`发送失败：${cause instanceof Error ? cause.message : String(cause)}`, "error");
 			return false;
-		}
+		} finally { if (prompting.get(id) === submission) prompting.delete(id); }
 		return true;
 	},
 
@@ -145,7 +167,7 @@ export function turnSlice(set: Set, get: Get) {
     };
     set({
       messages: [...get().messages.slice(0, index), pending],
-      pendingUserMessage: pending,
+      pendingUserMessage: { sessionId, message: pending },
       toolRuns: {},
       approvals: [],
       running: true,
@@ -170,7 +192,7 @@ export function turnSlice(set: Set, get: Get) {
 		} catch (cause) {
 			const current = get();
 			// Roll back only the unacknowledged preview, never a newer stream or another selection.
-			if (current.activeSessionId === sessionId && current.pendingUserMessage === pending) {
+			if (current.activeSessionId === sessionId && current.pendingUserMessage?.sessionId === sessionId && current.pendingUserMessage.message === pending) {
 				set({ messages: before.messages, toolRuns: before.toolRuns, approvals: before.approvals,
 					running: before.running, pendingUserMessage: before.pendingUserMessage,
 					turnStartedAt: before.turnStartedAt, turnTokens: before.turnTokens,
@@ -190,15 +212,17 @@ export function turnSlice(set: Set, get: Get) {
     if (sessionId) await bridge.agent.abort(sessionId);
   },
 
-  async respondToApproval(id: string, decision: ApprovalDecision) {
-    const sessionId = get().activeSessionId;
+  async respondToApproval(id: string, decision: ApprovalDecision, ownerId?: string) {
+    const sessionId = ownerId ?? get().activeSessionId;
     if (!sessionId) return;
-		try {
-			await bridge.agent.approve(sessionId, id, decision);
-			if (get().activeSessionId === sessionId) set({ approvals: get().approvals.filter((a) => a.id !== id) });
-		} catch (cause) {
-			get().notify(`审批提交失败：${cause instanceof Error ? cause.message : String(cause)}`, "error");
-		}
+    await bridge.agent.approve(sessionId, id, decision);
+    set((state) => {
+      const cached = state.sessionCache[sessionId];
+      return {
+        ...(state.activeSessionId === sessionId ? { approvals: state.approvals.filter((request) => request.id !== id) } : {}),
+        ...(cached?.state ? { sessionCache: { ...state.sessionCache, [sessionId]: { ...cached, state: { ...cached.state, approvals: cached.state.approvals.filter((request) => request.id !== id) } } } } : {}),
+      };
+    });
   },
 
   /**

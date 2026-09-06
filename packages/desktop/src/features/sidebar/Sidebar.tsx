@@ -72,9 +72,11 @@ export function Sidebar() {
 	/** And for the flat 「聊天」 list, which is every conversation there is. */
 	const [chatShown, setChatShown] = useState(CHAT_PAGE);
 	/** Which timestamp orders both halves and the archive. Persisted: it is a preference, not a mode. */
-	const [sort, setSort] = useState<SortKey>(() =>
-		localStorage.getItem(SORT_KEY) === "updatedAt" ? "updatedAt" : "createdAt",
-	);
+	const [sort, setSort] = useState<SortKey>(() => {
+		const val = localStorage.getItem(SORT_KEY);
+		return val === "updatedAt" ? "updatedAt" : val === "manual" ? "manual" : "createdAt";
+	});
+	const hasManual = useApp((state) => Object.keys(state.settings?.sessionOrder ?? {}).length > 0);
 	const menu = usePopover();
 	/**
 	 * Which projects are folded shut.
@@ -323,6 +325,8 @@ export function Sidebar() {
 							onLooseCollapse={() => setLooseShown(SESSION_PAGE)}
 							actions={actions}
 							empty={empty}
+							sort={sort}
+							onReordered={archiveOpen ? undefined : () => setSort("manual")}
 						/>
 					) : (
 						<ChatList
@@ -346,7 +350,9 @@ export function Sidebar() {
 				<ListMenu
 					anchor={menu.anchor}
 					tab={tab}
+					archive={archiveOpen}
 					sort={sort}
+					hasManual={hasManual}
 					onSort={setSort}
 					allFolded={allFolded}
 					onFoldAll={foldAll}

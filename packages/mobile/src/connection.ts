@@ -52,11 +52,13 @@ export function appUrlOf(connection: Connection): string {
 	return connection.relay ? `${origin}/app/${assetKeyFor(connection.token)}/` : `${origin}/app/`;
 }
 
-/** Exact-origin check for WebView navigation; prefix checks accept hosts such as trusted.test.evil. */
+/** A relay origin hosts multiple desktops; only the paired capability may receive the bridge. */
 export function isAppUrl(url: string, connection: Connection): boolean {
 	if (url === "about:blank") return true;
 	try {
-		return new URL(url).origin === new URL(appUrlOf(connection)).origin;
+		const target = new URL(url);
+		const app = new URL(appUrlOf(connection));
+		return target.origin === app.origin && target.pathname.startsWith(app.pathname);
 	} catch {
 		return false;
 	}

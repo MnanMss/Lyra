@@ -19,19 +19,50 @@ export function promptContent(value: unknown): UserContent[] {
 	});
 }
 
+function presentation(value: Record<string, unknown>): Pick<InitialPrompt, "displayText" | "skillRef" | "sessionRefs"> {
+	const result: Pick<InitialPrompt, "displayText" | "skillRef" | "sessionRefs"> = {};
+	if (value.displayText !== undefined) {
+		if (typeof value.displayText !== "string") throw new Error("displayText must be a string");
+		result.displayText = value.displayText;
+	}
+	if (value.skillRef !== undefined) {
+		const skill = value.skillRef;
+		if (!object(skill) || typeof skill.name !== "string" || !skill.name.trim()) throw new Error("Invalid skill reference");
+		if (skill.path !== undefined && typeof skill.path !== "string") throw new Error("Invalid skill path");
+		if (skill.pluginId !== undefined && typeof skill.pluginId !== "string") throw new Error("Invalid skill plugin");
+		result.skillRef = { name: skill.name, ...(skill.path === undefined ? {} : { path: skill.path }), ...(skill.pluginId === undefined ? {} : { pluginId: skill.pluginId }) };
+	}
+	if (value.sessionRefs !== undefined) {
+		if (!Array.isArray(value.sessionRefs)) throw new Error("sessionRefs must be an array");
+		result.sessionRefs = value.sessionRefs.map((ref: unknown) => {
+			if (!object(ref) || typeof ref.id !== "string" || !ref.id.trim() || typeof ref.title !== "string") throw new Error("Invalid session reference");
+			return { id: ref.id, title: ref.title };
+		});
+	}
+	return result;
+}
+
 export function initialPrompt(value: unknown): InitialPrompt | undefined {
 	if (value === undefined) return undefined;
 	if (!object(value)) throw new Error("initial must be an object");
 	if (value.synthetic !== undefined && typeof value.synthetic !== "boolean") throw new Error("synthetic must be boolean");
-	return { content: promptContent(value.content), ...(value.synthetic === undefined ? {} : { synthetic: value.synthetic }) };
+	return { content: promptContent(value.content), ...(value.synthetic === undefined ? {} : { synthetic: value.synthetic }), ...presentation(value) };
 }
 
-export function promptOptions(value: unknown): { synthetic?: boolean; deliver?: "steer" | "followUp"; resumePending?: boolean } {
+export function promptOptions(value: unknown): Omit<InitialPrompt, "content"> & {
+	deliver?: "steer" | "followUp";
+	resumePending?: boolean;
+} {
 	if (value === undefined || value === null) return {};
 	if (!object(value)) throw new Error("options must be an object");
 	const { synthetic, deliver, resumePending } = value;
 	if (synthetic !== undefined && typeof synthetic !== "boolean") throw new Error("synthetic must be boolean");
 	if (resumePending !== undefined && typeof resumePending !== "boolean") throw new Error("resumePending must be boolean");
 	if (deliver !== undefined && deliver !== "steer" && deliver !== "followUp") throw new Error("Invalid delivery mode");
-	return { ...(synthetic === undefined ? {} : { synthetic }), ...(deliver === undefined ? {} : { deliver }), ...(resumePending === undefined ? {} : { resumePending }) };
+	return {
+		...(synthetic === undefined ? {} : { synthetic }),
+		...(deliver === undefined ? {} : { deliver }),
+		...(resumePending === undefined ? {} : { resumePending }),
+		...presentation(value),
+	};
 }

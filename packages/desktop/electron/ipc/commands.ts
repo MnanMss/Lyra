@@ -10,6 +10,7 @@ import { ipcMain, shell } from "electron";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { lyraHome } from "@lyra/core";
+import { registerReferenceFiles } from "../reference-files.ts";
 import { settings } from "../app-settings.ts";
 import { listCommands, type CommandsList } from "../commands-service.ts";
 
@@ -47,7 +48,9 @@ export function registerCommandsIpc(): void {
 	 * no checkout behind it never has one. User-level commands still apply in both cases.
 	 */
 	ipcMain.handle("commands:list", async (_event, cwd: string): Promise<CommandsList> => {
-		return listCommands(cwd, settings());
+		const result = await listCommands(cwd, settings());
+		await registerReferenceFiles(result.skills.flatMap(skill => skill.path ? [skill.path] : []));
+		return result;
 	});
 
 	/**

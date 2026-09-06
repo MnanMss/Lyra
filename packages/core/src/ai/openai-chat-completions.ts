@@ -3,6 +3,7 @@
  */
 
 import { toChatCompletionsMessages, toChatCompletionsTools } from "./openai-chat-completions-request.ts";
+import { sanitizeToolPairing } from "./sanitize-history.ts";
 import type {
 	AssistantMessage,
 	LlmContext,
@@ -48,7 +49,7 @@ async function* streamChatCompletions(
 
 	const body: Record<string, unknown> = {
 		model: model.modelId,
-		messages: toChatCompletionsMessages(context.systemPrompt ?? "", context.messages),
+		messages: toChatCompletionsMessages(context.systemPrompt ?? "", sanitizeToolPairing(context.messages)),
 		stream: true,
 		stream_options: { include_usage: true },
 		max_tokens: options.maxTokens ?? model.maxOutputTokens,
@@ -120,7 +121,10 @@ async function* streamChatCompletions(
 						// buckets disjoint or both the usage page and the price calculator count them twice.
 						partial.usage.input = Math.max(0, partial.usage.input - partial.usage.cacheRead);
 						partial.usage.cacheWrite = 0;
-						partial.usage.total = partial.usage.input + partial.usage.output + partial.usage.cacheRead;
+						if (typeof event.usage.completion_tokens_details?.reasoning_tokens === "number") {
+							partial.usage.reasoning = event.usage.completion_tokens_details.reasoning_tokens;
+						}
+						partial.usage.total = partial.usage.input + partial.usage.output + partial.usage.cacheRead + partial.usage.cacheWrite;
 						partial.usage = computeCost(partial.usage, model);
 					}
 

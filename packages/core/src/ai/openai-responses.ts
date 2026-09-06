@@ -9,6 +9,7 @@
  */
 
 import { toResponsesInput, toResponsesTools } from "./openai-responses-request.ts";
+import { sanitizeToolPairing } from "./sanitize-history.ts";
 import type {
 	AssistantMessage,
 	LlmContext,
@@ -56,7 +57,7 @@ async function* streamResponses(
 
 	const body: Record<string, unknown> = {
 		model: model.modelId,
-		input: toResponsesInput(context.messages),
+		input: toResponsesInput(sanitizeToolPairing(context.messages)),
 		stream: true,
 		// Sessions live in Lyra's own store, not on the provider.
 		store: false,

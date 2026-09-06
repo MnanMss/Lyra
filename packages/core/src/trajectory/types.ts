@@ -75,6 +75,14 @@ export interface Entry {
 	linkedSeqs?: number[];
 }
 
+/** Replaces the list on reset; otherwise replaces matching keys and appends newly seen entries. */
+export interface TrajectoryChanges {
+	cursor: string;
+	reset: boolean;
+	upserts: Entry[];
+	removals: string[];
+}
+
 /** Shown as filter chips, in the order a turn actually happens. */
 export const SOURCE_ORDER: Source[] = [
 	"system",

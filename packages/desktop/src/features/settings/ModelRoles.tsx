@@ -33,6 +33,7 @@ const CONFIGURABLE: ModelRole[] = MODEL_ROLES.filter((role) => role !== "default
 
 const TITLES: Record<ModelRole, string> = {
 	default: "默认",
+	compact: "@compact · 上下文压缩",
 	fast: "@fast · 快而便宜",
 	deep: "@deep · 复杂推理",
 	review: "@review · 审查与顾问",
@@ -102,7 +103,7 @@ export function ModelRoles() {
 									value={current?.id ?? FOLLOW_DEFAULT}
 									onChange={(id) => { void setRole(role, id); }}
 									disabled={saving}
-									inheritLabel="跟随默认模型"
+									inheritLabel={role === "compact" ? "同会话模型" : "跟随默认模型"}
 									ariaLabel={`${TITLES[role]} 用哪个模型`}
 								/>
 							}

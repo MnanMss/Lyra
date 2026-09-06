@@ -2,6 +2,7 @@ import { applySessionChange } from "./session-changes.ts";
 import type { SessionChange } from "../../electron/ipc-types.ts";
 import type {
   AgentEvent,
+	ApprovalDecision,
 	CommandRun,
   Message,
   SessionMeta,
@@ -87,6 +88,9 @@ export interface PendingApproval {
   reason?: string;
   /** What an "always" answer gets remembered against. */
   subject?: string;
+  /** Interactive choices offered to user. */
+  options?: string[];
+  allowCustomInput?: boolean;
 }
 
 export interface AppState {
@@ -180,8 +184,8 @@ export interface AppState {
    * - `new:scratch` for blank session without a project (Chat / 不在项目中工作)
    * - `<sessionId>` for drafts typed in an existing session
    */
-  drafts: Record<string, { text: string; attachments: { id: string; name: string; mimeType: string; data?: string; text?: string; isText?: boolean }[] }>;
-  setDraft(key: string, draft: { text: string; attachments?: { id: string; name: string; mimeType: string; data?: string; text?: string; isText?: boolean }[] } | null): void;
+  drafts: Record<string, { text: string; attachments: { id: string; name: string; mimeType: string; data?: string; text?: string; isText?: boolean }[]; sessionRefs?: Array<{ id: string; title: string }> }>;
+  setDraft(key: string, draft: { text: string; attachments?: { id: string; name: string; mimeType: string; data?: string; text?: string; isText?: boolean }[]; sessionRefs?: Array<{ id: string; title: string }> } | null): void;
 
   activeSessionId: string | null;
   selectionEpoch: number;
@@ -193,7 +197,7 @@ export interface AppState {
    * The message the composer painted before the agent confirmed it, held by reference so the
    * stored copy can replace it instead of appearing twice.
    */
-  pendingUserMessage: Message | null;
+  pendingUserMessage: { sessionId: string | null; message: Message } | null;
   /**
    * Transcripts already read this run, keyed by session id.
    *
@@ -298,7 +302,7 @@ export interface AppState {
   /** Where history was summarised, by position in the transcript. */
   compactions: { at: number; before: number; after: number }[];
 	commandRuns: CommandRun[];
-  notices: { id: string; level: "info" | "warn" | "error"; message: string }[];
+  notices: { id: string; level: "info" | "warn" | "error"; message: string; sessionId?: string }[];
   /**
    * A correction the runtime thinks could become a rule, waiting to be answered.
    *
@@ -355,6 +359,8 @@ export interface AppState {
   renameProject(path: string, name: string): Promise<void>;
   setProjectPinned(path: string, pinned: boolean): Promise<void>;
   setSessionPinned(sessionId: string, pinned: boolean): Promise<void>;
+  reorderProjects(sourcePath: string, targetPath: string, placement: "before" | "after"): Promise<boolean>;
+  reorderProjectSessions(projectPath: string, sourceId: string, targetId: string, placement: "before" | "after", sort: "updatedAt" | "createdAt" | "manual"): Promise<boolean>;
   renameSession(session: SessionMeta, title: string): Promise<void>;
   moveSessionProject(session: SessionMeta, targetPath: string): Promise<void>;
   removeProject(path: string): Promise<void>;
@@ -362,6 +368,7 @@ export interface AppState {
   archiveProjectSessions(path: string): Promise<void>;
   newSession(): Promise<void>;
   openSession(meta: SessionMeta): Promise<void>;
+	openSessionById(id: string): Promise<boolean>;
   deleteSession(meta: SessionMeta): Promise<void>;
   setSessionArchived(meta: SessionMeta, archived: boolean): Promise<void>;
   deleteArchivedSessions(): Promise<void>;
@@ -378,7 +385,7 @@ export interface AppState {
    * `carryOn` says this send continues a turn that stopped rather than starting a new one, so its
    * clock and token count are picked up from where the pause left them. See `turn-meter.ts`.
    */
-  send(content: UserContent[], options?: { synthetic?: boolean; carryOn?: boolean; deliver?: "steer" | "followUp" }): Promise<boolean>;
+	send(content: UserContent[], options?: { synthetic?: boolean; carryOn?: boolean; deliver?: "steer" | "followUp"; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }> }): Promise<boolean>;
   /** Replace a message and re-run from there; everything after it is discarded. */
   editMessage(index: number, content: UserContent[]): Promise<void>;
   /** Re-send the user message that produced the reply at `index`. */
@@ -386,7 +393,8 @@ export interface AppState {
   abort(): Promise<void>;
   respondToApproval(
     id: string,
-    decision: "once" | "always" | "reject",
+    decision: ApprovalDecision,
+    sessionId?: string,
   ): Promise<void>;
   /**
    * Run this conversation on a different model.
@@ -399,7 +407,7 @@ export interface AppState {
   setThinking(thinking: ThinkingLevel): Promise<void>;
   refreshSync(): Promise<void>;
   dismissNotice(id: string): void;
-  notify(message: string, level?: "info" | "warn" | "error"): void;
+  notify(message: string, level?: "info" | "warn" | "error", sessionId?: string): void;
   applyEvent(sessionId: string, event: AgentEvent): void;
 }
 
@@ -538,7 +546,7 @@ export const useApp = create<AppState>((set, get) => ({
   setComposerDraft: (text, replace = false) => set({ composerDraft: { text, replace } }),
   setDraft: (key, draft) =>
     set((state) => {
-      if (!draft || (!draft.text.trim() && (!draft.attachments || draft.attachments.length === 0))) {
+      if (!draft || (!draft.text.trim() && (!draft.attachments || draft.attachments.length === 0) && !draft.sessionRefs?.length)) {
         if (!state.drafts[key]) return state;
         const copy = { ...state.drafts };
         delete copy[key];
@@ -550,6 +558,7 @@ export const useApp = create<AppState>((set, get) => ({
           [key]: {
             text: draft.text,
             attachments: draft.attachments ?? [],
+            sessionRefs: draft.sessionRefs,
           },
         },
       };
@@ -571,11 +580,11 @@ export const useApp = create<AppState>((set, get) => ({
   dismissNotice: (id) =>
     set({ notices: get().notices.filter((n) => n.id !== id) }),
 
-  notify: (message, level = "info") =>
+  notify: (message, level = "info", sessionId?: string) =>
     set({
       notices: [
         ...get().notices,
-        { id: `${Date.now()}-${Math.random()}`, level, message },
+        { id: `${Date.now()}-${Math.random()}`, level, message, sessionId },
       ],
     }),
 

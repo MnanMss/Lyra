@@ -152,7 +152,8 @@
  * frames of nothing but this.
  */
 :root[data-dock-settling] .ly-dock-pane {
-  transition-duration: 0s;
+  /* Reduced motion shortens active transitions; adoption must not start one at all. */
+  transition-duration: 0s !important;
 }
 
 /*

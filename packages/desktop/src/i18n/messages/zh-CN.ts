@@ -125,7 +125,7 @@ export const zhCN = {
 	"sidebar.archivedCount": "已归档的聊天（{count}）",
 	"sidebar.archived": "已归档的聊天",
 	"composer.message": "消息",
-	"composer.placeholder": "随心输入，或输入 / 使用命令",
+	"composer.placeholder": "输入消息，/ 命令，@ 引用",
 	"composer.send": "发送",
 	"composer.stop": "停止",
 	"composer.selectProject": "选择项目",
@@ -175,6 +175,9 @@ export const zhCN = {
 	"project.without": "不在项目中工作",
 	"project.none": "还没有项目",
 	"model.unavailable": "模型不可用",
+	"sidebar.manual": "手动排序",
+	"general.autoSummarizeTitle": "智能标题总结",
+	"general.autoSummarizeTitleDetail": "自动精简长消息标题，优先使用 @fast，会产生模型用量。",
 } as const;
 
 export type MessageKey = keyof typeof zhCN;

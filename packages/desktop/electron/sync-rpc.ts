@@ -20,13 +20,14 @@ import {
 	forkSession,
 	readTrajectory,
 	type AgentSession,
-	type ApprovalDecision,
 	type CorrectionSuggestion,
 	type SessionStorage,
 	type Settings,
 	type ThinkingLevel,
 } from "@lyra/core";
 import type { LyraApi } from "./ipc-types.ts";
+import { resolveSessionApproval } from "./approval-response.ts";
+import { readTrajectoryChanges } from "./trajectory-changes.ts";
 import { initialPrompt, promptContent, promptOptions } from "./prompt-input.ts";
 import { settingsForPhone, settingsFromPhone } from "./phone-settings.ts";
 import {
@@ -140,6 +141,8 @@ export const RPC: Record<string, Handler> = {
 	},
 	"sessions.trajectory": async (deps, [projectId, sessionId]) =>
 		readTrajectory(deps.store(), s(projectId), s(sessionId), deps.live(s(sessionId))?.running ?? false),
+	"sessions.trajectoryChanges": async (deps, [projectId, sessionId, cursor]) =>
+		readTrajectoryChanges(deps.store(), s(projectId), s(sessionId), typeof cursor === "string" ? cursor : undefined, deps.live(s(sessionId))?.running ?? false),
 	"sessions.fork": async (deps, [projectId, sessionId, seq]) =>
 		forkSession(deps.store(), s(projectId), s(sessionId), Number(seq)),
 	"sessions.create": async (deps, [cwd, modelId, initial]) =>
@@ -153,7 +156,12 @@ export const RPC: Record<string, Handler> = {
 		return null;
 	},
 	"agent.approve": async (deps, [sessionId, requestId, decision]) => {
-		deps.live(s(sessionId))?.resolveApproval(s(requestId), approvalDecision(decision));
+		const session = deps.live(s(sessionId));
+		if (!session) throw new Error("Invalid or expired approval response");
+		await resolveSessionApproval(session, s(requestId), decision, async subject => {
+			const current = deps.settings();
+			if (!current.alwaysAllow.includes(subject)) await deps.saveSettings({ ...current, alwaysAllow: [...current.alwaysAllow, subject] });
+		});
 		return null;
 	},
 	"agent.setModel": async (deps, [sessionId, modelId]) => {
@@ -196,10 +204,7 @@ export const RPC: Record<string, Handler> = {
 		}
 		const meta = (await deps.store().listSessions()).find((entry) => entry.id === s(sessionId));
 		if (!meta) return null;
-		const renamed = await deps.store().append(meta, { type: "title", title: clean });
-		return renamed.titleSetByUser
-			? renamed
-			: deps.store().append(renamed, { type: "meta", meta: { ...renamed, titleSetByUser: true } });
+		return deps.store().append(meta, { type: "title", title: clean, source: "user" });
 	},
 	"sessions.setArchived": async (deps, [projectId, sessionId, archived]) => {
 		if (archived) await deps.dispose(s(sessionId));
@@ -354,6 +359,8 @@ const ARGS: Record<string, (args: unknown[]) => ArgsError | null> = {
 		fail(all(str(projectId, "projectId"), str(sessionId, "sessionId"))),
 	"sessions.trajectory": ([projectId, sessionId]) =>
 		fail(all(str(projectId, "projectId"), str(sessionId, "sessionId"))),
+	"sessions.trajectoryChanges": ([projectId, sessionId, cursor]) =>
+		fail(all(str(projectId, "projectId"), str(sessionId, "sessionId"), optionalStr(cursor, "cursor"))),
 	"sessions.remove": ([projectId, sessionId]) => fail(all(str(projectId, "projectId"), str(sessionId, "sessionId"))),
 	"sessions.capabilities": ([sessionId]) => fail(str(sessionId, "sessionId")),
 	"sessions.setArchived": ([projectId, sessionId, archived]) =>
@@ -370,7 +377,7 @@ const ARGS: Record<string, (args: unknown[]) => ArgsError | null> = {
 		fail(all(str(sessionId, "sessionId"), index(messageIndex, "messageIndex"), content(content_, "content"))),
 	"agent.abort": ([sessionId]) => fail(str(sessionId, "sessionId")),
 	"agent.approve": ([sessionId, requestId, decision]) =>
-		fail(all(str(sessionId, "sessionId"), str(requestId, "requestId"), oneOf(decision, "decision", ["once", "always", "reject"]))),
+		fail(all(str(sessionId, "sessionId"), str(requestId, "requestId"), checkApprovalDecision(decision))),
 	"agent.setModel": ([sessionId, modelId]) => fail(all(str(sessionId, "sessionId"), str(modelId, "modelId"))),
 	"agent.setThinking": ([sessionId, thinking]) => fail(all(str(sessionId, "sessionId"), nullableStr(thinking, "thinking"))),
 
@@ -411,9 +418,11 @@ const ARGS: Record<string, (args: unknown[]) => ArgsError | null> = {
 	"rules.decline": ([sessionId]) => fail(str(sessionId, "sessionId")),
 };
 
-function approvalDecision(value: unknown): ApprovalDecision {
-	if (value === "once" || value === "always" || value === "reject") return value;
-	throw new Error("invalid approval decision");
+function checkApprovalDecision(value: unknown): Checked<unknown> {
+	if (typeof value === "object" && value !== null && "answer" in value) {
+		return str(value.answer, "decision.answer", 20_000);
+	}
+	return oneOf(value, "decision", ["once", "always", "reject"]);
 }
 
 function thinkingLevel(value: unknown): ThinkingLevel | null {

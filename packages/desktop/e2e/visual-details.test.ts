@@ -30,7 +30,34 @@ after(async () => { await app?.stop(); });
 async function frames(n = 20) { await app.evaluate(`new Promise(r=>{let n=${n};const f=()=>--n?requestAnimationFrame(f):r();requestAnimationFrame(f);})`); }
 async function until(expression: string) { await app.evaluate(`new Promise((r,j)=>{let n=300;const f=()=>(${expression})?r():--n?requestAnimationFrame(f):j(new Error('missing'));f();})`); }
 async function click(selector: string) {
-	const at = await app.evaluate<{x: number; y: number}>(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.checkVisibility({visibilityProperty:true}));if(!e)throw new Error('missing '+${JSON.stringify(selector)});e.scrollIntoView({block:'nearest'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+	const point = (visible: boolean) => app.evaluate<{x: number; y: number}>(`(async()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.checkVisibility({visibilityProperty:true}));if(!e)throw new Error('missing '+${JSON.stringify(selector)});e.scrollIntoView({block:'nearest',behavior:'instant'});
+		const deadline=Date.now()+8000;
+		while(true) {
+			// A mounted portal can still be transparent and waiting for its final position.
+			let ready=e.isConnected&&!e.matches(':disabled');
+			for(let ancestor=e;ancestor;ancestor=ancestor.parentElement) {
+				const style=getComputedStyle(ancestor);
+				ready&&=style.visibility!=='hidden'&&(!${visible}||Number(style.opacity)>0);
+				ready&&=!ancestor.getAnimations().some(animation=>
+					Number.isFinite(animation.effect?.getComputedTiming().endTime)&&
+					(animation.pending||animation.playState==='running'));
+			}
+			const r=e.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;
+			const target=${visible}?e:(e.closest('[data-row-actions]')??e);
+			if(ready&&r.width>0&&r.height>0&&target.contains(document.elementFromPoint(x,y)))break;
+			if(Date.now()>deadline)throw new Error('click target did not become visible and stable '+${JSON.stringify(selector)});
+			await new Promise(requestAnimationFrame);
+		}
+		const r=e.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;
+		if (${visible} && window.qaRegistryClicks) {
+			const hit=document.elementFromPoint(x,y), menu=e.closest('[data-ly-popover]');
+			window.qaRegistryClicks.push({ text:e.textContent, x, y, rect:r.toJSON(), hit:hit?.outerHTML.slice(0,300), same:e.contains(hit),
+				menu:menu&&{rect:menu.getBoundingClientRect().toJSON(),transform:getComputedStyle(menu).transform,opacity:getComputedStyle(menu).opacity} });
+		}
+		return {x,y};})()`);
+	// Row actions accept pointer events only after the real pointer enters their row.
+	await app.send("Input.dispatchMouseEvent", {type:"mouseMoved",...await point(false),buttons:0});
+	const at = await point(true);
 	for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) await app.send("Input.dispatchMouseEvent", {type,...at,button:"left",clickCount:1});
 	await frames(2);
 }
@@ -213,10 +240,26 @@ test("long registry lists scroll inside the dialog and nested confirmation close
 	await app.send("Emulation.setTouchEmulationEnabled", {enabled:false});
 	await app.send("Emulation.setDeviceMetricsOverride", {width:1200,height:800,deviceScaleFactor:1,mobile:false});
 	await app.evaluate(`window.lyra.settings.get().then(s=>window.lyra.settings.save({...s,skillRegistries:[],pluginRegistries:Array.from({length:20},(_,i)=>'http://127.0.0.1/invalid-test-source-'+i+'/registry.json')}))`);
-	await clickText("插件"); await frames();
-	await clickText("添加");
-	await clickText("添加插件市场");
-	await until(`document.querySelector('[aria-label="关闭插件市场"]')`); await frames();
+	// A missed native click needs its actual hit target; extending the wait cannot explain it.
+	await app.evaluate(`(() => {
+		window.qaRegistryClicks=[]; window.qaRegistryEvents=[];
+		const record=e=>window.qaRegistryEvents.push({type:e.type,target:e.target.outerHTML.slice(0,300),x:e.clientX,y:e.clientY});
+		const types=['pointerdown','mousedown','pointerup','mouseup','click'];
+		for(const type of types) window.addEventListener(type,record,true);
+		window.qaRegistryCleanup=()=>{for(const type of types) window.removeEventListener(type,record,true); delete window.qaRegistryClicks; delete window.qaRegistryEvents; delete window.qaRegistryCleanup;};
+	})()`);
+	try {
+		await clickText("插件"); await frames();
+		await clickText("添加");
+		await clickText("添加插件市场");
+		await until(`document.querySelector('[aria-label="关闭插件市场"]')`); await frames();
+	} catch (error) {
+		t.diagnostic(JSON.stringify(await app.evaluate(`({clicks:window.qaRegistryClicks,events:window.qaRegistryEvents,viewport:[innerWidth,innerHeight],native:[outerWidth,outerHeight],scale:devicePixelRatio,touch:navigator.maxTouchPoints,hover:matchMedia('(hover:hover)').matches,body:document.body.innerText.slice(-2000)})`)));
+		await screenshot("registry-open-failure");
+		throw error;
+	} finally {
+		await app.evaluate(`window.qaRegistryCleanup()`);
+	}
 	const box = await app.evaluate(`(()=>{const e=document.querySelector('[data-ly-modal]'),r=e.getBoundingClientRect(),s=e.querySelector('.ly-scroll-view');return {height:r.height,top:r.top,bottom:r.bottom,overflow:s.scrollHeight>s.clientHeight,actions:e.querySelectorAll('[data-row-actions]').length};})()`);
 	assert.equal(box.actions,20); assert.equal(box.overflow,true); assert.ok(box.bottom<=800,JSON.stringify(box));
 	await click('[data-ly-modal] button[aria-label^="移除 http"]');

@@ -26,6 +26,8 @@ import { usePopover } from "../../ui/overlay/Popover.tsx";
 import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
 import { SessionStatus } from "../conversation/index.ts";
 import { useTypedText } from "../../ui/motion/TypedText.tsx";
+import { useSidebarReorderContext } from "./reorder-context.ts";
+import { DropLineIndicator } from "./DropIndicator.tsx";
 
 /**
  * How recently a conversation must have been created for its row to drop in.
@@ -129,11 +131,15 @@ export function SessionRow({
 	const refreshSessionStats = useApp((s) => s.refreshSessionStats);
 	const card = useSessionCard(() => void refreshSessionStats(session.id));
 
+	const reorder = useSidebarReorderContext();
+	const isDraggingThisSession = reorder?.dragging?.kind === "session" && reorder.dragging.id === session.id;
+	const isTargetThisSession = reorder?.dropTarget?.kind === "session" && reorder.dropTarget.id === session.id;
 	const actionsCount = onRestore && onDelete ? 2 : (onArchive ? 1 : 0) + 1;
 
 	return (
 		<div
 			{...card.bind}
+			onMouseEnter={(event) => { if (event.buttons === 0) card.bind.onMouseEnter(event); }}
 			data-ly-row={session.id}
 			onContextMenu={(event) => {
 				event.preventDefault();
@@ -143,11 +149,35 @@ export function SessionRow({
 			style={{ "--ly-row-controls": actionsCount === 2 ? "58px" : "34px" } as React.CSSProperties}
 			className={`ly-scroll group/session relative rounded-lg transition-colors duration-[var(--ly-t-quick)] active:bg-elevated ${
 				justCreated ? "ly-drop" : ""
-			} ${active ? "bg-card-hover" : "hover:bg-card-hover"}`}
+			} ${active ? "bg-card-hover" : "hover:bg-card-hover"} ${
+				isDraggingThisSession ? "opacity-35" : ""
+			}`}
+			onPointerMove={(event) => {
+				if (reorder) {
+					const rect = event.currentTarget.getBoundingClientRect();
+					reorder.registerTarget("session", session.id, rect, event.clientY, session.cwd);
+				}
+			}}
+			onPointerUp={(event) => {
+				reorder?.registerTarget("session", session.id, event.currentTarget.getBoundingClientRect(), event.clientY, session.cwd);
+			}}
+			onPointerLeave={() => {
+				if (reorder) {
+					reorder.clearTarget(session.id);
+				}
+			}}
 		>
+			{isTargetThisSession && <DropLineIndicator placement={reorder!.dropTarget!.placement} />}
 			{card.anchor && <SessionCard session={session} anchor={card.anchor} project={project} leaving={card.leaving} />}
 			{menu.open && <SessionMenu anchor={menu.anchor} session={session} onClose={menu.close} />}
 			<button
+				onPointerDown={(event) => {
+					card.dismiss();
+					reorder?.startDrag(
+						{ kind: "session", id: session.id, title: sessionTitle(session.title), projectPath: session.cwd },
+						event,
+					);
+				}}
 				type="button"
 				onClick={onOpen}
 				/*

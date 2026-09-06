@@ -170,6 +170,9 @@ test("two real screens stream both ways and recover missed content without dropp
 
 test("mobile trajectory keeps real touch targets and omits desktop file exports", async (t) => {
 	await size(390, 844);
+	// Dismiss the errors intentionally produced by the preceding offline test.
+	await phone.evaluate(`document.querySelectorAll('[role="alert"] button[aria-label="关闭"]').forEach(e=>e.click())`);
+	await until(phone, `!document.querySelector('[role="alert"] button[aria-label="关闭"]')`);
 	await click(phone, 'button[aria-label="面板"]');
 	t.diagnostic(await phone.evaluate("document.body.innerText.slice(-800)"));
 	await phone.evaluate("(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()==='轨迹');if(!e)throw new Error('trajectory action missing');e.click();})()");
@@ -177,10 +180,20 @@ test("mobile trajectory keeps real touch targets and omits desktop file exports"
 	for (const [width, height] of [[320, 568], [390, 844], [844, 390]]) {
 		await size(width, height);
 		const rows = await phone.evaluate<{ top: number; height: number; bottom: number }[]>("[...document.querySelectorAll('[data-trace-list] [role=listitem]')].map(e=>{const r=e.getBoundingClientRect();return {top:r.top,height:r.height,bottom:r.bottom}})");
+		assert.ok(rows.length > 0, 'the mobile ledger must contain visible records');
 		for (let i = 0; i < rows.length; i++) { assert.equal(rows[i].height, 44); if (i) assert.ok(rows[i].top >= rows[i - 1].bottom); }
 		assert.equal(await phone.evaluate("document.documentElement.scrollWidth > innerWidth"), false);
 		assert.equal(await phone.evaluate("document.querySelectorAll('[data-trajectory] button[aria-label*=导出],[data-trajectory] button[aria-label*=完整记录]').length"), 0);
 		await shot(phone, `trajectory-${width}x${height}`);
+		await click(phone, 'button[aria-label="时间概览"]');
+		await until(phone, "!!document.querySelector('[data-trace-timeline] canvas')");
+		await phone.evaluate("Promise.all(document.getAnimations().filter(a=>Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a=>a.finished.catch(()=>{})))");
+		const timeline = await phone.evaluate<{ controls: { height: number; width: number; bottom: number }[]; canvasTop: number }>("(()=>{const p=document.querySelector('[data-trace-timeline]');return {controls:[...p.querySelectorAll('button')].map(e=>{const r=e.getBoundingClientRect();return {height:r.height,width:r.width,bottom:r.bottom}}),canvasTop:p.querySelector('canvas').getBoundingClientRect().top}})()");
+		assert.ok(timeline.controls.length > 0 && timeline.controls.every(r=>r.height>=44 && r.width>=44 && r.bottom<=timeline.canvasTop), JSON.stringify(timeline));
+		await shot(phone, `trajectory-timeline-${width}x${height}`);
+		await phone.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", windowsVirtualKeyCode: 27 });
+		await phone.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", windowsVirtualKeyCode: 27 });
+		await until(phone, "!document.querySelector('[data-trace-timeline]')");
 	}
 });
 

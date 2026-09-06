@@ -4,7 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { bridgeScript } from "../../mobile/src/bridge.ts";
 import { appUrlOf, type Connection } from "../../mobile/src/connection.ts";
-import { call, stopProcessGroup } from "./app.ts";
+import { call, evaluateRenderer, stopProcessGroup } from "./app.ts";
 
 /** The actual mobile bridge and served renderer, in Chromium without the desktop preload. */
 export async function startMobile(home: string, connection: Connection, port: number) {
@@ -37,11 +37,7 @@ app.on('window-all-closed',()=>app.quit());`);
 		if (!target) throw new Error(`Mobile renderer did not start: ${output}`);
 		const url = target;
 		return {
-			async evaluate<T>(expression: string): Promise<T> {
-				const reply = await call<{ result: { value: T }; exceptionDetails?: { text: string; exception?: { description: string } } }>(url, "Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true, userGesture: true });
-				if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
-				return reply.result.value;
-			},
+			evaluate: <T>(expression: string) => evaluateRenderer<T>(url, expression),
 			send: <T>(method: string, params: Record<string, unknown> = {}) => call<T>(url, method, params),
 			stop: () => stopProcessGroup(child),
 		};

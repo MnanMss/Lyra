@@ -108,7 +108,39 @@ test("an unacknowledged approval stays available for retry after a connection fa
 	Object.defineProperty(window, "lyra", { configurable: true, value: {
 		agent: { approve: async () => { throw new Error("offline"); } },
 	} });
-	await useApp.getState().respondToApproval("approval", "once");
+	await assert.rejects(useApp.getState().respondToApproval("approval", "once"), /offline/);
 	assert.deepEqual(useApp.getState().approvals, [approval]);
-	assert.ok(useApp.getState().notices.some(notice => notice.message.includes("审批提交失败")));
 });
+
+for (const acknowledged of [false, true]) {
+test(`a rejected older prompt cannot clear a newer ${acknowledged ? "acknowledged" : "pending"} message in the same session`, async () => {
+	const active = snapshot("a");
+	useApp.setState({ activeSessionId: "a", meta: active.meta, messages: active.messages, sessions: [active.meta] });
+	let rejectOlder!: (error: Error) => void;
+	let finishNewer!: (meta: SessionSnapshot["meta"]) => void;
+	let submitted = 0;
+	Object.defineProperty(window, "lyra", { configurable: true, value: {
+		agent: { prompt: () => submitted++ === 0
+			? new Promise<SessionSnapshot["meta"]>((_resolve, reject) => { rejectOlder = reject; })
+			: new Promise<SessionSnapshot["meta"]>((resolve) => { finishNewer = resolve; }) },
+		sessions: { capabilities: async () => null },
+	} });
+	const older = useApp.getState().send([{ type: "text", text: "older" }]);
+	const newer = useApp.getState().send([{ type: "text", text: "newer" }]);
+	if (acknowledged) {
+		const pending = useApp.getState().pendingUserMessage;
+		assert.ok(pending);
+		useApp.getState().applyEvent("a", { type: "message_end", message: { ...pending.message, timestamp: pending.message.timestamp + 1 } });
+		finishNewer(active.meta);
+		assert.equal(await newer, true);
+		assert.equal(useApp.getState().pendingUserMessage, null);
+	}
+	const pending = useApp.getState().pendingUserMessage;
+	rejectOlder(new Error("older request rejected"));
+	assert.equal(await older, false);
+	assert.equal(useApp.getState().pendingUserMessage, pending);
+	assert.equal(useApp.getState().running, true);
+	assert.equal(useApp.getState().activity.a, "running");
+	if (!acknowledged) { finishNewer(active.meta); assert.equal(await newer, true); }
+});
+}

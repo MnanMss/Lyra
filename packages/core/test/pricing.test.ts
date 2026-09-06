@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { emptyUsage } from "../src/types/message.ts";
+import { addUsage, emptyUsage, type Usage } from "../src/types/message.ts";
 import type { ModelConfig, ModelPricing } from "../src/types/provider.ts";
 import { computeCost, selectPricingRates } from "../src/utils/pricing.ts";
 
@@ -56,5 +56,58 @@ describe("model pricing", () => {
 		};
 		assert.equal(selectPricingRates({ input: 600_000, cacheRead: 0, cacheWrite: 0 }, pricing).input, 3);
 		assert.equal(selectPricingRates({ input: 200_000, cacheRead: 0, cacheWrite: 0 }, pricing).input, 1);
+	});
+});
+
+describe("usage pricing aggregation", () => {
+	function priced(input = 1, catalogVersion = "abc"): Usage {
+		return computeCost({ ...emptyUsage(), input: 1_000_000 }, model({
+			input, output: 2, cacheRead: 0.1, cacheWrite: 1.25,
+			source: "catalog", catalogVersion,
+		}));
+	}
+
+	it("preserves selected pricing when an empty accumulator receives its first usage", () => {
+		const usage = priced();
+		assert.deepEqual(addUsage(emptyUsage(), usage).cost, usage.cost);
+		assert.deepEqual(addUsage(usage, emptyUsage()).cost, usage.cost);
+	});
+
+	it("does not introduce pricing properties into historical usage", () => {
+		const usage = { ...emptyUsage(), input: 10 };
+		assert.deepEqual(addUsage(emptyUsage(), usage).cost, usage.cost);
+	});
+
+	it("retains common rates and catalog versions across priced requests", () => {
+		const usage = priced();
+		const sum = addUsage(usage, usage);
+		assert.equal(sum.cost.total, 2);
+		assert.deepEqual(sum.cost.rates, usage.cost.rates);
+		assert.equal(sum.cost.catalogVersion, "abc");
+		assert.equal(sum.cost.source, "catalog");
+	});
+
+	it("never restores a single rate after differently priced requests were combined", () => {
+		const a = priced();
+		const b = priced(2, "def");
+		for (const sum of [addUsage(addUsage(a, b), a), addUsage(a, addUsage(b, a))]) {
+			assert.equal(sum.cost.total, 4);
+			assert.equal(Object.hasOwn(sum.cost, "rates"), false);
+			assert.equal(Object.hasOwn(sum.cost, "catalogVersion"), false);
+		}
+	});
+
+	it("does not attribute historical or provider-only usage to catalog rates", () => {
+		const catalog = priced();
+		const historical = { ...emptyUsage(), input: 10 };
+		const provider: Usage = { ...emptyUsage(), cost: { ...emptyUsage().cost, total: 0.1, source: "provider" } };
+		for (const other of [historical, provider]) {
+			for (const sum of [addUsage(catalog, other), addUsage(other, catalog)]) {
+				assert.equal(sum.cost.source, "mixed");
+				assert.equal(Object.hasOwn(sum.cost, "rates"), false);
+				assert.equal(Object.hasOwn(sum.cost, "catalogVersion"), false);
+				assert.equal(addUsage(sum, catalog).cost.source, "mixed");
+			}
+		}
 	});
 });

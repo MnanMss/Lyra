@@ -92,7 +92,7 @@ async function readLog(path: string, entry: UsageFileEntry, size: number, provid
 	try {
 		for await (const line of lines) {
 			// Cheaper than parsing: most records in a busy log are events, not messages.
-			if (!line.includes('"type":"message"')) continue;
+			if (!line.includes('"type":"message"') && !line.includes('"type":"usage"')) continue;
 			let parsed: unknown;
 			try {
 				parsed = JSON.parse(line);
@@ -100,13 +100,18 @@ async function readLog(path: string, entry: UsageFileEntry, size: number, provid
 				continue;
 			}
 			const record = asRecord(parsed);
-			const message = record?.type === "message" ? asRecord(record.message) : null;
+			if (!record) continue;
+			// Auxiliary model requests contribute spend without adding a conversation message.
+			const auxiliary = record.type === "usage";
+			const message = auxiliary
+				? { role: "assistant", timestamp: record.ts, provider: record.providerId, model: record.modelId, usage: record.usage }
+				: record.type === "message" ? asRecord(record.message) : null;
 			if (!message) continue;
 
 			const at = typeof message.timestamp === "number" ? message.timestamp : 0;
 			if (!at) continue;
 			const day = dayKey(at);
-			entry.days[day] = (entry.days[day] ?? 0) + 1;
+			entry.days[day] = (entry.days[day] ?? 0) + (auxiliary ? 0 : 1);
 
 			if (message.role !== "assistant") continue;
 			const usage = asRecord(message.usage);

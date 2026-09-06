@@ -2,6 +2,7 @@
 
 import {
 	builtinCommandsFor,
+	collectAgents,
 	collectSkills,
 	commandSources,
 	loadCommands,
@@ -18,6 +19,7 @@ export interface CommandsList {
 	builtins: BuiltinCommand[];
 	diagnostics: { path: string; message: string }[];
 	skills: SkillEntry[];
+	agents: Array<{ id: string; name: string; description: string }>;
 }
 
 export interface SkillEntry {
@@ -25,6 +27,7 @@ export interface SkillEntry {
 	description: string;
 	source: "workspace" | "user" | "builtin";
 	pluginId?: string;
+	path?: string;
 }
 
 export async function listCommands(cwd: string, settings: Settings): Promise<CommandsList> {
@@ -38,7 +41,9 @@ export async function listCommands(cwd: string, settings: Settings): Promise<Com
 		[],
 	).catch(() => ({ plugins: [] }));
 	const { skills } = await collectSkills(cwd || home, bundles.plugins, settings).catch(() => ({ skills: [] }));
+	const agents = await collectAgents(cwd || home, settings);
 	return {
+		agents: agents.map(agent => ({ id: agent.name, name: agent.name, description: agent.description })),
 		commands,
 		diagnostics,
 		builtins: builtinCommandsFor(["compact", "clear", "manage-commands"]),
@@ -46,6 +51,7 @@ export async function listCommands(cwd: string, settings: Settings): Promise<Com
 			name: skill.name,
 			description: skill.description,
 			source: skill.source,
+			path: skill.path,
 			...(skill.pluginId ? { pluginId: skill.pluginId } : {}),
 		})),
 	};

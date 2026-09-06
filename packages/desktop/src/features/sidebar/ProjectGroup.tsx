@@ -14,6 +14,8 @@ import type { Group } from "./grouping.ts";
 import { ProjectHead } from "./ProjectHead.tsx";
 import { rowActions, SessionRow, type RowActions } from "./SessionRow.tsx";
 import { ShowMore } from "./ShowMore.tsx";
+import { useSidebarReorderContext } from "./reorder-context.ts";
+import { DropLineIndicator } from "./DropIndicator.tsx";
 
 /**
  * How many sessions a project shows before the rest are behind 展开显示, and how many more each
@@ -63,9 +65,17 @@ export function ProjectGroup({
 	const hidden = group.sessions.length - visible.length;
 	// Only worth offering once something has actually been opened up.
 	const canCollapse = visible.length > COLLAPSED_SESSION_COUNT;
+	const reorder = useSidebarReorderContext();
+	const isDraggingThisProject = reorder?.dragging?.kind === "project" && reorder.dragging.id === group.path;
+	const isTargetThisProject = reorder?.dropTarget?.kind === "project" && reorder.dropTarget.id === group.path;
 
 	return (
-		<div className="mb-2 flex flex-col">
+		<div
+			className={`relative mb-2 flex flex-col transition-opacity duration-[var(--ly-t-quick)] ${
+				isDraggingThisProject ? "opacity-35" : ""
+			}`}
+		>
+			{isTargetThisProject && <DropLineIndicator placement={reorder!.dropTarget!.placement} />}
 			{/*
 			 * Held at the rail while you are inside this project, and pushed out by the next one.
 			 *

@@ -13,7 +13,6 @@
 
 import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { chmod, mkdir, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -142,6 +141,8 @@ const nothing = (current: string): UpdateInfo => ({
 });
 
 export function registerUpdateIpc(): void {
+	// Installable code must not live under a predictable name in the shared OS temporary directory.
+	const updateRoot = join(app.getPath("userData"), "updates");
 	ipcMain.handle("updates:check", async (_event, force?: boolean): Promise<UpdateInfo> => {
 		const current = app.getVersion();
 
@@ -155,7 +156,7 @@ export function registerUpdateIpc(): void {
 			 * Take out whatever earlier versions left behind, now that we know which one is current.
 			 *
 			 * Nothing used to, and it accumulates in a way nobody sees: every update ever fetched stayed
-			 * in the temp directory as both an installer and the copy it unpacked to. Eight versions had
+			 * in the update cache as both an installer and the copy it unpacked to. Eight versions had
 			 * piled up on the machine this was written on, 495MB for one of them. Done here because a
 			 * check is the only moment the newest version is known, and detached because a sweep that
 			 * fails is not a reason to withhold an update.
@@ -164,7 +165,7 @@ export function registerUpdateIpc(): void {
 			 * download is running makes it stale by this measure, and deleting the directory being
 			 * written into is the one way this tidying could take something someone is waiting for.
 			 */
-			void sweepDownloads(tmpdir(), active ? [info.latest, active.version] : info.latest);
+			void sweepDownloads(updateRoot, active ? [info.latest, active.version] : info.latest);
 			return info;
 		} catch {
 			/*
@@ -227,11 +228,11 @@ export function registerUpdateIpc(): void {
 		if (active?.version === version) return active.download;
 
 		// A different version supersedes whatever was going: stop it and drop its partial, or its
-		// bytes sit in the temp directory until the OS clears it. Unsubscribed first — see `active`.
+		// bytes remain in the update cache until a later sweep. Unsubscribed first — see `active`.
 		active?.unwatch();
 		void active?.download.cancel();
 
-		const dir = downloadDir(tmpdir(), version);
+		const dir = downloadDir(updateRoot, version);
 		const download = new UpdateDownload({
 			url: asset.url,
 			file: join(dir, asset.name),
@@ -266,7 +267,7 @@ export function registerUpdateIpc(): void {
 				const target = installedAppBundle(app.getPath("exe"));
 				if (!target) return download?.fail("这个副本不是从「应用程序」运行的，无法就地更新");
 
-				const staged = join(downloadDir(tmpdir(), version), "unpacked");
+				const staged = join(downloadDir(updateRoot, version), "unpacked");
 				await rm(staged, { recursive: true, force: true });
 				await mkdir(staged, { recursive: true });
 				await unzip(file, staged);
@@ -329,7 +330,7 @@ export function registerUpdateIpc(): void {
 		const reached = await found.start();
 		if (reached.at === "preparing") {
 			const info = cached?.info;
-			if (info?.asset) await installDownloaded(version, join(downloadDir(tmpdir(), version), info.asset.name));
+			if (info?.asset) await installDownloaded(version, join(downloadDir(updateRoot, version), info.asset.name));
 		}
 		return phase;
 	});

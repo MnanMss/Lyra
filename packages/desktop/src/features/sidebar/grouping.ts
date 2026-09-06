@@ -8,6 +8,7 @@
  */
 
 import type { SessionMeta } from "@lyra/core";
+import { orderedSessions, type SessionSortKey } from "../../lib/sidebar-order.ts";
 
 export interface Group {
 	path: string;
@@ -57,6 +58,8 @@ export function groupSessions(
 	 */
 	scratchRoots: string[] = [],
 	pinnedSessionIds: string[] = [],
+	sessionOrder?: Record<string, string[]>,
+	sortKey: SessionSortKey = "updatedAt",
 ): Grouped {
 	const needle = query.trim().toLowerCase();
 	const filtered = needle ? sessions.filter((s) => s.title.toLowerCase().includes(needle)) : sessions;
@@ -90,6 +93,9 @@ export function groupSessions(
 			byPath.set(session.cwd, group);
 		}
 		group.sessions.push(session);
+	}
+	for (const group of byPath.values()) {
+		group.sessions = orderedSessions(group.sessions, sortKey, sessionOrder?.[group.path]);
 	}
 
 	const pinnedPaths = new Set(projects.filter((p) => p.pinned).map((p) => p.path));

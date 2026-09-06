@@ -9,14 +9,14 @@
  * never sent here, so this knows that two clients want to meet and neither who they are nor what
  * they say. Frames are relayed without being parsed. That is not confidentiality — this sits in
  * the plaintext path and can read the frames — it is only the absence of any reason to. Real
- * secrecy comes from running it behind TLS, and from the sync server's own token check, which this
- * has no way to satisfy on its own.
+ * TLS protects the two network hops, but the relay operator can read and inject frames. The room
+ * itself is a bearer capability on this transport, so a relay must be trusted.
  *
- * No dependencies, one file, Node 18+. `node server.mjs`, `PORT` to move it.
+ * No dependencies, one file, Node 18.17+. `node server.mjs`, `PORT` to move it.
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { createServer } from "node:http";
+import { createServer, validateHeaderValue } from "node:http";
 
 const PORT = Number(process.env.PORT ?? 8787);
 
@@ -82,7 +82,13 @@ const server = createServer((req, res) => {
 		res.end(JSON.stringify({ app: "lyra-relay", version: 1, rooms: rooms.size }));
 		return;
 	}
-	const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+	// Routing needs only the request target; an untrusted Host must never become a URL base.
+	const target = req.url ?? "/";
+	if (!URL.canParse(target, "http://localhost")) {
+		res.writeHead(400).end();
+		return;
+	}
+	const url = new URL(target, "http://localhost");
 	if (req.method === "GET" && url.pathname.startsWith("/app/")) {
 		void requestAsset(url.pathname, res);
 		return;
@@ -201,6 +207,10 @@ function join(client, payload) {
 	if (hello.assetKey !== undefined && (typeof hello.assetKey !== "string" || !/^[a-f0-9]{64}$/.test(hello.assetKey))) {
 		return refuse(client, "bad-hello");
 	}
+	// A public asset URL cannot prove room ownership, including while the real desktop is offline.
+	if (hello.assetKey !== undefined && hello.assetKey !== createHash("sha256").update(`lyra-assets\0${hello.room}`).digest("hex")) {
+		return refuse(client, "bad-hello");
+	}
 
 	if (!withinRate(client.address)) return refuse(client, "rate-limited");
 	forgetStale();
@@ -310,7 +320,13 @@ function acceptAssetResponse(client, payload) {
 }
 
 function safeHeader(value, fallback) {
-	return typeof value === "string" && value.length <= 200 && !/[\r\n]/.test(value) ? value : fallback;
+	if (typeof value !== "string" || value.length > 200) return fallback;
+	try {
+		validateHeaderValue("content-type", value);
+		return value;
+	} catch {
+		return fallback;
+	}
 }
 
 function refuse(client, reason) {

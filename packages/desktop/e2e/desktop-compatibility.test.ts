@@ -121,8 +121,7 @@ for (const [scale, width, height, theme] of [
 					tabWidth: r.width, addHit: hit('新建终端'), closeHit: hit('关闭终端') };
 			})()`);
 			t.diagnostic(JSON.stringify(terminal));
-			// Wide layouts can divide into narrow panes; a single compact pane has room for the entire tab.
-			if (geometry.width < 760) assert.ok(terminal.visibleTabWidth >= terminal.tabWidth - 1, "the first terminal tab is fully reachable");
+			assert.ok(terminal.visibleTabWidth >= terminal.tabWidth - 1, "the first terminal tab is fully reachable in every layout");
 			assert.ok(terminal.addHit && terminal.closeHit);
 			await click(app, '[data-dock-header="terminal"] button[aria-label="新建终端"]');
 			await frames(app, 60);
@@ -145,3 +144,52 @@ for (const [scale, width, height, theme] of [
 		}
 	});
 }
+
+
+test("a regular window reflows the dock without losing panes or overwriting the saved layout", async (t) => {
+	const app = await startApp({ port: 9598, seed: async (home) => {
+		const project = join(home, "project"); await mkdir(project);
+		await writeFile(join(home, "window.json"), JSON.stringify({ width: 1200, height: 800 }));
+		await writeFile(join(home, "settings.json"), JSON.stringify({ providers: [], mcpServers: [], hooks: [], sync: { enabled: false },
+			projects: [{ id: "responsive", path: project, name: "布局恢复验证", pinned: true, lastOpenedAt: 1 }] }));
+	} });
+	try {
+		// CI displays can clamp the native window; compare the same layout viewport before and after.
+		await app.send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 800, deviceScaleFactor: 1, mobile: false }); await frames(app);
+		await click(app, '[data-dock-header] button[aria-label^="终端 "]');
+		await app.evaluate(`new Promise((resolve,reject)=>{let n=240;const step=()=>{if(document.querySelector('.xterm-screen'))resolve();else if(--n)requestAnimationFrame(step);else reject(new Error('terminal did not open'));};step();})`);
+		await frames(app);
+		await app.evaluate(`document.querySelector('.xterm-screen').setAttribute('data-qa-preserved','')`);
+		const measure = () => app.evaluate<{ conversation: { left: number; top: number; width: number; height: number }; terminal: { left: number; top: number; width: number; height: number }; saved: string | null; sameTerminal: boolean }>(`(()=>{
+			const box=kind=>{const r=document.querySelector('[data-dock-pane="'+kind+'"]').getBoundingClientRect();return {left:r.left,top:r.top,width:r.width,height:r.height};};
+			return {conversation:box('conversation'),terminal:box('terminal'),saved:localStorage.getItem('dw:dock:@draft'),sameTerminal:!!document.querySelector('.xterm-screen[data-qa-preserved]')};
+		})()`);
+		const wide = await measure();
+		assert.ok(wide.saved?.includes("terminal"), "the original layout is persisted before resizing");
+		await app.send("Emulation.setDeviceMetricsOverride", { width: 770, height: 576, deviceScaleFactor: 1, mobile: false }); await frames(app);
+		const narrow = await measure();
+		assert.ok(narrow.conversation.width >= 420 && narrow.conversation.height >= 260);
+		assert.ok(narrow.terminal.width >= 300 && narrow.terminal.height >= 150);
+		assert.ok(Math.abs(narrow.terminal.left - narrow.conversation.left) < 1);
+		assert.ok(Math.abs(narrow.terminal.top - narrow.conversation.top - narrow.conversation.height) < 1);
+		assert.equal(narrow.saved, wide.saved); assert.equal(narrow.sameTerminal, true);
+		const splitter = await app.evaluate<{ x: number; y: number; hit: boolean }>(`(()=>{const e=document.querySelector('.ly-dock [role="separator"]'),r=e.getBoundingClientRect();const x=r.x+r.width/2,y=r.y+r.height/2;return {x,y,hit:e.contains(document.elementFromPoint(x,y))};})()`);
+		assert.equal(splitter.hit, true, "the splitter stays on the responsive boundary and can be hit");
+		assert.ok(Math.abs(splitter.y - narrow.terminal.top) < 1);
+		const directory = process.env.LYRA_E2E_ARTIFACTS;
+		if (directory) {
+			await mkdir(directory, { recursive: true });
+			const shot = await app.send<{ data: string }>("Page.captureScreenshot", { format: "png" });
+			await writeFile(join(directory, "dock-responsive-narrow.png"), Buffer.from(shot.data, "base64"));
+		}
+		await app.send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 800, deviceScaleFactor: 1, mobile: false }); await frames(app);
+		const restored = await measure();
+		t.diagnostic(JSON.stringify({ wide, narrow, splitter, restored }));
+		assert.equal(restored.saved, wide.saved); assert.equal(restored.sameTerminal, true);
+		for (const kind of ["conversation", "terminal"] as const) {
+			assert.ok(Math.abs(restored[kind].width - wide[kind].width) < 1);
+			assert.ok(Math.abs(restored[kind].left - wide[kind].left) < 1);
+			assert.equal(restored[kind].top, wide[kind].top);
+		}
+	} finally { await app.stop(); }
+});

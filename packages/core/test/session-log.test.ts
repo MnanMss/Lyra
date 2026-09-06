@@ -94,6 +94,7 @@ async function harness(script?: (turn: number) => AssistantMessage) {
 			return out;
 		},
 		cleanup: async () => {
+			await session.dispose();
 			delete process.env.LYRA_HOME;
 			await rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 25 });
 		},

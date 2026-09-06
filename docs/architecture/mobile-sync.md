@@ -12,8 +12,19 @@ Lyra Mobile 是 Expo 原生外壳，业务界面来自已配对桌面端的 rend
 | 公网直连 | 反向代理后的 `/app/` | 同源的 TLS WebSocket | 有可信域名、TLS 和入站路由 |
 | 中转 | 独立 asset capability 下的 `/app/<asset-key>/` | 桌面和手机分别连入同一 relay room | 两端都不能接受入站连接 |
 
-中转房间号是配对令牌的 SHA-256；renderer 资源使用另一个派生 capability。资源地址不能获得会话
-帧，房间号也不能反推出令牌。Relay 只转发帧，不提供端到端加密；公网部署必须使用 HTTPS/WSS。
+中转房间号是配对令牌的 SHA-256；renderer 资源 capability 为 `SHA256("lyra-assets\0" + room)`。
+Relay 在接纳桌面连接前验证 capability 与房间号的关系，因此只有资源地址的另一房间无法覆盖资源
+来源，也不能在桌面离线时抢占该地址。资源地址不能反推出会话房间号，房间号也不能反推出令牌。
+Relay 只转发帧，不提供端到端加密；公网部署必须使用 HTTPS/WSS。
+
+该资源隧道属于 0.9.0 新增的未发布协议。开发期间曾直接从 token 派生 asset capability；使用过
+该开发版本的环境需要同步更新 desktop、mobile 和 relay，再重新加载手机页面，不能混用两种派生
+规则。配对令牌与会话房间号保持原值，无需重新配对。
+
+WebView 仅允许已配对 `/app/`（中转时为 `/app/<asset-key>/`）目录内的同源导航接收原生会话桥。
+同一 relay 下其他 capability 的页面作为外部链接打开，不能因为共享 origin 而获得当前配对权限。
+HTTP 与 WebSocket upgrade 只用固定 URL base 解析请求目标，忽略不可信 Host；无法解析的目标
+返回 400。Relay 的资源响应头经 Node HTTP 校验，非法头不会导致整个转发进程退出。
 
 renderer 的 RPC、agent stream、侧聊事件和设置变化都走同一条 WebSocket。直连模式仍保留旧 HTTP
 接口作为兼容入口，但当前 mobile bridge 不依赖它。Relay 只有字节转发能力，因此两种连接使用相同
@@ -54,7 +65,9 @@ renderer 重新读取 settings、sessions、当前 transcript、侧聊、任务�
 | 面板 | 文件树、文件内容、任务、侧聊、轨迹、子 Agent | 终端、内置浏览器、Git/review、未声明移动端能力的插件面板 |
 | 设置 | 常规、外观、个性化、Agent、归档、关于 | 供应商密钥、模型配置、代码托管、插件、命令、钩子、搜索、授权、索引、同步、统计等桌面管理页 |
 
-文件路径的可信边界在桌面主进程：目标必须经 `resolveInside()` 证明位于 `settings.projects` 或 Lyra 自己的会话工作目录中。
+文件路径的可信边界在桌面主进程：目标与根目录必须为绝对路径，由 `resolveReadablePath()`
+先通过 `realpath()` 解析，再经 `resolveInside()` 校验真实范围，证明位于 `settings.projects` 或 Lyra 自己的会话工作目录中。
+项目里的 symlink/junction 不能读取或列出项目外内容；项目内的链接及通过链接打开的项目仍可使用。
 renderer 隐藏写按钮只是交互；安全性来自 `sync-rpc.ts` 没有写方法，以及主进程再次验证路径。
 
 手机读取的 settings 保持 renderer 所需的完整结构，但会清空 provider API key、自定义认证 header、
@@ -74,7 +87,7 @@ MCP、hooks、scheduled tasks、搜索密钥与同步令牌。手机保存设置
 - iOS 在键盘 frame 变化时、Android 在 IME 出现时，以真实屏幕交集缩短 WebView；Android 已经
   adjustResize 时不会重复预留。iOS 因此不会为了露出输入框而把整页及顶部导航推走；
 - Android 返回键优先关闭抽屉或弹窗；
-- 轨迹筛选在手机上横向滚动，虚拟列表的行高与触控命中区都为 44px；
+- 轨迹筛选与时间概览收进右侧图标浮层，虚拟列表的行高与触控命中区都为 44px；
 - 手机不显示桌面截图、打开桌面新窗口、导出到本机文件等不能在当前设备完成的入口。
 
 ## 验证

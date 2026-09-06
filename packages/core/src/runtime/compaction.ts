@@ -28,6 +28,7 @@ import { streamAssistant } from "../ai/index.ts";
 import { estimateTokens } from "../tokens.ts";
 import { dropUneventful, pruneToolResults, type ArtifactSink } from "./prune.ts";
 import { measureTotal } from "./context.ts";
+import { stripStaleHandles } from "./model-switch.ts";
 import type { AssistantMessage, Message, ModelConfig, ProviderConfig } from "../types.ts";
 
 /** Start compacting at this fraction of the context window. */
@@ -209,9 +210,10 @@ export function compactWith(
 	streamFn?: typeof streamAssistant,
 	overhead = 0,
 	artifacts?: ArtifactSink,
+	summarizer?: { provider: ProviderConfig; model: ModelConfig },
 ): Promise<Compaction | null> {
 	if (strategy) return strategy.compact(messages, model, provider, streamFn);
-	return compactIfNeeded(messages, model, provider, streamFn ?? streamAssistant, overhead, false, artifacts);
+	return compactIfNeeded(messages, model, provider, streamFn ?? streamAssistant, overhead, false, artifacts, undefined, summarizer);
 }
 
 export async function compactIfNeeded(
@@ -251,6 +253,10 @@ export async function compactIfNeeded(
 	 */
 	artifacts?: ArtifactSink,
 	manual?: { instructions?: string; signal?: AbortSignal },
+	/**
+	 * Selects the summarizer without changing the active model's compaction threshold or tail budget.
+	 */
+	summarizer?: { provider: ProviderConfig; model: ModelConfig },
 ): Promise<Compaction | null> {
 	/*
 	 * The provider's own count, not our estimate of it.
@@ -348,7 +354,13 @@ export async function compactIfNeeded(
 	const older = messages.slice(0, cut);
 	const recent = messages.slice(cut);
 
-	let summary = await summarize(older, model, provider, streamFn, force ? manual ?? {} : undefined);
+	const summaryModel = summarizer?.model ?? model;
+	const summaryProvider = summarizer?.provider ?? provider;
+	// Provider reasoning handles cannot be replayed by a different summarizer.
+	const summaryHistory = summaryModel.id !== model.id || summaryProvider.id !== provider.id
+		? stripStaleHandles(older, older.length)
+		: older;
+	let summary = await summarize(summaryHistory, summaryModel, summaryProvider, streamFn, force ? manual ?? {} : undefined);
 	if (!summary) {
 		summary = fallbackSummary(older);
 	}

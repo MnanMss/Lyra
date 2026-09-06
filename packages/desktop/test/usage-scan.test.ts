@@ -145,6 +145,20 @@ describe("scanUsage", () => {
 		assert.equal(second.buckets[0].cost, 2);
 	});
 
+	it("title request usage reaches model totals without inflating conversation messages", async () => {
+		await writeFile(log("s1"), userLine(AT) + replyLine(AT));
+		await scanUsage(home);
+		await appendFile(log("s1"), `${JSON.stringify({ seq: 3, ts: AT, type: "usage", source: "title-summary", providerId: "fast-provider", modelId: "fast-model", usage: { input: 80, output: 8, cacheRead: 0, cacheWrite: 0, total: 88, cost: { total: 0.003 } } })}\n`);
+		const scan = await scanUsage(home);
+		assert.equal(scan.days[0].messages, 2);
+		const title = scan.buckets.find((bucket) => bucket.key === "fast-provider/fast-model");
+		assert.equal(title?.input, 80);
+		assert.equal(title?.output, 8);
+		assert.equal(title?.cost, 0.003);
+		assert.equal(title?.replies, 1);
+		assert.deepEqual((await scanUsage(home)).buckets, scan.buckets, "cached scans must not charge the request twice");
+	});
+
 	it("a conversation spanning two days is split across them", async () => {
 		await writeFile(log("s1"), replyLine(AT, { input: 10 }) + replyLine(NEXT_DAY, { input: 90 }));
 		const scan = await scanUsage(home);

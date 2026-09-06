@@ -194,8 +194,18 @@ export function GeneralSettings() {
           }
         />
         <Row
-			title={t("general.bottomPanel")}
-			detail={t("general.bottomPanelDetail")}
+          title={t("general.autoSummarizeTitle")}
+          detail={t("general.autoSummarizeTitleDetail")}
+          control={
+            <Toggle
+              checked={settings.autoSummarizeTitle !== false}
+              onChange={(autoSummarizeTitle) => patch({ autoSummarizeTitle })}
+            />
+          }
+        />
+        <Row
+          title={t("general.bottomPanel")}
+          detail={t("general.bottomPanelDetail")}
           control={
             <Toggle
               checked={settings.editor.showBottomPanel}

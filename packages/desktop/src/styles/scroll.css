@@ -67,6 +67,11 @@
   padding-right: 20px;
 }
 
+/* Approval prose must stay outside the scrollbar's widened drag target. */
+.ly-approval-scroll:has(.ly-thumb) > .ly-scroll-view {
+  padding-right: 20px;
+}
+
 /*
  * The browser does not get to move this one on its own.
  *

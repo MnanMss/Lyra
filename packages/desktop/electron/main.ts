@@ -1,7 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn as spawnPty } from "node-pty";
-import { app, BrowserWindow, protocol } from "electron";
+import { app, BrowserWindow, Notification, protocol } from "electron";
 import {
 	createContext,
 	lyraHome,
@@ -103,6 +103,7 @@ import { Scheduler } from "./scheduler.ts";
 import { createTray, destroyTray, hasTray, refreshMenu, type TrayCommand } from "./tray.ts";
 import { registerScreenshotIpc } from "./ipc/screenshot.ts";
 import { destroyScreenshotOverlay, dismissStrayOverlay, isScreenshotOverlay, registerScreenshotShortcut, unregisterScreenshotShortcut, warmScreenshotOverlay } from "./screenshot.ts";
+import { configureNotify } from "./notify.ts";
 
 /*
  * A profile is a whole app, Chromium's half included.
@@ -117,6 +118,8 @@ import { destroyScreenshotOverlay, dismissStrayOverlay, isScreenshotOverlay, reg
  * size, its saved layout or its browser panel's cookies relocated out from under it.
  */
 if (process.env.LYRA_HOME) app.setPath("userData", join(process.env.LYRA_HOME, "chromium"));
+if (process.platform === "win32") app.setAppUserModelId("dev.lyra.app");
+
 
 /**
  * One Lyra per machine, and every later launch reaches the one that is already running.
@@ -165,10 +168,7 @@ const BROWSER_PARTITION = "persist:ly-browser";
  * actually checked — see the note there on why comparing the raw one let `..` walk out.
  */
 function projectPath(target: string): string | null {
-	return resolveInside(
-		target,
-		(settings?.projects ?? []).map((project) => project.path),
-	);
+	return resolveInside(target, (settings?.projects ?? []).map((project) => project.path));
 }
 
 /**
@@ -624,6 +624,13 @@ function reveal(then?: () => void): void {
 function sendToRenderer(command: TrayCommand): void {
 	reveal(() => getWindow()?.webContents.send("tray:command", command));
 }
+configureNotify({
+	sendTrayCommand: (cmd) => sendToRenderer(cmd),
+	isSupported: () => Notification.isSupported(),
+	window: () => getWindow(),
+	appIcon: () => appIconPath(),
+	createNotification: (options) => new Notification(options),
+});
 
 app.on("window-all-closed", () => {
 	/*

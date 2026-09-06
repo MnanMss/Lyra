@@ -260,7 +260,7 @@ export function bridgeScript(connection: Connection): string {
 	}
 
 	const READ_METHODS = new Set([
-		"git.scratchRoots", "git.generalScratch", "settings.get", "sessions.list", "sessions.open", "sessions.transcript", "sessions.trajectory",
+		"git.scratchRoots", "git.generalScratch", "settings.get", "sessions.list", "sessions.open", "sessions.transcript", "sessions.trajectory", "sessions.trajectoryChanges",
 		"sessions.contextBreakdown", "sessions.capabilities", "workspace.info", "subAgents.list",
 		"subAgents.detail", "sideChat.state", "tasks.list", "commands.list", "files.list", "files.read",
 	]);
@@ -465,6 +465,7 @@ export function bridgeScript(connection: Connection): string {
 			open: call("sessions.open"),
 			transcript: call("sessions.transcript"),
 			trajectory: call("sessions.trajectory"),
+			trajectoryChanges: call("sessions.trajectoryChanges"),
 			fork: call("sessions.fork"),
 			remove: call("sessions.remove"),
 			setArchived: call("sessions.setArchived"),
