@@ -32,12 +32,27 @@ async function waitFor(condition: string): Promise<void> {
 	})()`);
 }
 async function click(expression: string): Promise<void> {
-	const point = await app.evaluate<{ x: number; y: number }>(`(() => {
+	const point = await app.evaluate<{ x: number; y: number }>(`(async () => {
 		const element = ${expression};
 		if (!element) throw new Error("Click target missing");
-		element.scrollIntoView({ block: "nearest" });
-		const rect = element.getBoundingClientRect();
-		return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+		element.scrollIntoView({ block: "nearest", behavior: "instant" });
+		const deadline = Date.now() + 8000;
+		while (true) {
+			// A mounted menu can still be invisible and scaled by its entrance animation.
+			let ready = element.isConnected && !element.matches(':disabled');
+			for (let ancestor = element; ancestor; ancestor = ancestor.parentElement) {
+				const style = getComputedStyle(ancestor);
+				ready &&= style.visibility !== 'hidden' && Number(style.opacity) > 0;
+				ready &&= !ancestor.getAnimations().some((animation) =>
+					Number.isFinite(animation.effect?.getComputedTiming().endTime) &&
+					(animation.pending || animation.playState === 'running'));
+			}
+			const rect = element.getBoundingClientRect();
+			const point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+			if (ready && rect.width > 0 && rect.height > 0 && element.contains(document.elementFromPoint(point.x, point.y))) return point;
+			if (Date.now() > deadline) throw new Error("Click target did not become visible and stable");
+			await new Promise(requestAnimationFrame);
+		}
 	})()`);
 	await app.send("Input.dispatchMouseEvent", { type: "mousePressed", ...point, button: "left", clickCount: 1 });
 	await app.send("Input.dispatchMouseEvent", { type: "mouseReleased", ...point, button: "left", clickCount: 1 });
