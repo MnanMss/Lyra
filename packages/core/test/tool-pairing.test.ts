@@ -245,3 +245,102 @@ test("Chat Completions: fallback protects against standalone unpruned empty assi
 	// whitespace-only is also pruned by sanitizeChatCompletionsHistory
 	assert.equal(wireWhitespace.length, 0);
 });
+
+test("Chat Completions: parallel tool results are never duplicated", () => {
+	const toolCallAssistant: AssistantMessage = {
+		role: "assistant",
+		content: [call("call-1", "bash"), call("call-2", "read"), call("call-3", "glob")],
+		api: "openai-chat-completions",
+		provider: "relay",
+		model: "test",
+		usage: emptyUsage(),
+		stopReason: "toolUse",
+		timestamp: 20,
+	};
+	const wire = toChatCompletionsMessages("", [
+		user,
+		toolCallAssistant,
+		answer("call-1", "res1"),
+		answer("call-2", "res2"),
+		answer("call-3", "res3"),
+		user,
+	]) as any[];
+
+	// 应该依次为: user, assistant(with 3 calls), tool(1), tool(2), tool(3), user
+	assert.equal(wire.length, 6);
+	assert.equal(wire[0].role, "user");
+	assert.equal(wire[1].role, "assistant");
+	assert.equal(wire[1].tool_calls.length, 3);
+
+	const toolResults = wire.filter((m) => m.role === "tool");
+	assert.equal(toolResults.length, 3);
+	assert.deepEqual(
+		toolResults.map((m) => m.tool_call_id),
+		["call-1", "call-2", "call-3"],
+	);
+	assert.equal(wire[5].role, "user");
+});
+
+test("Chat Completions: orphan tool result with no prior assistant message still outputs once", () => {
+	const wire = toChatCompletionsMessages("", [answer("orphan-1", "orphan result"), user]) as any[];
+	assert.equal(wire.length, 2);
+	assert.equal(wire[0].role, "tool");
+	assert.equal(wire[0].tool_call_id, "orphan-1");
+	assert.equal(wire[1].role, "user");
+});
+
+test("Chat Completions: usage keeps input and cacheRead disjoint and captures reasoning tokens", async () => {
+	const { openaiChatCompletionsProvider } = await import("../src/ai/openai-chat-completions.ts");
+	const sseData = [
+		`data: ${JSON.stringify({ choices: [{ delta: { content: "Hello" } }] })}\n\n`,
+		`data: ${JSON.stringify({
+			choices: [{ delta: {} }],
+			usage: {
+				prompt_tokens: 1000,
+				completion_tokens: 50,
+				prompt_tokens_details: { cached_tokens: 800 },
+				completion_tokens_details: { reasoning_tokens: 30 },
+			},
+		})}\n\n`,
+		"data: [DONE]\n\n",
+	].join("");
+
+	const mockFetch = async () => new Response(sseData, { status: 200, headers: { "content-type": "text/event-stream" } });
+	const providerConfig = {
+		id: "test",
+		name: "test",
+		baseUrl: "https://example.invalid",
+		api: "openai-chat-completions" as const,
+		apiKey: "test",
+		enabled: true,
+		models: [],
+	};
+	const modelConfig = {
+		modelId: "test-model",
+		contextWindow: 128000,
+		maxOutputTokens: 4096,
+		pricing: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 1.25 },
+	};
+
+	const stream = openaiChatCompletionsProvider.stream(
+		providerConfig,
+		modelConfig,
+		{ systemPrompt: "", messages: [{ role: "user", content: [{ type: "text", text: "hi" }], timestamp: 0 }], tools: [] },
+		{ fetch: mockFetch as any },
+	);
+
+	let finalMessage: AssistantMessage | null = null;
+	for await (const event of stream) {
+		if (event.type === "done") {
+			finalMessage = event.message;
+		}
+	}
+
+	assert.ok(finalMessage);
+	// prompt_tokens (1000) = cacheRead (800) + input (200)
+	assert.equal(finalMessage.usage.cacheRead, 800);
+	assert.equal(finalMessage.usage.input, 200);
+	assert.equal(finalMessage.usage.output, 50);
+	assert.equal(finalMessage.usage.reasoning, 30);
+	assert.equal(finalMessage.usage.total, 1050); // 200 + 50 + 800
+});

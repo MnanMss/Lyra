@@ -103,10 +103,12 @@ export function toChatCompletionsMessages(systemPrompt: string, messages: Messag
 
 		if (message.role === "assistant") {
 			const answers = new Map<string, ToolResultMessage>();
+			const consumedIndices = new Set<number>();
 			let after = index + 1;
 			for (; after < sanitized.length; after++) {
-				const next = messages[after];
+				const next = sanitized[after];
 				if (next.role !== "toolResult") break;
+				consumedIndices.add(after);
 				if (!answers.has(next.toolCallId)) answers.set(next.toolCallId, next);
 			}
 
@@ -150,15 +152,13 @@ export function toChatCompletionsMessages(systemPrompt: string, messages: Messag
 					out.push(toolResultMessage(answer));
 				}
 			}
+			index = after - 1;
 			continue;
 		}
 
 		if (message.role === "toolResult") {
-			// If not already consumed by the assistant loop above
-			const prev = sanitized[index - 1];
-			if (prev?.role !== "assistant") {
-				out.push(toolResultMessage(message));
-			}
+			// A standalone tool result with no prior assistant message (e.g. truncated history head)
+			out.push(toolResultMessage(message));
 		}
 	}
 
