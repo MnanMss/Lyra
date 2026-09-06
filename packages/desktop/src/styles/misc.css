@@ -177,7 +177,8 @@
  * while it is dragged, and nothing else: every element carrying a colour or opacity transition was
  * surveyed to reach the four that matter, which is the cost this replaces.
  */
-[data-ly-frozen] {
+/* Match the reduced-motion rule's specificity: freezing must stay at zero, not 0.01ms. */
+:root [data-ly-frozen] {
   transition-duration: 0s !important;
   animation-duration: 0s !important;
   animation-delay: 0s !important;

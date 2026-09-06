@@ -154,6 +154,8 @@ test("a regular window reflows the dock without losing panes or overwriting the 
 			projects: [{ id: "responsive", path: project, name: "布局恢复验证", pinned: true, lastOpenedAt: 1 }] }));
 	} });
 	try {
+		// CI displays can clamp the native window; compare the same layout viewport before and after.
+		await app.send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 800, deviceScaleFactor: 1, mobile: false }); await frames(app);
 		await click(app, '[data-dock-header] button[aria-label^="终端 "]');
 		await app.evaluate(`new Promise((resolve,reject)=>{let n=240;const step=()=>{if(document.querySelector('.xterm-screen'))resolve();else if(--n)requestAnimationFrame(step);else reject(new Error('terminal did not open'));};step();})`);
 		await frames(app);
@@ -182,12 +184,12 @@ test("a regular window reflows the dock without losing panes or overwriting the 
 		}
 		await app.send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 800, deviceScaleFactor: 1, mobile: false }); await frames(app);
 		const restored = await measure();
+		t.diagnostic(JSON.stringify({ wide, narrow, splitter, restored }));
 		assert.equal(restored.saved, wide.saved); assert.equal(restored.sameTerminal, true);
 		for (const kind of ["conversation", "terminal"] as const) {
 			assert.ok(Math.abs(restored[kind].width - wide[kind].width) < 1);
 			assert.ok(Math.abs(restored[kind].left - wide[kind].left) < 1);
 			assert.equal(restored[kind].top, wide[kind].top);
 		}
-		t.diagnostic(JSON.stringify({ wide, narrow, splitter, restored }));
 	} finally { await app.stop(); }
 });
