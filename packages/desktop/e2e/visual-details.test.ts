@@ -30,13 +30,34 @@ after(async () => { await app?.stop(); });
 async function frames(n = 20) { await app.evaluate(`new Promise(r=>{let n=${n};const f=()=>--n?requestAnimationFrame(f):r();requestAnimationFrame(f);})`); }
 async function until(expression: string) { await app.evaluate(`new Promise((r,j)=>{let n=300;const f=()=>(${expression})?r():--n?requestAnimationFrame(f):j(new Error('missing'));f();})`); }
 async function click(selector: string) {
-	const at = await app.evaluate<{x: number; y: number}>(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.checkVisibility({visibilityProperty:true}));if(!e)throw new Error('missing '+${JSON.stringify(selector)});e.scrollIntoView({block:'nearest'});const r=e.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;
-		if (window.qaRegistryClicks) {
+	const point = (visible: boolean) => app.evaluate<{x: number; y: number}>(`(async()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.checkVisibility({visibilityProperty:true}));if(!e)throw new Error('missing '+${JSON.stringify(selector)});e.scrollIntoView({block:'nearest',behavior:'instant'});
+		const deadline=Date.now()+8000;
+		while(true) {
+			// A mounted portal can still be transparent and waiting for its final position.
+			let ready=e.isConnected&&!e.matches(':disabled');
+			for(let ancestor=e;ancestor;ancestor=ancestor.parentElement) {
+				const style=getComputedStyle(ancestor);
+				ready&&=style.visibility!=='hidden'&&(!${visible}||Number(style.opacity)>0);
+				ready&&=!ancestor.getAnimations().some(animation=>
+					Number.isFinite(animation.effect?.getComputedTiming().endTime)&&
+					(animation.pending||animation.playState==='running'));
+			}
+			const r=e.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;
+			const target=${visible}?e:(e.closest('[data-row-actions]')??e);
+			if(ready&&r.width>0&&r.height>0&&target.contains(document.elementFromPoint(x,y)))break;
+			if(Date.now()>deadline)throw new Error('click target did not become visible and stable '+${JSON.stringify(selector)});
+			await new Promise(requestAnimationFrame);
+		}
+		const r=e.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;
+		if (${visible} && window.qaRegistryClicks) {
 			const hit=document.elementFromPoint(x,y), menu=e.closest('[data-ly-popover]');
 			window.qaRegistryClicks.push({ text:e.textContent, x, y, rect:r.toJSON(), hit:hit?.outerHTML.slice(0,300), same:e.contains(hit),
 				menu:menu&&{rect:menu.getBoundingClientRect().toJSON(),transform:getComputedStyle(menu).transform,opacity:getComputedStyle(menu).opacity} });
 		}
 		return {x,y};})()`);
+	// Row actions accept pointer events only after the real pointer enters their row.
+	await app.send("Input.dispatchMouseEvent", {type:"mouseMoved",...await point(false),buttons:0});
+	const at = await point(true);
 	for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) await app.send("Input.dispatchMouseEvent", {type,...at,button:"left",clickCount:1});
 	await frames(2);
 }
