@@ -671,11 +671,13 @@ test("the boundary inside a maximised pair can still be dragged", async () => {
 	})()`);
 });
 
-test("dragged apart, the pair is two ordinary panes again", async () => {
+test("dragged apart, the pair is two ordinary panes again", async (t) => {
 	/*
 	 * The pairing is declared in the registry, but honouring it regardless of where the panes have
 	 * been moved would mean full screen occasionally swallowing whatever sits between them.
 	 */
+	// Three columns need 420 + 300 + 300px after the sidebar; 1280px would stack them instead.
+	await app.send("Emulation.setDeviceMetricsOverride", { width: 1400, height: 860, deviceScaleFactor: 1, mobile: false });
 
 	/*
 	 * From an empty dock, because this asserts on the *whole* row of panes.
@@ -715,7 +717,22 @@ test("dragged apart, the pair is two ordinary panes again", async () => {
 			.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)
 			.map((el) => el.dataset.dockPane)
 	`);
+	t.diagnostic(JSON.stringify(await app.evaluate(`({ width: innerWidth, dock: document.querySelector("[data-dock-panes]").getBoundingClientRect().toJSON(), panes: [...document.querySelectorAll("[data-dock-pane]")].map(el => ({ kind: el.dataset.dockPane, box: el.getBoundingClientRect().toJSON() })) })`)));
 	assert.deepEqual(order, ["file", "conversation", "files"], "they are no longer neighbours");
+
+	// At the former fixture width, responsive stacking preserves the separation along the y axis.
+	await app.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 860, deviceScaleFactor: 1, mobile: false });
+	await app.evaluate(`new Promise(resolve => { let frames = 20; const tick = () => --frames ? requestAnimationFrame(tick) : resolve(); requestAnimationFrame(tick); })`);
+	const stacked = await app.evaluate<{ kind: string; left: number; top: number; bottom: number }[]>(`[...document.querySelectorAll("[data-dock-pane]")]
+		.filter(el => getComputedStyle(el).display !== "none")
+		.map(el => { const r = el.getBoundingClientRect(); return { kind: el.dataset.dockPane, left: r.left, top: r.top, bottom: r.bottom }; })
+		.sort((a, b) => a.top - b.top)`);
+	t.diagnostic(JSON.stringify({ width: 1280, stacked }));
+	assert.deepEqual(stacked.map(pane => pane.kind), ["file", "conversation", "files"], "the conversation still separates the stacked pair");
+	for (let index = 1; index < stacked.length; index++) {
+		assert.ok(Math.abs(stacked[index].left - stacked[0].left) < 1, "all three panes share a column");
+		assert.ok(Math.abs(stacked[index].top - stacked[index - 1].bottom) < 1, "stacked panes meet without a gap or overlap");
+	}
 
 	await app.evaluate(`(async () => {
 		const header = document.querySelector('[data-dock-header="file"]');

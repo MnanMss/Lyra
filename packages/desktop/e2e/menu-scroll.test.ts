@@ -79,18 +79,28 @@ test("shared model popovers keep clear gutters and their thumb can be dragged to
 	await app.evaluate(`(async()=>{const s=await window.lyra.settings.get();const models=Array.from({length:40},(_,i)=>({id:'qa/model-'+i,providerId:'qa',modelId:'model-'+i,name:'菜单验证 '+String(i).padStart(2,'0'),contextWindow:128000,maxOutputTokens:4096,supportsImages:false,supportsThinking:false,supportsTools:true}));await window.lyra.settings.save({...s,providers:[{id:'qa',name:'菜单验证',api:'anthropic-messages',baseUrl:'http://127.0.0.1:9',apiKey:'test',enabled:true,models}],defaultModelId:'qa/model-0'})})()`);
 	const selector = '[aria-label="选择模型"]';
 	for (const theme of ["light", "dark"]) for (const width of [1200, 375]) {
+		// Protocol GC failures carry no JavaScript stack; record the pending operation in CI.
+		const phase = (step: string) => t.diagnostic(`${theme}/${width}: ${step}`);
+		phase("resize");
 		await app.send("Emulation.setDeviceMetricsOverride", { width, height: 800, deviceScaleFactor: 1, mobile: false });
+		phase("save theme and open model menu");
 		await app.evaluate(`(async()=>{const s=await window.lyra.settings.get();await window.lyra.settings.save({...s,appearance:{...s.appearance,theme:${theme === "light" ? '"light"' : '"dark"'}}});[...document.querySelectorAll('button[aria-haspopup="menu"]')].find(b=>(b.dataset.lyTip||'').endsWith('上下文')).click()})()`);
+		phase("wait for open menu frames");
 		await frames();
+		phase("read thumb geometry");
 		const geometry = await app.evaluate<{x:number;y:number;travel:number;gap:number;right:number;top:number}>(`(()=>{const m=document.querySelector('${selector}'),v=m.querySelector('.ly-scroll-view'),thumb=m.querySelector('.ly-thumb'),r=m.getBoundingClientRect(),b=thumb.getBoundingClientRect(),row=m.querySelector('[data-model]').getBoundingClientRect();return {x:b.left+b.width/2,y:b.top+b.height/2,travel:v.clientHeight-b.height,gap:b.left-row.right,right:r.right-b.right,top:b.top-v.getBoundingClientRect().top}})()`);
 		assert.ok(geometry.gap >= 4 && geometry.right >= 6 && geometry.travel > 0, JSON.stringify(geometry));
+		phase("hover thumb and wait for frames");
 		await app.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: geometry.x, y: geometry.y }); await frames();
+		phase("drag thumb and wait for frames");
 		await app.send("Input.dispatchMouseEvent", { type: "mousePressed", x: geometry.x, y: geometry.y, button: "left", buttons: 1, clickCount: 1 });
 		await app.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: geometry.x, y: geometry.y + geometry.travel + 2, buttons: 1 });
 		await app.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: geometry.x, y: geometry.y + geometry.travel + 2, button: "left", buttons: 0, clickCount: 1 }); await frames();
+		phase("read final scroll geometry");
 		const end = await app.evaluate<{remaining:number;inside:boolean;opacity:number}>(`(()=>{const m=document.querySelector('${selector}'),v=m.querySelector('.ly-scroll-view'),last=m.querySelector('[data-model="qa/model-39"]').getBoundingClientRect(),r=v.getBoundingClientRect();return {remaining:v.scrollHeight-v.clientHeight-v.scrollTop,inside:last.top>=r.top&&last.bottom<=r.bottom,opacity:Number(getComputedStyle(m.querySelector('.ly-thumb')).opacity)}})()`);
 		t.diagnostic(JSON.stringify({theme,width,...geometry,...end}));
 		assert.ok(end.remaining <= 1 && end.inside && end.opacity > 0, JSON.stringify(end));
+		phase("close menu and wait for frames");
 		await key("Escape", 27); await frames();
 	}
 });
