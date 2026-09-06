@@ -239,7 +239,82 @@ test("reopening a compacted session does not hand the model its whole history ba
 		assert.ok(
 			sent.length < loaded.messages.length,
 			`it sends the summary and the tail (${sent.length}), not the full transcript (${loaded.messages.length})`,
+			`it sends the summary and the tail (${sent.length}), not the full transcript (${loaded.messages.length})`,
 		);
+	} finally {
+		await rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 25 });
+	}
+});
+test("session.compact() uses @compact model when configured", async () => {
+	const root = await mkdtemp(join(tmpdir(), "ly-compact-role-"));
+	const compactModel: ModelConfig = {
+		...MODEL,
+		id: "fake/compact-model",
+		modelId: "compact-model",
+		name: "Compact Spec",
+	};
+	const providerWithCompact: ProviderConfig = {
+		...PROVIDER,
+		models: [MODEL, compactModel],
+	};
+	const settingsWithCompact: Settings = {
+		...SETTINGS,
+		providers: [providerWithCompact],
+		modelRoles: { compact: compactModel.id },
+	};
+
+	let calledConfig: { provider: string; model: string } | undefined;
+
+	const session = new AgentSession({
+		cwd: root,
+		settings: settingsWithCompact,
+		store: new SessionStore(join(root, "sessions")),
+		emit: () => {},
+		streamFn: async (_context, config) => {
+			calledConfig = { provider: config.provider.id, model: config.model.modelId };
+			return reply("这是紧凑摘要");
+		},
+	});
+	await session.initialize();
+
+	try {
+		for (let i = 0; i < 6; i++) {
+			await session.prompt([{ type: "text", text: `问题 ${i}: ${"详细说明系统设计与边界要求".repeat(30)}` }]);
+		}
+
+		const res = await session.compact();
+		assert.ok(res.ok, "session compact should succeed");
+		assert.equal(calledConfig?.model, "compact-model", "compact() should ask the @compact model");
+		assert.equal(calledConfig?.provider, "fake");
+	} finally {
+		await rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 25 });
+	}
+});
+
+test("session.compact() falls back to session model when @compact is not configured", async () => {
+	const root = await mkdtemp(join(tmpdir(), "ly-compact-fallback-"));
+	let calledConfig: { provider: string; model: string } | undefined;
+
+	const session = new AgentSession({
+		cwd: root,
+		settings: SETTINGS,
+		store: new SessionStore(join(root, "sessions")),
+		emit: () => {},
+		streamFn: async (_context, config) => {
+			calledConfig = { provider: config.provider.id, model: config.model.modelId };
+			return reply("会话模型自身摘要");
+		},
+	});
+	await session.initialize();
+
+	try {
+		for (let i = 0; i < 6; i++) {
+			await session.prompt([{ type: "text", text: `问题 ${i}: ${"详细说明系统设计与边界要求".repeat(30)}` }]);
+		}
+
+		const res = await session.compact();
+		assert.ok(res.ok, "session compact should succeed");
+		assert.equal(calledConfig?.model, MODEL.modelId, "should fall back to current session model");
 	} finally {
 		await rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 25 });
 	}

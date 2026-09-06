@@ -209,9 +209,10 @@ export function compactWith(
 	streamFn?: typeof streamAssistant,
 	overhead = 0,
 	artifacts?: ArtifactSink,
+	summarizer?: { provider: ProviderConfig; model: ModelConfig },
 ): Promise<Compaction | null> {
 	if (strategy) return strategy.compact(messages, model, provider, streamFn);
-	return compactIfNeeded(messages, model, provider, streamFn ?? streamAssistant, overhead, false, artifacts);
+	return compactIfNeeded(messages, model, provider, streamFn ?? streamAssistant, overhead, false, artifacts, summarizer);
 }
 
 export async function compactIfNeeded(
@@ -250,6 +251,12 @@ export async function compactIfNeeded(
 	 * 「完整结果留在会话里」才第一次对模型成立——它读不到转录，读得到地址。
 	 */
 	artifacts?: ArtifactSink,
+	/**
+	 * 用于生成摘要的指定模型（来自 `@compact` 角色）。
+	 *
+	 * 未传或回退时，使用当前会话的模型与供应商生成摘要。
+	 */
+	summarizer?: { provider: ProviderConfig; model: ModelConfig },
 ): Promise<Compaction | null> {
 	/*
 	 * The provider's own count, not our estimate of it.
@@ -346,7 +353,9 @@ export async function compactIfNeeded(
 	const older = messages.slice(0, cut);
 	const recent = messages.slice(cut);
 
-	let summary = await summarize(older, model, provider, streamFn);
+	const summaryModel = summarizer?.model ?? model;
+	const summaryProvider = summarizer?.provider ?? provider;
+	let summary = await summarize(older, summaryModel, summaryProvider, streamFn);
 	if (!summary) {
 		summary = fallbackSummary(older);
 	}
