@@ -28,12 +28,13 @@ import { normalizeSubAgentProfiles } from "./sub-agent-profiles.ts";
 export { availableModels } from "./models.ts";
 export { normalizeSubAgentProfiles, type SubAgentProfile } from "./sub-agent-profiles.ts";
 
-export type ModelRole = "default" | "fast" | "deep" | "review";
+export type ModelRole = "default" | "compact" | "fast" | "deep" | "review";
 
-export const MODEL_ROLES: ModelRole[] = ["default", "fast", "deep", "review"];
+export const MODEL_ROLES: ModelRole[] = ["default", "compact", "fast", "deep", "review"];
 
 export const ROLE_DESCRIPTIONS: Record<ModelRole, string> = {
 	default: "日常对话与大部分工作",
+	compact: "对话超出上下文或手动压缩时生成摘要——未配置或选同会话模型时使用当前会话模型",
 	fast: "子代理扇出、分类、补全——便宜且快比聪明更要紧的场合",
 	deep: "复杂推理与规划",
 	/*

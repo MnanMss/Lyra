@@ -635,3 +635,34 @@ test("trimming a little off a large history is not a compaction", async () => {
 		`by summarising, not by trimming one result (${withOne.length} → ${result.length})`,
 	);
 });
+
+test("compaction uses custom summarizer model when provided", async () => {
+	const messages = conversation(20, 900);
+	const customModel: ModelConfig = { ...MODEL, id: "p/custom-compact", modelId: "custom-compact" };
+	const customProvider: ProviderConfig = { ...PROVIDER, id: "p-custom", name: "Custom Provider" };
+
+	let calledWithModel: ModelConfig | undefined;
+	let calledWithProvider: ProviderConfig | undefined;
+
+	const spyStream = ((provider: ProviderConfig, model: ModelConfig) => {
+		calledWithModel = model;
+		calledWithProvider = provider;
+		return fakeStream("自定义模型摘要")(provider, model);
+	}) as unknown as typeof streamAssistant;
+
+	const result = await compactIfNeeded(
+		messages,
+		MODEL,
+		PROVIDER,
+		spyStream,
+		0,
+		false,
+		undefined,
+		{ provider: customProvider, model: customModel },
+	);
+
+	assert.ok(result, "compaction should succeed");
+	assert.equal(calledWithModel?.id, "p/custom-compact");
+	assert.equal(calledWithProvider?.id, "p-custom");
+	assert.match(result.summary, /自定义模型摘要/);
+});

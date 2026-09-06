@@ -33,6 +33,7 @@ import { textTokens, toolTokens } from "./context.ts";
 import { writePreview } from "./previews.ts";
 import { runSubAgent } from "./sub-agent.ts";
 import type { SubAgentRegistry } from "./sub-agents.ts";
+import { resolveModelRef } from "../config/model-roles.ts";
 import type { TurnContext } from "./turn.ts";
 import { sandboxModeFor } from "../sandbox/mode-for.ts";
 
@@ -179,16 +180,19 @@ export function buildTurnConfig(
 			 * paper when the conversation is cut, and the result lands over the line it was aiming
 			 * for. That is a conversation which compacts on every single turn.
 			 */
-			compact: (messages, model) =>
-				compactWith(
+			compact: (messages, model) => {
+				const summarizer = resolveModelRef(deps.settings, "@compact", { provider: deps.provider, model });
+				return compactWith(
 					messages,
 					model,
 					deps.provider,
-					deps.summaryStream(deps.provider),
+					deps.summaryStream(summarizer.provider),
 					textTokens(systemPrompt) + toolTokens(turn.tools),
 					// 自动压缩剪掉的原文也存下来——它剪掉的量比手动压缩多得多。
 					deps.artifacts,
-				),
+					summarizer,
+				);
+			},
 			streamFn: deps.streamFn,
 	};
 }
