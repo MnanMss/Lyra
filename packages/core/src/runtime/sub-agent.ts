@@ -19,6 +19,7 @@ import type { AgentRunConfig } from "../agent/loop.ts";
 import { runTurn } from "../agent/runner.ts";
 import type { streamAssistant } from "../ai/index.ts";
 import type { Settings } from "../config/settings.ts";
+import { resolveModelRef } from "../config/model-roles.ts";
 import { withEnvironment } from "../prompt/environment.ts";
 import { readPromptOverride } from "../prompt/overrides.ts";
 import { buildSystemPrompt, loadProjectInstructions } from "../prompt/system.ts";

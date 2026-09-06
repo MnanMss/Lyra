@@ -212,7 +212,7 @@ export function compactWith(
 	summarizer?: { provider: ProviderConfig; model: ModelConfig },
 ): Promise<Compaction | null> {
 	if (strategy) return strategy.compact(messages, model, provider, streamFn);
-	return compactIfNeeded(messages, model, provider, streamFn ?? streamAssistant, overhead, false, artifacts, summarizer);
+	return compactIfNeeded(messages, model, provider, streamFn ?? streamAssistant, overhead, false, artifacts, undefined, summarizer);
 }
 
 export async function compactIfNeeded(
