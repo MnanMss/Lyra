@@ -331,6 +331,13 @@ export interface Settings {
 	 */
 	rerouteShellCommands?: boolean;
 	/**
+	 * 是否在会话开始时长文本输入时自动精炼生成会话标题。默认开。
+	 *
+	 * 开启时，若首条消息有效长度超过 12 个字符，后台自动使用 fast 模型（或当前会话模型）总结标题；
+	 * 关闭时，仅截取用户首条消息作为标题。
+	 */
+	autoSummarizeTitle?: boolean;
+	/**
 	 * How many sub-agents may run at once. Beyond this they queue.
 	 *
 	 * A limit rather than a refusal, because wanting to look at eight things is a reasonable thought
@@ -505,6 +512,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	enabledForeignUserRules: [],
 	capabilityPreferences: {},
 	rerouteShellCommands: true,
+	autoSummarizeTitle: true,
 	maxConcurrentSubAgents: 4,
 	modelRoles: {},
 	/*
@@ -654,6 +662,7 @@ export function normalizeSettings(parsed: Partial<Settings>): Settings {
 			enabledForeignUserRules: parsed.enabledForeignUserRules ?? [],
 			capabilityPreferences: parsed.capabilityPreferences ?? {},
 			rerouteShellCommands: parsed.rerouteShellCommands !== false,
+			autoSummarizeTitle: parsed.autoSummarizeTitle !== false,
 			maxConcurrentSubAgents:
 				typeof parsed.maxConcurrentSubAgents === "number" && parsed.maxConcurrentSubAgents >= 1
 					? Math.min(16, Math.floor(parsed.maxConcurrentSubAgents))

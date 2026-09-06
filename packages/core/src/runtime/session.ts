@@ -34,6 +34,8 @@ import { SubAgentRegistry } from "./sub-agents.ts";
 import { sessionTaskQueue, type TaskQueue } from "./task-queue.ts";
 import { stripStaleHandles } from "./model-switch.ts";
 import { resolveModelRef } from "../config/model-roles.ts";
+import { streamAssistant } from "../ai/index.ts";
+import { summarizeTitle, TITLE_SUMMARY_THRESHOLD, TITLE_SUMMARY_TIMEOUT_MS } from "./title-summary.ts";
 
 export interface AgentSessionOptions {
 	cwd: string;
@@ -52,6 +54,8 @@ export interface AgentSessionOptions {
 	 * Exposed here so behaviour that lives in the session rather than the loop — the task
 	 * queue, in particular — can be exercised without a network round trip.
 	 */
+	/** Provide a custom summary stream or disable title summary. */
+	titleSummaryStream?: typeof streamAssistant;
 	streamFn?: AgentRunConfig["streamFn"];
 }
 
@@ -94,6 +98,7 @@ export class AgentSession {
 	/** 盯着技能和规则目录的那个，没有可听的目录时是 null。 */
 	private watcher: CapabilityWatcher | null = null;
 	private streamFn?: AgentRunConfig["streamFn"];
+	private titleSummaryStream?: typeof streamAssistant;
 	private controller: AbortController | null = null;
 	private activeTurn: Promise<void> | null = null;
 	private compactionTask: Promise<{ ok: boolean; reason?: string; before?: number; after?: number }> | null = null;
@@ -131,6 +136,7 @@ export class AgentSession {
 		this.globalSettings = options.settings;
 		this.store = options.store;
 		this.streamFn = options.streamFn;
+		this.titleSummaryStream = options.titleSummaryStream;
 		this.log = new SessionLog(options.store, options.emit, options.meta);
 		this.can = new SessionCapabilities(options.extraTools ?? []);
 		this.approvals = sessionApprovalGate({
@@ -855,9 +861,39 @@ export class AgentSession {
 		const withoutSkill = raw.replace(/^使用\s*`[^`]+`\s*技能(?:（来自插件\s*[^）]+）)?。\s*/i, "");
 		// Strip injected context reference hint suffix
 		const withoutRef = withoutSkill.replace(/\n*\[上下文引用提示\][\s\S]*$/i, "");
-		const title = withoutRef.replace(/\s+/g, " ").trim().slice(0, 60) || "New session";
-		await this.log.append({ type: "title", title });
-		await this.emit({ type: "title", title });
+		const cleanText = withoutRef.replace(/\s+/g, " ").trim();
+		const fallbackTitle = cleanText.slice(0, 60) || "New session";
+		await this.log.append({ type: "title", title: fallbackTitle });
+		await this.emit({ type: "title", title: fallbackTitle });
+
+		if (this.settings.autoSummarizeTitle !== false && [...cleanText].length > TITLE_SUMMARY_THRESHOLD && !this.log.meta.titleSetByUser) {
+			void this.summarizeTitleInBackground(cleanText);
+		}
+	}
+
+	private async summarizeTitleInBackground(text: string): Promise<void> {
+		if (!this.titleSummaryStream && this.streamFn) return;
+		const stream = this.titleSummaryStream ?? streamAssistant;
+
+		const resolved = resolveModel(this.settings, this.log.meta.modelId || this.settings.defaultModelId);
+		if (!resolved) return;
+		const chosen = resolveModelRef(this.settings, "@fast", resolved);
+		const timeout = AbortSignal.timeout(TITLE_SUMMARY_TIMEOUT_MS);
+		try {
+			const summary = await summarizeTitle({
+				text,
+				provider: chosen.provider,
+				model: chosen.model,
+				stream,
+				signal: timeout,
+			});
+			if (!summary) return;
+			if (this.log.meta.titleSetByUser) return;
+			await this.log.append({ type: "title", title: summary });
+			await this.emit({ type: "title", title: summary });
+		} catch {
+			// Title summary failure is non-fatal; the initial fallback title remains in place.
+		}
 	}
 
 	/**
