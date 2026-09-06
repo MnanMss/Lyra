@@ -44,13 +44,19 @@ after(async () => {
 	await rm(project, { recursive: true, force: true, maxRetries: 8, retryDelay: 25 });
 });
 
-/** `loadRules` 读的是 `userHome`，测试里用 HOME 指过去。 */
-function withHome<T>(run: () => Promise<T>): Promise<T> {
-	const before = process.env.HOME;
-	process.env.HOME = home;
-	return run().finally(() => {
-		process.env.HOME = before;
-	});
+/** os.homedir() reads USERPROFILE on Windows and HOME on POSIX. */
+async function withHome<T>(run: () => Promise<T>): Promise<T> {
+	const keys = ["HOME", "USERPROFILE"];
+	const saved = keys.map((key) => process.env[key]);
+	for (const key of keys) process.env[key] = home;
+	try {
+		return await run();
+	} finally {
+		for (const [index, key] of keys.entries()) {
+			if (saved[index] === undefined) delete process.env[key];
+			else process.env[key] = saved[index];
+		}
+	}
 }
 
 const settingsWith = (enabled: string[]): Settings => ({ ...DEFAULT_SETTINGS, enabledForeignUserRules: enabled });
