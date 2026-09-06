@@ -18,7 +18,7 @@
  * the pointer.
  */
 
-import { CircleAlert, Info, MessageCirclePlus, TriangleAlert, X } from "lucide-react";
+import { ArrowRight, CircleAlert, Info, MessageCirclePlus, TriangleAlert, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useApp } from "../../store/index.ts";
@@ -42,7 +42,8 @@ export function Toaster() {
 	const remove = useApp((s) => s.dismissNotice);
 	const newSession = useApp((s) => s.newSession);
 	const setComposerDraft = useApp((s) => s.setComposerDraft);
-
+	const openSession = useApp((s) => s.openSession);
+	const sessions = useApp((s) => s.sessions);
 	/**
 	 * Hand an error to a fresh conversation, already written up, and stop there.
 	 *
@@ -197,7 +198,7 @@ export function Toaster() {
 						{/* The colour lives on the mark, not on the words: a paragraph of red on pink is
 						    the least legible way to say something went wrong. */}
 						<tone.Icon size={13} strokeWidth={2} className={`mt-[2.5px] shrink-0 ${tone.mark}`} />
-						<span className="min-w-0 leading-[18px] break-words">
+						<span className="min-w-0 leading-[18px] break-words flex-1">
 							{group.message}
 							{/*
 							 * What to do about it, a step back from what happened.
@@ -207,6 +208,22 @@ export function Toaster() {
 							 */}
 							{group.hint && <span className="block pt-0.5 text-caption text-ink-faint">{group.hint}</span>}
 						</span>
+						{group.sessionId && (
+							<button
+								type="button"
+								onClick={() => {
+									const target = sessions.find((s) => s.id === group.sessionId);
+									if (target) void openSession(target);
+									dismiss(group);
+								}}
+								className="flex h-[18px] shrink-0 items-center gap-1 rounded px-1 text-caption text-accent transition-colors hover:bg-card-hover"
+								data-ly-tip="跳转到该会话"
+								aria-label="跳转到该会话"
+							>
+								<span>查看</span>
+								<ArrowRight size={11} strokeWidth={2} />
+							</button>
+						)}
 						{/*
 						 * Only on errors, and only ever one per card.
 						 *

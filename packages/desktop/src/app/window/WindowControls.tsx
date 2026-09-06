@@ -9,6 +9,7 @@
 
 /** A toolbar button, and the gap after it. Shared so what sits beside one can clear it. */
 import { shortcutLabel } from "../../ui/keyboard.ts";
+import { useApp } from "../../store/index.ts";
 
 export const TOOLBAR_BUTTON = 28;
 export const TOOLBAR_GAP = 10;
@@ -47,10 +48,19 @@ export function WindowControls({
 	/** Filled in, for the compact layout where the sidebar is a drawer that is currently over you. */
 	active?: boolean;
 }) {
+	const hasUnread = useApp((s) => {
+		if (navOpen) return false;
+		return Object.entries(s.activity).some(([id, act]) => (act === "done" || act === "waiting") && id !== s.activeSessionId);
+	});
 	return (
 		<>
 			<ToolbarButton label={navOpen ? "隐藏侧边栏 ⌘B" : "显示侧边栏 ⌘B"} onClick={onToggleNav} active={active}>
-				<SidebarIcon open={navOpen} />
+				<span className="relative flex items-center justify-center">
+					<SidebarIcon open={navOpen} />
+					{hasUnread && (
+						<span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-ok shadow-sm" />
+					)}
+				</span>
 			</ToolbarButton>
 		</>
 	);

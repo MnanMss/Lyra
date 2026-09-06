@@ -32,6 +32,7 @@ import { useSubAgents } from "./subAgents.ts";
 import type { AppState } from "./index.ts";
 import { settleTail } from "../lib/transcript.ts";
 import { bridge } from "../services/index.ts";
+import { sessionTitle } from "../lib/session-title.ts";
 
 type Get = () => AppState;
 type Set = (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void;
@@ -200,7 +201,18 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
     if (event.type === "agent_end" || event.type === "turn_end") {
       void bridge.sessions
         .list()
-        .then((sessions) => set({ sessions }));
+        .then((sessions) => {
+          set({ sessions });
+          if (event.type === "agent_end" && event.reason !== "aborted") {
+            const target = sessions.find((s) => s.id === sessionId);
+            const name = target ? sessionTitle(target.title) : "会话";
+            if (event.reason === "done") {
+              get().notify(`会话「${name}」已完成`, "info", sessionId);
+            } else if (event.reason === "error" || event.reason === "max_turns") {
+              get().notify(`会话「${name}」执行失败`, "error", sessionId);
+            }
+          }
+        });
     }
     return;
   }
