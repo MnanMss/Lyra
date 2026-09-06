@@ -3,9 +3,13 @@ import type { UserContent } from "@lyra/core";
 import { expandCommand, parseInvocation, parseSkillMention, resolveCommand, skillNameOf } from "@lyra/core/commands-view";
 import { Camera, CircleAlert, Folder, GitBranch, MessageSquare, Plus, X } from "lucide-react";
 import { openFromEvent } from "../image/index.ts";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChangeBar } from "../git/index.ts";
 import { CommandMenu } from "./CommandMenu.tsx";
+import { MentionMenu } from "./MentionMenu.tsx";
+import { useMention } from "./useMention.ts";
+import { findMentionRanges, type MentionCompletion } from "./mention-catalog.ts";
+import type { ComposerDecorations } from "./CommandText.tsx";
 import { useCommands } from "./useCommands.ts";
 import { commandEntries, skillCommandName } from "./command-catalog.ts";
 import { ComposerSend, ComposerShell } from "./ComposerShell.tsx";
@@ -140,6 +144,36 @@ export function Composer() {
 
 	const commandCwd = workspace?.path ?? scratchCwd ?? "";
 	const slash = useCommands(text, commandCwd, field, setText);
+	const mentionRef = useRef<{ insertMentionText: (text: string) => void } | null>(null);
+	const pickFileForMention = useCallback(async (_actionId: string, _completion: MentionCompletion) => {
+		try {
+			const paths = await bridge.files.pick({ directory: false, multiple: false });
+			if (!paths || paths.length === 0) return;
+			const chosen = paths[0];
+			let rel = chosen;
+			if (workspace?.path && chosen.startsWith(workspace.path)) {
+				rel = chosen.slice(workspace.path.length).replace(/^[/\\\\]+/, "");
+			} else {
+				// If outside workspace or absolute path, show base filename to avoid full system path leaks in display
+				const lastPart = chosen.split(/[/\\\\]/).pop();
+				if (lastPart) rel = lastPart;
+			}
+			const formatted = rel.includes(" ") ? `@"${rel}"` : `@${rel}`;
+			mentionRef.current?.insertMentionText(formatted);
+		} catch (err) {
+			useApp.getState().notify(`选择文件失败：${err instanceof Error ? err.message : String(err)}`, "error");
+		}
+	}, [workspace?.path]);
+
+	const mention = useMention(text, commandCwd, field, setText, pickFileForMention);
+	mentionRef.current = mention;
+
+	const mergedDecoration = useMemo((): ComposerDecorations => {
+		return {
+			command: slash.decoration,
+			mentions: mention.mentionDecorations,
+		};
+	}, [slash.decoration, mention.mentionDecorations]);
 	const submitting = useRef(new Map<string, symbol>());
 
 	const modelMenu = usePopover();
@@ -277,6 +311,26 @@ export function Composer() {
 						.join("\n\n");
 				}
 			}
+		}
+		// Detect mentions matching sessions (by title or chosenSessions mapping)
+		const sessionPrompts: string[] = [];
+		const mentionRanges = findMentionRanges(outgoing);
+		for (const mr of mentionRanges) {
+			const token = mr.inner;
+			// Match session by direct id (backward compatibility), chosen map, or title
+			const targetSessionId =
+				mention.chosenSessions.get(token) ??
+				(token.startsWith("session:") ? token.slice(8) : undefined) ??
+				mention.sessions.find((s) => s.title === token || s.id === token)?.id;
+
+			if (targetSessionId) {
+				const matchedSession = mention.sessions.find((s) => s.id === targetSessionId);
+				const label = matchedSession?.title || token;
+				sessionPrompts.push(`- 引用了历史会话「${label}」：请使用 \`read\` 工具读取 \`session://${targetSessionId}\` 获取该会话的详细历史与上下文。`);
+			}
+		}
+		if (sessionPrompts.length > 0) {
+			outgoing = `${outgoing}\n\n[上下文引用提示]\n${sessionPrompts.join("\n")}`;
 		}
 
 		if (attachments.length > 0) {
@@ -454,18 +508,38 @@ export function Composer() {
 
 				<div className="relative">
 				<CommandMenu id={slash.id} commands={slash.matches} term={slash.term} active={slash.active} onPick={slash.pick} onHover={slash.setActive} />
+				<MentionMenu id={mention.id} items={mention.matches} term={mention.term} active={mention.active} onPick={mention.pick} onHover={mention.setActive} />
 				<ComposerShell
 					fieldRef={field}
 					value={text}
-					onChange={slash.change}
-					decoration={slash.decoration}
-					onSelect={slash.select}
-					onFocus={slash.focus}
-					onBlur={slash.blur}
-					commandMenu={{ id: slash.id, active: slash.active, open: slash.matches.length > 0 }}
+					onChange={(next) => {
+						slash.change(next);
+						mention.change(next);
+					}}
+					decoration={mergedDecoration}
+					onSelect={() => {
+						slash.select();
+						mention.select();
+					}}
+					onFocus={() => {
+						slash.focus();
+						mention.focus();
+					}}
+					onBlur={() => {
+						slash.blur();
+						mention.blur();
+					}}
+					commandMenu={
+						mention.matches.length > 0
+							? { id: mention.id, active: mention.active, open: true }
+							: { id: slash.id, active: slash.active, open: slash.matches.length > 0 }
+					}
 					onSubmit={() => void submit()}
-					onKeyDown={(event) => slash.keyDown(event, () => void submit())}
-					placeholder="随心输入，或输入 / 使用命令"
+					onKeyDown={(event) => {
+						if (mention.keyDown(event)) return;
+						slash.keyDown(event, () => void submit());
+					}}
+					placeholder="随心输入，或输入 / 命令，@ 提及文件、会话与技能"
 					onFiles={(files) => void addFiles(files)}
 					attachments={
 						attachments.length > 0 ? (
