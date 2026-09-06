@@ -5,12 +5,12 @@ type State = Pick<AppState, "messages" | "pendingUserMessage">;
 type Event = Extract<AgentEvent, { type: "message_start" | "message_update" | "message_end" }>;
 
 /** The same message identity rules apply on screen and in a parked transcript. */
-export function messageEvent(state: State, event: Event, sessionId?: string): State {
+export function messageEvent(state: State, event: Event, sessionId: string): State {
 	const { messages, pendingUserMessage: pending } = state;
 	const incoming = event.message;
 	const pendingMatch =
 		pending &&
-		(sessionId === undefined || pending.sessionId === null || pending.sessionId === sessionId) &&
+		pending.sessionId === sessionId &&
 		messages.includes(pending.message);
 	if (incoming.role === "user" && pendingMatch) {
 		return { messages: messages.map((message) => message === pending.message ? incoming : message), pendingUserMessage: null };
