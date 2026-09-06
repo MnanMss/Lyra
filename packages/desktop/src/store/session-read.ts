@@ -1,8 +1,10 @@
 import type { SessionMeta } from "@lyra/core";
 import type { AppState } from "./index.ts";
-import { howItStopped, prune, rebuildToolRuns, todosFrom } from "./derive.ts";
+import { howItStopped, prune, rebuildToolRuns, todosFrom, type Cache } from "./derive.ts";
 import { useSubAgents } from "./subAgents.ts";
 import { bridge } from "../services/index.ts";
+import { beginSessionRead, endSessionRead } from "./read-events.ts";
+import { cachedEvent } from "./cached-event.ts";
 import { flushCoalesced } from "./coalesce.ts";
 
 // Only one IPC payload is in flight. Intermediate selections collapse into the latest one.
@@ -20,11 +22,19 @@ export async function readSelectedSession(meta: SessionMeta, set: Set, get: Get)
 	}
 	reading = meta.id;
 	const before = get();
+	const events = beginSessionRead(meta.id);
 
 	let snapshot: Awaited<ReturnType<typeof bridge.sessions.transcript>>;
 	try {
 		snapshot = await bridge.sessions.transcript(meta.projectId, meta.id);
+	} catch (cause) {
+		if (get().activeSessionId === meta.id) {
+			set({ loadingSession: false });
+			get().notify(`读取会话失败：${cause instanceof Error ? cause.message : String(cause)}`, "error");
+		}
+		return;
 	} finally {
+		endSessionRead(meta.id);
 		reading = null;
 		// Whatever was clicked last while this was running is the one that still wants reading.
 		const next = queued;
@@ -40,6 +50,25 @@ export async function readSelectedSession(meta: SessionMeta, set: Set, get: Get)
 		return;
 	}
 
+	// Cold visits need the disk prefix as well as events that arrived during the read.
+	if (before.loadingSession && events.length) {
+		let merged: Cache[string] = {
+			meta: snapshot.meta, messages: snapshot.messages, toolRuns: rebuildToolRuns(snapshot.messages),
+			state: { running: snapshot.running, commandRuns: snapshot.commandRuns ?? [], todos: todosFrom(snapshot.messages), compactions: (snapshot.compactions ?? []).map((at) => ({ at, before: 0, after: 0 })),
+				approvals: snapshot.pendingApprovals, stopped: howItStopped(snapshot.messages), retrying: null, capabilities: null, pendingUserMessage: null },
+		};
+		for (const event of events) {
+			if (event.type === "message_start" && snapshot.messages.some((message) => message.role === event.message.role && message.timestamp === event.message.timestamp)) continue;
+			if (event.type === "message_update" && snapshot.messages.some((message) => message.role === "assistant" && message.timestamp === event.message.timestamp && message.stopReason !== "pending")) continue;
+			if (event.type === "approval_request" && snapshot.pendingApprovals.some((approval) => approval.id === event.requestId)) continue;
+			merged = cachedEvent(merged, event);
+		}
+		set({ ...merged.state, meta: merged.meta, messages: merged.messages, toolRuns: merged.toolRuns,
+			loadingSession: false, sessionCache: prune({ ...get().sessionCache, [meta.id]: merged }, meta.id) });
+		await restoreLiveState(meta.id, set, get);
+		return;
+	}
+
 	// An unchanged disk read must keep row props and disclosure geometry intact.
 	const current = get();
 	// A warm transcript already contains the history. Events received during the IPC read
@@ -52,9 +81,11 @@ export async function readSelectedSession(meta: SessionMeta, set: Set, get: Get)
 			current.approvals !== before.approvals ||
 			current.todos !== before.todos ||
 			current.compactions !== before.compactions ||
+			current.commandRuns !== before.commandRuns ||
 			current.meta !== before.meta);
 	const unchanged =
 		cached &&
+		!cached.dirty &&
 		!snapshot.running &&
 		cached.meta.seq === snapshot.meta.seq &&
 		cached.messages.length === snapshot.messages.length;
@@ -74,6 +105,7 @@ export async function readSelectedSession(meta: SessionMeta, set: Set, get: Get)
 		// `aborted` was stopped by hand, however long ago.
 		stopped: advanced ? current.stopped : snapshot.running ? null : howItStopped(messages),
 		running: advanced ? current.running : snapshot.running,
+		commandRuns: advanced ? current.commandRuns : snapshot.commandRuns ?? [],
 		approvals: advanced ? current.approvals : snapshot.pendingApprovals,
 		toolRuns,
 		loadingSession: false,
@@ -84,6 +116,15 @@ export async function readSelectedSession(meta: SessionMeta, set: Set, get: Get)
 					meta: advanced ? (current.meta ?? snapshot.meta) : snapshot.meta,
 					messages,
 					toolRuns,
+					state: {
+						running: advanced ? current.running : snapshot.running,
+						commandRuns: advanced ? current.commandRuns : snapshot.commandRuns ?? [],
+						todos: advanced ? current.todos : todosFrom(messages),
+						compactions: advanced ? current.compactions : (snapshot.compactions ?? []).map((at) => ({ at, before: 0, after: 0 })),
+						approvals: advanced ? current.approvals : snapshot.pendingApprovals,
+						stopped: advanced ? current.stopped : snapshot.running ? null : howItStopped(messages),
+						retrying: current.retrying, capabilities: current.capabilities, pendingUserMessage: current.pendingUserMessage,
+					},
 					scrollTop: get().sessionCache[meta.id]?.scrollTop,
 					pinnedToBottom: get().sessionCache[meta.id]?.pinnedToBottom,
 				},
@@ -92,15 +133,19 @@ export async function readSelectedSession(meta: SessionMeta, set: Set, get: Get)
 		),
 	});
 
-	// Restore sub-agents for this session if available
-	void bridge.subAgents.list(snapshot.meta.id).then((subAgentsList) => {
-		if (get().activeSessionId === snapshot.meta.id && Array.isArray(subAgentsList)) {
+	await restoreLiveState(meta.id, set, get);
+}
+
+async function restoreLiveState(id: string, set: Set, get: Get): Promise<void> {
+	// A cold read that merges events needs the same runtime details as an unchanged transcript.
+	void bridge.subAgents.list(id).then((subAgentsList) => {
+		if (get().activeSessionId === id && Array.isArray(subAgentsList)) {
 			useSubAgents.getState().sync(subAgentsList);
 		}
 	});
 
 	// Capabilities describe a running agent; a transcript read from disk has none until the
 	// session is activated, which the first message does.
-	const capabilities = await bridge.sessions.capabilities(snapshot.meta.id);
-	if (get().activeSessionId === meta.id) set({ capabilities });
+	const capabilities = await bridge.sessions.capabilities(id);
+	if (get().activeSessionId === id) set({ capabilities });
 }

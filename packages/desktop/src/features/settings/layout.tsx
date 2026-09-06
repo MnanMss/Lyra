@@ -6,6 +6,7 @@
  * a full-width input needs. Both are here, side by side, where the choice between them is visible.
  */
 
+import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
 import { Text } from "../../ui/primitives/Text.tsx";
 
 /** Section heading above a card group, as used by the reference settings pages. */
@@ -105,7 +106,7 @@ export function ListRow({
 		 * by rhythm, and the only line left on the page is the one under the tabs, which is the one
 		 * that means something.
 		 */
-		<div className="group/row relative flex items-center gap-3 rounded-[10px] px-2 py-3">
+		<div data-row-actions className="ly-scroll group/row relative flex items-center gap-3 rounded-[10px] px-2 py-3">
 			{/*
 			 * The row's own hit area, underneath everything on it.
 			 *
@@ -126,11 +127,11 @@ export function ListRow({
 
 			<div className="pointer-events-none relative min-w-0 flex-1">
 				<Text as="div" size="body" className="truncate">
-					{title}
+					{typeof title === "string" ? <ScrollText text={title} /> : title}
 				</Text>
 				{detail && (
 					<Text as="div" size="label" tone="muted" className="mt-0.5 truncate">
-						{detail}
+						{typeof detail === "string" ? <ScrollText text={detail} /> : detail}
 					</Text>
 				)}
 			</div>

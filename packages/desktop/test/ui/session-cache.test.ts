@@ -9,6 +9,8 @@ import type { LyraApi } from "../../electron/ipc-types.ts";
 
 type Snapshot = Awaited<ReturnType<LyraApi["sessions"]["transcript"]>>;
 let readTranscript: LyraApi["sessions"]["transcript"];
+let capabilityReads: string[];
+let rosterReads: string[];
 
 function deferredRead() {
 	let resolve!: (value: Snapshot) => void;
@@ -61,6 +63,8 @@ function reply(text: string): AssistantMessage {
 beforeEach(() => {
 	flushCoalesced();
 	readTranscript = async (_projectId, id) => snapshot(id);
+	capabilityReads = [];
+	rosterReads = [];
 	useApp.setState({
 		activeSessionId: "a",
 		meta: meta("a"),
@@ -81,6 +85,7 @@ beforeEach(() => {
 		scratchCwd: "/test",
 		workspace: null,
 		loadingSession: false,
+		pendingUserMessage: null,
 		view: "chat",
 		sessions: [meta("a"), meta("b")],
 	});
@@ -89,9 +94,9 @@ beforeEach(() => {
 		value: {
 			sessions: {
 				transcript: (projectId: string, id: string) => readTranscript(projectId, id),
-				capabilities: async () => null,
+				capabilities: async (id: string) => { capabilityReads.push(id); return null; },
 			},
-			subAgents: { list: async () => [] },
+			subAgents: { list: async (id: string) => { rosterReads.push(id); return []; } },
 			git: { generalScratch: async () => "/test" },
 		},
 	});
@@ -194,4 +199,56 @@ test("a new blank session cancels queued navigation and parks the previous view"
 	await opening;
 	assert.equal(useApp.getState().activeSessionId, null);
 	assert.deepEqual(useApp.getState().messages, []);
+});
+
+
+test("background messages update a parked session without flashing a cold loader", async () => {
+	await useApp.getState().openSession(meta("b"));
+	const message = reply("background result");
+	message.timestamp = 20;
+	applyAgentEvent("a", { type: "message_start", message }, useApp.setState, useApp.getState);
+	applyAgentEvent("a", { type: "message_end", message }, useApp.setState, useApp.getState);
+	assert.ok(useApp.getState().sessionCache.a, "an updated cache must remain readable");
+	const delayed = deferredRead();
+	readTranscript = () => delayed.promise;
+	const opening = useApp.getState().openSession(meta("a"));
+	assert.equal(useApp.getState().loadingSession, false);
+	assert.deepEqual(useApp.getState().messages.at(-1)?.content, message.content);
+	delayed.resolve({ ...snapshot("a")!, messages: [reply("a"), message] });
+	await opening;
+});
+
+
+test("a cold read retains the history prefix and events arriving while it was in flight", async () => {
+	const deferred = deferredRead();
+	readTranscript = () => deferred.promise;
+	const opening = useApp.getState().openSession(meta("b"));
+	const message = { ...reply("new reply"), timestamp: 20 };
+	applyAgentEvent("b", { type: "agent_start", sessionId: "b" }, useApp.setState, useApp.getState);
+	applyAgentEvent("b", { type: "message_end", message }, useApp.setState, useApp.getState);
+	deferred.resolve(snapshot("b"));
+	await opening;
+	assert.deepEqual(useApp.getState().messages.map((message) => message.content), [reply("b").content, reply("new reply").content]);
+	assert.equal(useApp.getState().running, true);
+	assert.equal(useApp.getState().loadingSession, false);
+	assert.deepEqual(capabilityReads, ["b"]);
+	assert.deepEqual(rosterReads, ["b"]);
+});
+
+test("Windows scratch conversations retain their projectless identity on selection", async () => {
+	const cwd = "C:\\Users\\Tester\\.lyra\\scratch\\session";
+	useApp.setState({ scratchRoots: ["C:\\Users\\Tester\\.lyra\\scratch"], workspace: { path: "C:\\code\\project", name: "project", isGitRepo: false, branch: null } });
+	await useApp.getState().openSession({ ...meta("b"), cwd });
+	assert.equal(useApp.getState().workspace, null);
+	assert.equal(useApp.getState().scratchCwd, cwd);
+});
+
+test("a failed transcript read releases loading and preserves warm content", async () => {
+	await useApp.getState().openSession(meta("b"));
+	await useApp.getState().openSession(meta("a"));
+	readTranscript = async () => { throw new Error("disk unavailable"); };
+	await useApp.getState().openSession(meta("b"));
+	assert.equal(useApp.getState().loadingSession, false);
+	assert.deepEqual(useApp.getState().messages[0].content, reply("b").content);
+	assert.ok(useApp.getState().notices.some((notice) => notice.message.includes("disk unavailable")));
 });

@@ -11,6 +11,7 @@
  */
 
 import type { Message } from "../types.ts";
+import type { CommandRun } from "../agent/events.ts";
 import type { Boundary, SessionMeta, SessionRecord, SessionRecordInput } from "./store.ts";
 
 export interface SessionStorage {
@@ -27,6 +28,7 @@ export interface SessionStorage {
 		messages: Message[];
 		entries: { seq: number; message: Message }[];
 		compactions: number[];
+		commandRuns?: CommandRun[];
 		compaction: Boundary | null;
 	} | null>;
 	listSessions(): Promise<SessionMeta[]>;

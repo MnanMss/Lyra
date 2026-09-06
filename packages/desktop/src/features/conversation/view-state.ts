@@ -3,6 +3,7 @@ import { useApp } from "../../store/index.ts";
 
 interface TranscriptView {
 	windowSize?: number;
+	windowEnd?: number;
 	expanded: Set<string>;
 }
 
@@ -21,17 +22,28 @@ function viewFor(id: string): TranscriptView {
 	return view;
 }
 
-export function useTranscriptWindow(id: string | null, step: number): [number, () => void] {
+export function useTranscriptWindow(id: string | null, step: number, total: number) {
 	const view = id ? viewFor(id) : undefined;
-	const [local, setLocal] = useState({ id, size: view?.windowSize ?? step });
-	const size = local.id === id ? local.size : (view?.windowSize ?? step);
-	return [
-		size,
-		() => {
-			if (id) viewFor(id).windowSize = size + step;
-			setLocal({ id, size: size + step });
+	const [local, setLocal] = useState({ id, size: view?.windowSize ?? step, end: view?.windowEnd });
+	const current = local.id === id ? local : { size: view?.windowSize ?? step, end: view?.windowEnd };
+	const end = Math.min(total, current.end ?? total);
+	const start = Math.max(0, end - current.size);
+	const update = (size: number, end?: number) => {
+		if (id) Object.assign(viewFor(id), { windowSize: size, windowEnd: end });
+		setLocal({ id, size, end });
+	};
+	return {
+		start, end,
+		earlier: () => update(current.size + step, current.end),
+		later: () => update(current.size + step, end + step >= total ? undefined : end + step),
+		latest: () => update(step),
+		reveal: (index: number) => {
+			if (index >= start && index < end) return;
+			// Jumping to an old question must not mount every message between it and the tail.
+			const nextEnd = Math.min(total, Math.max(step, index + step - 5));
+			update(step, nextEnd === total ? undefined : nextEnd);
 		},
-	];
+	};
 }
 
 export function useTranscriptDisclosure(key?: string): [boolean, (update: (open: boolean) => boolean) => void] {

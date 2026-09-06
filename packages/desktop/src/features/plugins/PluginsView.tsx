@@ -170,6 +170,7 @@ export function PluginsView() {
 	const installed = ofKind.filter(isInstalled);
 	/** Long enough to be worth a placeholder; a fetch that beats the threshold shows nothing. */
 	const slow = useSlowLoad(catalog.loading);
+	const slowLocal = useSlowLoad(catalog.localLoading);
 	/*
 	 * The collections the skills tab can offer, searched by the same box as everything else.
 	 *
@@ -390,14 +391,13 @@ export function PluginsView() {
 							 */}
 							{sourceErrors}
 
-							{slow && groups.length === 0 ? (
+							{catalog.loading && groups.length === 0 ? (
 								/* Shaped like the grid it precedes, so nothing moves when the answer lands. */
-								<SkeletonGrid count={6} label="正在读取插件市场" />
+								slow ? <SkeletonGrid count={6} label="正在读取插件市场" /> : null
 							) : groups.length === 0 ? (
 								<Empty
 									kind={tab === "mcp" ? "mcp" : "plugin"}
 									scope={current}
-									loading={catalog.loading}
 									searching={needle.length > 0}
 									sources={catalog.sources.length}
 									onAddSource={() => setSourcesOpen(true)}
@@ -484,9 +484,9 @@ export function PluginsView() {
 							<section className="pt-8">
 								<div className="flex items-baseline gap-2 pb-1">
 									<h2 className="text-body font-medium text-ink">这台机器上的技能</h2>
-									<span className="text-detail text-ink-faint tabular-nums">{catalog.skills.length}</span>
+									<span className="text-detail text-ink-faint tabular-nums">{catalog.localLoading ? "" : catalog.skills.length}</span>
 								</div>
-								<SkillList skills={catalog.skills} needle={needle} />
+								{catalog.localLoading ? (slowLocal ? <SkeletonGrid count={4} label="正在读取本地技能" /> : null) : <SkillList skills={catalog.skills} needle={needle} />}
 							</section>
 						</>
 					)}
@@ -578,22 +578,17 @@ function ScopeTab({
 function Empty({
 	kind,
 	scope,
-	loading,
 	searching,
 	sources,
 	onAddSource,
 }: {
 	kind: BundleKind;
 	scope: Scope;
-	loading: boolean;
 	searching: boolean;
 	sources: number;
 	onAddSource: () => void;
 }) {
 	const noun = kind === "mcp" ? "MCP 服务" : "插件";
-	if (loading) {
-		return <p className="py-16 text-center text-label text-ink-faint">读取中…</p>;
-	}
 	if (searching) {
 		return <p className="py-16 text-center text-label text-ink-faint">没有匹配的{noun}</p>;
 	}

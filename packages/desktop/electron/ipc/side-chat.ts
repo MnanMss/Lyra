@@ -9,7 +9,7 @@
 import { ipcMain } from "electron";
 import type { AgentEvent, AgentSession, Settings, UserContent } from "@lyra/core";
 import { clearSideChat, loadSideChat, saveSideChat } from "../sidechat-store.ts";
-import { SideChat } from "@lyra/core";
+import { SideChat, restoredSideChatMessages } from "@lyra/core";
 
 export interface SideChatIpcDeps {
 	sideChats: Map<string, SideChat>;
@@ -20,58 +20,52 @@ export interface SideChatIpcDeps {
 }
 
 export function registerSideChatIpc({ sideChats, sessions, settings, ensureSession, broadcastSideChat }: SideChatIpcDeps): void {
-	/**
-	 * The side chat for a session, built on first use.
-	 *
-	 * Building one activates the main session, because a side chat with no transcript to read
-	 * is pointless — and because dispatching work needs somewhere to dispatch it to. That cost
-	 * is paid on the first question, not on opening the panel.
-	 */
+	const opening = new Map<string, Promise<SideChat | null>>();
+	function reportError(sessionId: string, error: unknown): void {
+		broadcastSideChat(sessionId, { type: "notice", level: "error", message: error instanceof Error ? error.message : String(error) });
+		broadcastSideChat(sessionId, { type: "agent_end", reason: "error", error: String(error) });
+	}
 	async function ensureSideChat(sessionId: string): Promise<SideChat | null> {
 		const existing = sideChats.get(sessionId);
-		if (existing) {
-			existing.updateSettings(settings());
-			return existing;
-		}
-		const main = await ensureSession(sessionId);
-		if (!main) return null;
-		const chat = new SideChat({
-			main,
-			settings: settings(),
-			emit: (event) => {
+		if (existing) { existing.updateSettings(settings()); return existing; }
+		const pending = opening.get(sessionId);
+		if (pending) return pending;
+		const operation = (async () => {
+			const main = await ensureSession(sessionId);
+			if (!main) return null;
+			const chat = new SideChat({ main, settings: settings(), emit: async (event) => {
 				broadcastSideChat(sessionId, event);
-				/*
-				 * Saved whenever a message finishes, which is the only point the list is stable.
-				 *
-				 * Not on every streamed delta: those arrive dozens of times a second and each would
-				 * be a whole-file write. `message_end` fires once per message, on both sides.
-				 */
-				if (event.type === "message_end") void saveSideChat(sessionId, chat.state().messages);
-			},
-		});
-		// Whatever it said last time, before anyone can ask it anything new.
-		chat.restore(await loadSideChat(sessionId));
-		sideChats.set(sessionId, chat);
-		return chat;
+				if (event.type === "message_end" || event.type === "rewound") {
+					try { await saveSideChat(sessionId, chat.state().messages); }
+					catch (error) {
+						console.error("[sidechat] Failed to persist transcript", error);
+						broadcastSideChat(sessionId, { type: "notice", level: "error", message: "侧边聊天保存失败，请检查存储空间与目录权限。" });
+					}
+				}
+			} });
+			chat.restore(await loadSideChat(sessionId));
+			sideChats.set(sessionId, chat);
+			return chat;
+		})();
+		opening.set(sessionId, operation);
+		try { return await operation; }
+		finally { if (opening.get(sessionId) === operation) opening.delete(sessionId); }
 	}
 
 	ipcMain.handle("sidechat:state", async (_event, sessionId: string) => {
-		const chat = sideChats.get(sessionId);
-		return chat ? chat.state() : null;
+		const existing = sideChats.get(sessionId);
+		if (existing) return existing.state();
+		// State is read on every navigation, even with the pane closed. Do not pin a live agent.
+		const messages = await loadSideChat(sessionId);
+		const created = await opening.get(sessionId) ?? sideChats.get(sessionId);
+		return created ? created.state() : { messages: restoredSideChatMessages(messages), running: false, revision: 0 };
 	});
 
 	ipcMain.handle("sidechat:ask", async (_event, sessionId: string, content: UserContent[]) => {
 		const chat = await ensureSideChat(sessionId);
 		if (!chat) throw new Error(`Session ${sessionId} is not open.`);
 		// Not awaited, same as `agent:prompt` — the reply streams back over IPC.
-		void chat.ask(content).catch((error: unknown) => {
-			broadcastSideChat(sessionId, {
-				type: "notice",
-				level: "error",
-				message: error instanceof Error ? error.message : String(error),
-			});
-			broadcastSideChat(sessionId, { type: "agent_end", reason: "error", error: String(error) });
-		});
+		void chat.ask(content).catch((error: unknown) => reportError(sessionId, error));
 	});
 
 	/*
@@ -81,12 +75,9 @@ export function registerSideChatIpc({ sideChats, sessions, settings, ensureSessi
 	 * otherwise hold the renderer for as long as the model takes.
 	 */
 	ipcMain.handle("sidechat:editAndResend", async (_event, sessionId: string, index: number, content: UserContent[]) => {
-		const chat = sideChats.get(sessionId);
-		if (!chat) return;
-		void chat.editAndResend(index, content);
-		// The truncation itself produces no `message_end`, so the shortened list is written here —
-		// otherwise a crash between the edit and the next reply would restore the discarded tail.
-		void saveSideChat(sessionId, chat.state().messages);
+		const chat = await ensureSideChat(sessionId);
+		if (!chat) throw new Error(`Session ${sessionId} is not open.`);
+		void chat.editAndResend(index, content).catch((error: unknown) => reportError(sessionId, error));
 	});
 
 	ipcMain.handle("sidechat:abort", async (_event, sessionId: string) => {
@@ -94,6 +85,7 @@ export function registerSideChatIpc({ sideChats, sessions, settings, ensureSessi
 	});
 
 	ipcMain.handle("sidechat:reset", async (_event, sessionId: string) => {
+		await opening.get(sessionId);
 		sideChats.get(sessionId)?.reset();
 		// Clearing the panel means clearing it, including next time the app starts.
 		await clearSideChat(sessionId);

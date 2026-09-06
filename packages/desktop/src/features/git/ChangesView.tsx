@@ -73,7 +73,7 @@ export function ChangesView({
     let live = true;
     void Promise.all([
       bridge.git.diffRefs(cwd, "HEAD", null),
-      bridge.diff.workspaceDiff(cwd),
+      bridge.diff.workspaceDiff(cwd, "index"),
     ]).then(([indexDiff, treeDiff]) => {
       if (!live) return;
       setHunks({ staged: indexDiff.files, unstaged: treeDiff.files });
@@ -327,19 +327,19 @@ export function ChangesView({
  * supplies what a row shows once it is expanded, so a file it has not answered for yet is a
  * perfectly good row with nothing folded inside it.
  *
- * Line counts prefer the diff's, which are computed from the comparison the panel actually shows;
- * `status` takes its own from `--numstat`, and the two have drifted apart before.
+ * Status owns the Index/HEAD distinction and its numstat counts. Loading hunks must not replace
+ * those numbers with a different comparison or an older snapshot.
  */
 function rowsFor(files: GitStatusFile[], diffed: WorkspaceDiffFile[]): WorkspaceDiffFile[] {
   const known = new Map(diffed.map((file) => [file.path, file]));
   return files.map(
-    (file) =>
-      known.get(file.path) ?? {
+    (file) => ({
+        ...known.get(file.path),
         path: file.path,
         status: file.status,
         added: file.added,
         removed: file.removed,
-        hunks: [],
-      },
+        hunks: known.get(file.path)?.hunks ?? [],
+      }),
   );
 }

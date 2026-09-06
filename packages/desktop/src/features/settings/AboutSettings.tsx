@@ -1,3 +1,4 @@
+import { Scroller } from "../../ui/scroll/Scroller.tsx";
 import {
 	ArrowUpRight,
 	DownloadCloud,
@@ -112,7 +113,7 @@ export function AboutSettings() {
 			<Card className="mb-6">
 				<div className="p-4">
 					{info?.notes ? (
-						<div className="max-h-[380px] overflow-y-auto pr-2">
+						<Scroller className="max-h-[380px]" contentClassName="pr-2">
 							<div className="mb-3 flex items-center gap-2">
 								<Sparkles size={16} className="text-accent" />
 								<span className="font-medium text-ink">
@@ -120,7 +121,7 @@ export function AboutSettings() {
 								</span>
 							</div>
 							<Markdown text={info.notes} className="text-label" />
-						</div>
+						</Scroller>
 					) : (
 						<div className="flex flex-col items-center justify-center py-6 text-center text-ink-faint">
 							<Info size={20} className="mb-2 opacity-60" />

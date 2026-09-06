@@ -6,11 +6,12 @@
  * 交回去，页面要把它显示出来，不然下次找不到自己改了什么。
  */
 
-import { ipcMain } from "electron";
+import { ipcMain, shell } from "electron";
 import { readFile } from "node:fs/promises";
 import { BUILTIN_RULES, computeDiff, settingsPath } from "@lyra/core";
 import { applySettings, settings } from "../app-settings.ts";
 import { sessions } from "../session-hub.ts";
+import { definitionTrashTarget } from "../definition-trash.ts";
 
 type Kind = "rule" | "skill";
 type BuiltinRule = (typeof BUILTIN_RULES)[number];
@@ -34,6 +35,12 @@ async function textOf(kind: Kind, path: string): Promise<string> {
 }
 
 export function registerCapabilitiesIpc(): void {
+	ipcMain.handle("capabilities:trash", async (_event, kind: unknown, cwd: unknown, path: unknown) => {
+		const target = await definitionTrashTarget(kind, cwd, path, settings());
+		// Use the OS trash and let the existing capability watcher reload at a safe turn boundary.
+		await shell.trashItem(target);
+	});
+
 	/** 赢家在前、输家在后：hunk 里的「+」是输家多出来的，也就是改用它会多出什么。 */
 	ipcMain.handle("capabilities:diff", async (_event, kind: Kind, winner: string, loser: string) => {
 		const [before, after] = await Promise.all([textOf(kind, winner), textOf(kind, loser)]);

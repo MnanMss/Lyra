@@ -1,3 +1,4 @@
+import { Box } from "lucide-react";
 import type { ModelConfig } from "@lyra/core";
 import { Scroller } from "../../ui/scroll/Scroller.tsx";
 import { useState } from "react";
@@ -62,12 +63,12 @@ export function ModelEditor({
 	}
 
 	return (
-		<Overlay onClose={onCancel} width={520}>
+		<Overlay onClose={onCancel} width={520}>{(dismiss) => <>
 			<div className="border-b border-line px-5 py-3.5">
-				<h3 className="text-body font-medium text-ink">{model ? "编辑模型" : "添加模型"}</h3>
+				<h3 className="flex items-center gap-2.5 text-body font-semibold text-ink"><Box size={20} className="text-accent" />{model ? "编辑模型" : "添加模型"}</h3>
 			</div>
 
-			<Scroller className="max-h-[60vh]" bottom="none" contentClassName="space-y-4 px-5 py-4">
+			<Scroller className="max-h-[60vh]" contentClassName="space-y-4 px-5 py-4">
 				<Field label="模型 ID" hint="发送给供应商的实际模型名，例如 deepseek-v4-flash">
 					<TextInput value={modelId} onChange={setModelId} placeholder="deepseek-v4-flash" mono spellCheck={false} />
 				</Field>
@@ -114,11 +115,11 @@ export function ModelEditor({
 			</Scroller>
 
 			<div className="flex justify-end gap-2 border-t border-line px-5 py-3">
-				<GhostButton onClick={onCancel}>取消</GhostButton>
-				<PrimaryButton onClick={submit} disabled={!valid}>
+				<GhostButton onClick={() => dismiss()}>取消</GhostButton>
+				<PrimaryButton onClick={() => dismiss(submit)} disabled={!valid}>
 					保存
 				</PrimaryButton>
 			</div>
-		</Overlay>
+		</>}</Overlay>
 	);
 }

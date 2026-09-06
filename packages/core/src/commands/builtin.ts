@@ -29,6 +29,7 @@ export interface BuiltinCommand {
 	name: string;
 	description: string;
 	action: CommandAction;
+	argumentHint?: string;
 }
 
 /**
@@ -38,7 +39,7 @@ export interface BuiltinCommand {
  * （见 `loadCommands` 的去重），所以一条内建命令的真实成本是「从此没人能用这个名字」。
  */
 export const BUILTIN_COMMANDS: BuiltinCommand[] = [
-	{ name: "compact", description: "把之前的对话压缩成摘要，腾出上下文", action: "compact" },
+	{ name: "compact", description: "把之前的对话压缩成摘要，腾出上下文", action: "compact", argumentHint: "可选：希望摘要保留的内容" },
 	{ name: "clear", description: "开一个新对话", action: "clear" },
 	{ name: "commands", description: "管理斜杠命令，或新建一个", action: "manage-commands" },
 ];

@@ -354,3 +354,73 @@
   background: var(--ly-code-bg, var(--color-shell));
   color: var(--ly-code-fg, var(--color-ink));
 }
+
+/* Opacity preserves geometry; touch devices keep the action visible without a hover gesture. */
+.ly-row-action {
+	transition: opacity var(--ly-t-quick) var(--ly-e-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.ly-row-action {
+		opacity: 0;
+		pointer-events: none;
+	}
+
+	[data-row-actions]:hover .ly-row-action,
+	[data-row-actions]:focus-within .ly-row-action,
+	.ly-row-action:focus-within,
+	.ly-row-action[data-pending="true"] {
+		opacity: 1;
+		pointer-events: auto;
+	}
+}
+
+/* Identical metrics keep the decoration and the native caret in the same place. */
+.ly-composer-text {
+	padding: 14px 16px 10px;
+	font-size: var(--text-body);
+	line-height: 1.625;
+	color: var(--color-ink);
+	overflow-wrap: break-word;
+	tab-size: 8;
+}
+
+textarea.ly-composer-text[data-highlighted="true"] {
+	color: transparent;
+	caret-color: var(--color-ink);
+}
+
+.ly-command-token {
+	color: var(--color-accent);
+	background: color-mix(in srgb, var(--color-accent) 9%, transparent);
+	border-radius: 4px;
+	box-decoration-break: clone;
+}
+
+.ly-command-hint {
+	/* A placeholder cannot create a line that the native value does not contain. */
+	position: absolute;
+	white-space: nowrap;
+}
+
+.ly-command-menu {
+	opacity: 0;
+	visibility: hidden;
+	transform: translateY(4px);
+	transition: opacity var(--ly-t-quick) var(--ly-e-out), transform var(--ly-t-quick) var(--ly-e-out), visibility var(--ly-t-quick);
+}
+
+.ly-command-menu[data-open="true"] {
+	opacity: 1;
+	visibility: visible;
+	transform: translateY(0);
+}
+
+/* Keyboard selection keeps focus in the textarea and still reveals long descriptions. */
+.ly-command-option[aria-selected="true"] .ly-marquee-track {
+	animation: ly-marquee var(--ly-scroll, 8s) linear 300ms infinite;
+}
+
+.ly-command-option[aria-selected="true"] .ly-fade-edge {
+	--ly-fade-left: 13px;
+}

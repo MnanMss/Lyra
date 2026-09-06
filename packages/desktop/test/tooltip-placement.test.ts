@@ -59,3 +59,14 @@ test("but never past either edge of the window", () => {
 	const right = tipPlacement(target(400, VIEW.width - 20, 20), TIP, "bottom", VIEW);
 	assert.ok(right.left + TIP.width <= VIEW.width - 6, `right edge, got ${right.left}`);
 });
+
+test("a multiline tip that fits neither side stays inside the viewport", () => {
+	const view = { width: 300, height: 220 };
+	const tip = { width: 288, height: 200 };
+	for (const side of ["top", "bottom"] as const) {
+		const at = tipPlacement(target(90, 280), tip, side, view);
+		assert.ok(at.top >= 6);
+		assert.ok(at.top + tip.height <= view.height - 6);
+		assert.ok(at.left >= 6);
+	}
+});

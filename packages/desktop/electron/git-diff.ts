@@ -24,6 +24,7 @@ import { resolveInside } from "./file-ops.ts";
  */
 export async function collectWorkspaceDiff(
 	cwd: string,
+	base: "head" | "index" = "head",
 ): Promise<{ files: WorkspaceDiffFile[]; added: number; removed: number; branch: string | null }> {
 	if (!(await isGitRepo(cwd))) return { files: [], added: 0, removed: 0, branch: null };
 
@@ -40,10 +41,17 @@ export async function collectWorkspaceDiff(
 	const status = await git(cwd, ["status", "--porcelain=v1", "-uall", "-z"]).catch(() => "");
 	const entries = status.split("\0").filter(Boolean);
 
-	const changed = entries
-		.slice(0, MAX_FILES)
-		.map((entry) => ({ path: entry.slice(3), kind: classify(entry.slice(0, 2)) }))
-		.filter((entry) => entry.path);
+	const changed: { path: string; beforePath: string; kind: WorkspaceDiffFile["status"] }[] = [];
+	for (let i = 0; i < entries.length && changed.length < MAX_FILES; i++) {
+		const entry = entries[i];
+		const path = entry.slice(3);
+		// Porcelain -z puts a rename's source in the next field, not in another status row.
+		const renamed = /[RC]/.test(entry.slice(0, 2));
+		const source = renamed ? entries[++i] : path;
+		if (!path || (base === "index" && entry[1] === " ")) continue;
+		changed.push({ path, beforePath: base === "head" ? source : path,
+			kind: classify(base === "index" ? entry[1] : entry.slice(0, 2)) });
+	}
 
 	/*
 	 * Both sides of every file, in two batches rather than two reads per file.
@@ -56,7 +64,7 @@ export async function collectWorkspaceDiff(
 	 */
 	const heads = await readBlobs(
 		cwd,
-		changed.map((entry) => (entry.kind === "added" || entry.kind === "untracked" ? "" : `HEAD:${entry.path}`)),
+		changed.map((entry) => (entry.kind === "added" || entry.kind === "untracked" ? "" : `${base === "head" ? "HEAD" : ""}:${entry.beforePath}`)),
 	);
 	const working = await mapLimit(changed, (entry) =>
 		entry.kind === "deleted" ? Promise.resolve(blank) : readWorking(cwd, entry.path),

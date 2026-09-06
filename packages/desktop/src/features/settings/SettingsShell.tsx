@@ -1,32 +1,12 @@
 import { composingKey } from "../../ui/keyboard.ts";
-import {
-	Anchor,
-	Archive,
-	ArrowLeft,
-	BarChart3,
-	Blocks,
-	Bot,
-	Camera,
-	Database,
-	FolderGit2,
-	GitPullRequest,
-	Globe,
-	Info,
-	Layers,
-	Palette,
-	Rocket,
-	Search,
-	Settings2,
-	ShieldCheck,
-	Smartphone,
-	Sparkles,
-	SquareTerminal,
-	Wand2,
-} from "lucide-react";
+import { ArrowLeft, Rocket } from "lucide-react";
 import { useEffect, useState } from "react";
+import { WINDOW_HEADER_HEIGHT } from "../../../shared/window-chrome.ts";
 import { NavPane, useLayout } from "../../app/layout.tsx";
-import { groupsFor, sectionFor } from "./sections-for.ts";
+import { sectionFor } from "./sections-for.ts";
+import { settingsGroups } from "./settings-navigation.ts";
 import type { SettingsSection } from "../../store/index.ts";
+import { RetainedViews } from "../../ui/layout/RetainedViews.tsx";
 import { Scroller } from "../../ui/scroll/Scroller.tsx";
 import { useApp } from "../../store/index.ts";
 import { ToolbarButton } from "../../app/window/WindowControls.tsx";
@@ -60,58 +40,11 @@ import { bridge, onPhone } from "../../services/index.ts";
  * The model page is two lists side by side; a page-level scroller over the top would mean two
  * scrollbars for one screen and would carry each pane's header away from the rows it labels.
  */
-const SELF_SCROLLING = new Set<SettingsSection>(["models"]);
+const SELF_SCROLLING = new Set<SettingsSection>(["models", "plugins"]);
 
-const GROUPS: { label: string; items: { id: SettingsSection; label: string; icon: typeof Settings2 }[] }[] = [
-	{
-		label: "基础设置",
-		items: [
-			{ id: "general", label: "常规", icon: Settings2 },
-			{ id: "appearance", label: "外观", icon: Palette },
-			// Next to 外观 because they are asked about together, and separate because one changes
-			// how code is drawn and the other changes what is written to disk.
-			{ id: "formatting", label: "代码格式化", icon: Wand2 },
-			{ id: "personalization", label: "个性化", icon: Sparkles },
-			{ id: "models", label: "模型设置", icon: Layers },
-			{ id: "forges", label: "代码托管", icon: GitPullRequest },
-			{ id: "browser", label: "浏览器", icon: Globe },
-		],
-	},
-	{
-		label: "Agent 能力",
-		items: [
-			{ id: "plugins", label: "插件", icon: Blocks },
-			{ id: "agents", label: "子智能体", icon: Bot },
-			{ id: "commands", label: "命令", icon: SquareTerminal },
-			{ id: "hooks", label: "钩子", icon: Anchor },
-			{ id: "search", label: "网页搜索", icon: Search },
-			{ id: "access", label: "访问授权", icon: ShieldCheck },
-		],
-	},
-	{
-		label: "数据与统计",
-		items: [
-			{ id: "index", label: "索引库", icon: Database },
-			{ id: "sync", label: "移动端同步", icon: Smartphone },
-			{ id: "usage", label: "使用统计", icon: BarChart3 },
-		],
-	},
-	{
-		label: "代码与版本控制",
-		items: [
-			{ id: "worktrees", label: "Worktrees", icon: FolderGit2 },
-		],
-	},
-	{
-		label: "关于与归档",
-		items: [
-			{ id: "about", label: "关于", icon: Info },
-			{ id: "archived", label: "已归档的聊天", icon: Archive },
-		],
-	},
-];
 
 export function SettingsShell() {
+	const workspaceKey = useApp((state) => state.workspace?.path ?? "");
 	const wanted = useApp((s) => s.settingsSection);
 	const setSection = useApp((s) => s.setSettingsSection);
 	const setView = useApp((s) => s.setView);
@@ -124,18 +57,8 @@ export function SettingsShell() {
 
 	const phone = onPhone();
 
-	const section = sectionFor(GROUPS, wanted, phone);
-
-	const groups = groupsFor(
-		GROUPS.map((group) => {
-			if (group.label !== "基础设置" || platform !== "darwin" || phone) return group;
-			// Insert screenshot settings into 基础设置
-			const items = [...group.items];
-			items.splice(items.length - 1, 0, { id: "screenshot" as const, label: "屏幕截图", icon: Camera });
-			return { ...group, items };
-		}),
-		phone,
-	);
+	const groups = settingsGroups(platform, phone);
+	const section = sectionFor(groups, wanted, phone);
 
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
@@ -163,7 +86,7 @@ export function SettingsShell() {
 			<NavPane width={sidebarWidth} label="设置导航">
 				{/* Same as the workspace sidebar: separated by its tint, not by a rule. */}
 				<nav className="ly-sidebar-fill flex h-full w-full flex-col">
-					<div className="h-[44px] shrink-0" />
+					<div className="shrink-0" style={{ height: WINDOW_HEADER_HEIGHT }} />
 
 					{/*
 					 * Filled on hover, like the section rows below it. The outlined variant used
@@ -196,6 +119,7 @@ export function SettingsShell() {
 								{group.items.map((item) => (
 									<button
 										key={item.id}
+										aria-current={section === item.id ? "page" : undefined}
 										type="button"
 										onClick={() => {
 											setSection(item.id);
@@ -236,14 +160,14 @@ export function SettingsShell() {
 			</NavPane>
 
 			<main className="ly-opaque flex min-w-0 flex-1 flex-col">
-				<div className="h-[44px] shrink-0" />
+				<div className="shrink-0" style={{ height: WINDOW_HEADER_HEIGHT }} />
 				{/*
 				 * Most sections are a column of settings and scroll as one page. A few are
 				 * two-pane layouts whose halves scroll independently — putting those inside a page
 				 * scroller as well would give the window two nested scrollbars for one screen, and
 				 * the outer one would move the pane headers out from over their own content.
 				 */}
-				{SELF_SCROLLING.has(section) ? (
+				<RetainedViews key={workspaceKey} active={section} limit={4} render={(section) => SELF_SCROLLING.has(section) ? (
 					<div className={`mx-auto flex min-h-0 w-full max-w-[900px] flex-1 flex-col pb-6 ${compact ? "px-4" : "px-9"}`}>
 						<SectionBody section={section} />
 					</div>
@@ -253,12 +177,12 @@ export function SettingsShell() {
 						<SectionBody section={section} />
 					</div>
 				</Scroller>
-				)}
+				)} />
 			</main>
 
 			{/* Last child, for the same DOM-order reason as the chat shell's toolbar. */}
-			<div className="drag-region absolute inset-x-0 top-0 z-40 h-[44px]">
-				<div className="no-drag absolute top-0 flex h-[44px] items-center gap-0.5" style={{ left: titlebar.start }}>
+			<div className="drag-region absolute inset-x-0 top-0 z-40" style={{ height: WINDOW_HEADER_HEIGHT }}>
+				<div className="no-drag absolute top-0 flex items-center gap-0.5" style={{ left: titlebar.start, height: WINDOW_HEADER_HEIGHT }}>
 					{/*
 					 * Settings shares the shell's nav state, so a sidebar collapsed in the workspace
 					 * arrives collapsed here too. Without this button there would be no way back to

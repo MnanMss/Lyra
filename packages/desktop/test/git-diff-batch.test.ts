@@ -151,3 +151,25 @@ async function currentBranch(): Promise<string> {
 	const { stdout } = await exec("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: repo });
 	return stdout.trim();
 }
+
+test("unstaged additions compare with the index after a new file was staged", async () => {
+	const path = "staged-new.txt";
+	await writeFile(join(repo, path), "one\ntwo\nthree\n");
+	await exec("git", ["add", "--", path], { cwd: repo });
+	await writeFile(join(repo, path), "one\nchanged\nthree\n");
+	try {
+		const all = await collectWorkspaceDiff(repo);
+		assert.equal(all.files.find((file) => file.path === path)?.added, 3);
+		const unstaged = await collectWorkspaceDiff(repo, "index");
+		const file = unstaged.files.find((entry) => entry.path === path);
+		assert.equal(file?.status, "modified");
+		assert.equal(file?.added, 1);
+		assert.equal(file?.removed, 1);
+		assert.deepEqual(file?.hunks.flatMap((hunk) => hunk.lines.filter((line) => line.type === "remove").map((line) => line.text)), ["two"]);
+		await exec("git", ["add", "--", path], { cwd: repo });
+		assert.ok(!(await collectWorkspaceDiff(repo, "index")).files.some((entry) => entry.path === path));
+	} finally {
+		await exec("git", ["restore", "--staged", "--", path], { cwd: repo });
+		await unlink(join(repo, path));
+	}
+});

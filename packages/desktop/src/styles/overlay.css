@@ -6,17 +6,17 @@
  * faster than arriving and does not overshoot — an exit that bounces is asking to be watched.
  */
 .ly-scrim-in {
-  background: rgb(0 0 0 / 0.35);
+  background: rgb(0 0 0 / 0.22);
   animation: ly-scrim-in 160ms ease-out;
 }
 
 .ly-scrim-out {
-  background: rgb(0 0 0 / 0.35);
+  background: rgb(0 0 0 / 0.22);
   animation: ly-scrim-out 130ms ease-in forwards;
 }
 
 .ly-dialog-in {
-  animation: ly-dialog-in 190ms cubic-bezier(0.2, 0.9, 0.3, 1.08);
+  animation: ly-dialog-in 180ms var(--ly-e-out);
 }
 
 .ly-dialog-out {
@@ -44,7 +44,7 @@
 @keyframes ly-dialog-in {
   from {
     opacity: 0;
-    transform: translateY(10px) scale(0.97);
+    transform: translateY(6px) scale(0.985);
   }
   to {
     opacity: 1;
@@ -284,4 +284,47 @@
   50% {
     opacity: 0.45;
   }
+}
+
+.ly-dialog-surface {
+	box-shadow: 0 18px 60px rgb(0 0 0 / 0.16), 0 2px 8px rgb(0 0 0 / 0.06);
+}
+
+.ly-dialog-action {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	min-height: 34px;
+	padding: 0 16px;
+	border-radius: 999px;
+	font-size: var(--text-label);
+	transition: background-color var(--ly-t-quick), color var(--ly-t-quick);
+}
+
+.ly-dialog-action-secondary {
+	background: var(--color-card);
+	color: var(--color-ink-muted);
+}
+
+.ly-dialog-action-secondary:hover {
+	background: var(--color-card-hover);
+	color: var(--color-ink);
+}
+
+.ly-dialog-action-danger {
+	background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+	color: var(--color-danger);
+}
+
+.ly-dialog-action-danger:hover {
+	background: color-mix(in srgb, var(--color-danger) 18%, transparent);
+}
+
+.ly-notes-actions[data-open="true"] {
+	opacity: 1;
+}
+
+@media (hover: none) {
+	.ly-notes-actions { opacity: 1; }
 }

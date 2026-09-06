@@ -7,11 +7,14 @@
  * the event belongs to the conversation on screen.
  */
 
-import type { AgentEvent, Message } from "@lyra/core";
+import type { AgentEvent } from "@lyra/core";
 import { nextActivity } from "@lyra/core/activity";
+import { recordReadEvent } from "./read-events.ts";
+import { cachedEvent } from "./cached-event.ts";
+import { messageEvent } from "./message-event.ts";
 import { coalesce, flushCoalesced } from "./coalesce.ts";
 import { applyToolEvent } from "./apply-tool.ts";
-import { howItStopped, without } from "./derive.ts";
+import { howItStopped } from "./derive.ts";
 import { freeze, relight, saveCarried } from "./turn-meter.ts";
 /*
  * `sideStore.ts` directly, not the domain's index.
@@ -43,22 +46,8 @@ const RECONNECTED = new Set<AgentEvent["type"]>([
   "tool_end",
 ]);
 
-/**
- * Events after which a parked transcript no longer describes its conversation.
- *
- * `message_update` is deliberately absent: it only ever arrives between a `message_start` and a
- * `message_end`, both of which are here, so the cache is already gone by the time one lands.
- */
-const TOUCHES_TRANSCRIPT = new Set<AgentEvent["type"]>([
-  "message_start",
-  "message_end",
-  "tool_start",
-  "tool_end",
-  "rewound",
-  "compacted",
-]);
-
 export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, get: Get): void {
+  recordReadEvent(sessionId, event);
   /*
    * Every conversation's state, not just the one on screen.
    *
@@ -192,23 +181,10 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
   }
 
   if (sessionId !== get().activeSessionId) {
-    /*
-     * A conversation that has moved on cannot be served from what was parked for it.
-     *
-     * The cache exists so that going back somewhere you have already been does not flash a
-     * skeleton — which is right, and was being applied to conversations that had since said
-     * something new. A turn finishing in the background put a green dot on the row and left the
-     * stale transcript in here, so clicking it showed the state from before the turn ran, with
-     * nothing to say so, until the re-read landed. Being shown old content presented as current
-     * is worse than being shown a placeholder for a moment.
-     *
-     * Dropped rather than updated: the events do not carry enough to rebuild a transcript that
-     * this window never watched, and the re-read that follows every open is authoritative anyway.
-     * Only the events that actually change what a transcript says — a title arrives constantly and
-     * changes nothing about the messages.
-     */
-    if (TOUCHES_TRANSCRIPT.has(event.type) && get().sessionCache[sessionId]) {
-      set({ sessionCache: without(get().sessionCache, sessionId) });
+    const cached = get().sessionCache[sessionId];
+    if (cached) {
+      const next = cachedEvent(cached, event);
+      if (next !== cached) set({ sessionCache: { ...get().sessionCache, [sessionId]: next } });
     }
 
     if (event.type === "title") {
@@ -279,92 +255,16 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
       });
       break;
 
-    case "message_start": {
-      const messages = get().messages;
-
-      // The composer already painted this one; swap in the stored copy rather than
-      // showing it twice. Matched by reference, so sending the same text again is
-      // still two messages.
-      const pending = get().pendingUserMessage;
-      const pendingMatch =
-        pending &&
-        (pending.sessionId === sessionId || pending.sessionId === null) &&
-        messages.includes(pending.message);
-      if (
-        event.message.role === "user" &&
-        pendingMatch
-      ) {
-        set({
-          messages: messages.map((m) => (m === pending.message ? event.message : m)),
-          pendingUserMessage: null,
-        });
-        break;
-      }
-
-      // A message_start for a message already in the list happens on reconnect; ignore it.
-      if (
-        event.message.role === "assistant" &&
-        messages[messages.length - 1]?.role === "assistant"
-      ) {
-        const last = messages[messages.length - 1];
-        if (last.role === "assistant" && last.stopReason === "pending") break;
-      }
-      set({ messages: [...messages, event.message] });
+    case "message_start":
+    case "message_end":
+      set(messageEvent(get(), event));
       break;
-    }
 
-    case "message_update": {
-      // Held until the next frame; see `coalesce`. The newest update is the only one worth having.
+    case "message_update":
       coalesce(() => {
-        // The next animation frame may belong to a different conversation.
-        if (get().activeSessionId !== sessionId) return;
-        const messages = [...get().messages];
-        const index = messages.length - 1;
-        if (index >= 0 && messages[index].role === "assistant") messages[index] = event.message;
-        else messages.push(event.message);
-        set({ messages });
+        if (get().activeSessionId === sessionId) set(messageEvent(get(), event));
       });
       break;
-    }
-
-    case "message_end": {
-      const messages = [...get().messages];
-
-      /*
-       * The composer's copy is still standing in for this one.
-       *
-       * `message_start` normally swaps it out, but on a brand-new conversation that event
-       * arrives before `sessions.create` has returned — so the store does not yet know which
-       * session it belongs to and drops it. Without this, the stored copy is appended next to
-       * the copy the composer painted and the message appears twice, every first message.
-       */
-      const pending = get().pendingUserMessage;
-      const pendingMatch =
-        pending &&
-        (pending.sessionId === sessionId || pending.sessionId === null) &&
-        messages.includes(pending.message);
-      if (event.message.role === "user" && pendingMatch) {
-        set({
-          messages: messages.map((m) => (m === pending.message ? event.message : m)),
-          pendingUserMessage: null,
-        });
-        break;
-      }
-
-      const index = findMessageSlot(messages, event.message);
-      if (index >= 0) messages[index] = event.message;
-      else messages.push(event.message);
-      /*
-       * The tokens are not added here any more; the meter block at the top of this function does it.
-       *
-       * There used to be two accumulators for one number — this one, and the per-session map — kept
-       * by different events and disagreeing by an entire turn's output. Whichever wrote last won,
-       * and the map wrote last on every new reply. Counting in the place that serves every session
-       * is also what makes the count right for conversations that are running off screen.
-       */
-      set({ messages });
-      break;
-    }
 
     case "tool_start":
     case "tool_update":
@@ -391,7 +291,9 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
     case "rewound":
       // The agent discarded a tail of history; match it exactly rather than guessing
       // from the messages that arrive next.
-      set({ messages: get().messages.slice(0, event.messageCount) });
+			set({ messages: get().messages.slice(0, event.messageCount),
+				commandRuns: get().commandRuns.filter((run) => run.at <= event.messageCount),
+				compactions: get().compactions.filter((run) => run.at <= event.messageCount) });
       break;
 
     case "title": {
@@ -455,6 +357,10 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
           : {}),
       });
       break;
+
+		case "command_status":
+			set({ running: event.command.status === "running", commandRuns: [...get().commandRuns.filter((run) => run.id !== event.command.id), event.command] });
+			break;
 
     case "compacted":
       /*
@@ -544,22 +450,4 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
       break;
     }
   }
-}
-
-/** Match an incoming final message to the slot its streaming version occupies. */
-function findMessageSlot(messages: Message[], incoming: Message): number {
-  if (incoming.role === "toolResult") {
-    return messages.findIndex((m) => m.role === "toolResult" && m.toolCallId === incoming.toolCallId);
-  }
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const candidate = messages[i];
-    if (candidate.role !== incoming.role) continue;
-    if (candidate.role === "assistant" && incoming.role === "assistant") {
-      // The streamed placeholder is the only assistant message still pending.
-      if (candidate.stopReason === "pending" || candidate.timestamp === incoming.timestamp) return i;
-      return -1;
-    }
-    if (candidate.timestamp === incoming.timestamp) return i;
-  }
-  return -1;
 }

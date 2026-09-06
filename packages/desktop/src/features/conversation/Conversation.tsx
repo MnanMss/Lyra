@@ -10,6 +10,9 @@ import { Scroller } from "../../ui/scroll/Scroller.tsx";
 import { useAnswering } from "./useAnswering.ts";
 import { isNudge, runs, runKey } from "./grouping.ts";
 import { ToolRun as ToolRunGroup, WINDOW_STEP } from "./runs.tsx";
+import { CommandRunRow } from "./CommandRunRow.tsx";
+import { QuestionNav } from "./QuestionNav.tsx";
+import { questionsIn, timeSeparators } from "./question-navigation.ts";
 import { MessageRow } from "./rows.tsx";
 import { useTranscriptWindow } from "./view-state.ts";
 import { useFollowBottom } from "../../ui/scroll/useFollowBottom.ts";
@@ -32,11 +35,16 @@ export const Conversation = memo(function Conversation() {
   const messages = useApp((s) => s.messages);
   const running = useApp((s) => s.running);
   const compactions = useApp((s) => s.compactions);
+	const commandRuns = useApp((s) => s.commandRuns);
+	const compacting = commandRuns.some((command) => command.status === "running");
   const toolRunCount = useApp((s) => Object.keys(s.toolRuns).length);
   const activeSessionId = useApp((s) => s.activeSessionId);
   const loadingSession = useApp((s) => s.loadingSession);
-  // Resolve the incoming session's history range before restoring its scroll position.
-  const [windowSize, showEarlier] = useTranscriptWindow(activeSessionId, WINDOW_STEP);
+  const allRuns = useMemo(() => runs(messages, compactions, commandRuns), [messages, compactions, commandRuns]);
+  const separators = useMemo(() => timeSeparators(messages), [messages]);
+  const questions = useMemo(() => questionsIn(messages), [messages]);
+  const range = useTranscriptWindow(activeSessionId, WINDOW_STEP, allRuns.length);
+  const [jump, setJump] = useState<{ sessionId: string | null; index: number; changedWindow: boolean } | null>(null);
   const { compact } = useLayout();
   /*
    * The floating card needs its own width plus a readable column left over beside it.
@@ -95,7 +103,7 @@ export const Conversation = memo(function Conversation() {
     surfaceId: activeSessionId,
     namespace: "transcript",
     ready: !loadingSession,
-    count: messages.length,
+    count: messages.length + commandRuns.length,
     /*
      * What "something arrived" means here.
      *
@@ -117,9 +125,12 @@ export const Conversation = memo(function Conversation() {
   const pending = useApp((s) => s.pendingUserMessage);
   const { returnToBottom } = follow;
   useLayoutEffect(() => {
-    if (!pending) return;
+    if (!pending && !compacting) return;
+    range.latest();
     returnToBottom();
-  }, [pending, returnToBottom]);
+    // The pending object identifies one submission; changing the window is not a new submission.
+    // oxlint-disable-next-line exhaustive-deps
+  }, [pending, compacting, returnToBottom]);
 
 
   /*
@@ -129,9 +140,18 @@ export const Conversation = memo(function Conversation() {
    * the whole message list again and handed every row a freshly built object, so React rebuilt
    * three hundred rows to show one more word arriving.
    */
-  const allRuns = useMemo(() => runs(messages, compactions), [messages, compactions]);
-  const hidden = Math.max(0, allRuns.length - windowSize);
-  const visibleRuns = hidden > 0 ? allRuns.slice(hidden) : allRuns;
+  const hidden = range.start;
+  const visibleRuns = allRuns.slice(range.start, range.end);
+  const { scrollTo, detach } = follow;
+  useLayoutEffect(() => {
+    if (!jump || jump.sessionId !== activeSessionId) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const target = el.querySelector<HTMLElement>(`[data-question-index="${jump.index}"]`);
+    if (!target) return;
+    scrollTo(el.scrollTop + target.getBoundingClientRect().top - el.getBoundingClientRect().top - 40, jump.changedWindow);
+    setJump(null);
+  }, [jump, activeSessionId, range.start, range.end, scrollRef, scrollTo]);
 
   return (
     <div ref={column} className="flex min-h-0 flex-1 flex-col">
@@ -143,7 +163,7 @@ export const Conversation = memo(function Conversation() {
        * message. What it offers is about the transcript, so the transcript is what it is
        * positioned against.
        */}
-      <div className="relative flex min-h-0 flex-1 flex-col">
+      <div className="@container relative flex min-h-0 flex-1 flex-col">
       {/*
        * Over the transcript when there is room beside it, in the column when there is not.
        *
@@ -170,7 +190,7 @@ export const Conversation = memo(function Conversation() {
       <Scroller
         className="flex-1"
         scrollRef={scrollRef}
-        contentClassName={compact ? "px-4" : "px-8"}
+        contentClassName={questions.length > 1 ? "pl-12 pr-4 @min-[600px]:pr-8" : compact ? "px-4" : "px-8"}
         onScroll={follow.onScroll}
         onResize={follow.onResize}
       >
@@ -201,7 +221,7 @@ export const Conversation = memo(function Conversation() {
           {hidden > 0 && (
             <button
               type="button"
-              onClick={showEarlier}
+              onClick={range.earlier}
               className="mb-4 flex h-7 w-full items-center justify-center rounded-md text-detail text-ink-faint transition-colors hover:bg-card-hover hover:text-ink-muted"
             >
               显示更早的 {Math.min(hidden, WINDOW_STEP)} 条（共 {hidden} 条）
@@ -210,19 +230,14 @@ export const Conversation = memo(function Conversation() {
 
           {visibleRuns.map((run) =>
             /*
-             * Compaction leaves no mark in the transcript.
-             *
-             * There was a rule across the conversation here saying everything above it had been
-             * summarised. True, and about the request rather than about anything being read — so it
-             * spent a permanent line, and a visible seam through the middle of someone's work, on
-             * an implementation detail. It is mentioned once on the running line while the turn is
-             * still going (see `RunningIndicator`) and then it is gone, which is the weight it
-             * deserves.
+						 * Automatic compaction belongs on the running indicator. An explicitly submitted
+						 * command keeps its own result, so the user can verify the action they requested.
              */
-            run.kind === "compaction" ? null : run.kind === "message" ? (
+            run.kind === "compaction" ? null : run.kind === "command" ? <CommandRunRow key={`${activeSessionId}:${runKey(run)}`} command={run.command} /> : run.kind === "message" ? (
               <MessageRow
                 key={`${activeSessionId}:${runKey(run)}`}
                 viewKey={runKey(run)}
+                showTime={separators.has(run.index)}
                 message={run.message}
                 index={run.index}
                 upTo={run.upTo}
@@ -272,9 +287,11 @@ export const Conversation = memo(function Conversation() {
            * Folded rather than removed, so the height goes continuously — which is the whole
            * reason it was made to stay put in the first place.
            */}
-          <div className="ly-reveal" data-open={running && !answering} aria-hidden={!running || answering}>
+          {range.end < allRuns.length && <button type="button" onClick={range.later} className="my-3 flex h-7 w-full items-center justify-center rounded-md text-detail text-ink-faint transition-colors hover:bg-card-hover hover:text-ink-muted">显示后面的 {Math.min(WINDOW_STEP, allRuns.length - range.end)} 条</button>}
+          {range.end === allRuns.length && <>
+          <div className="ly-reveal" data-open={running && !answering && !compacting} aria-hidden={!running || answering || compacting}>
             <div>
-              <div>{running && <RunningIndicator />}</div>
+              <div>{running && !compacting && <RunningIndicator />}</div>
             </div>
           </div>
           {/* Where the running indicator would have been, saying why it is not there. */}
@@ -296,6 +313,7 @@ export const Conversation = memo(function Conversation() {
            * changes nothing about the layout it reports on.
            */}
           <div ref={follow.tailRef} aria-hidden className="h-px w-full shrink-0" />
+          </>}
         </div>
       </Scroller>
 
@@ -306,10 +324,17 @@ export const Conversation = memo(function Conversation() {
        * moment it appeared, and a control offering to move you should not itself move the thing
        * it is about.
        */}
+      {questions.length > 1 && <QuestionNav key={activeSessionId} questions={questions} viewport={scrollRef} onSelect={(index) => {
+        const at = allRuns.findIndex((run) => run.kind === "message" && run.index === index);
+        if (at < 0) return;
+        detach();
+        range.reveal(at);
+        setJump({ sessionId: activeSessionId, index, changedWindow: at < range.start || at >= range.end });
+      }} />}
       <BackToLatest
-        show={follow.away}
+        show={follow.away || range.end < allRuns.length}
         unread={follow.unread}
-        onClick={follow.returnToBottom}
+        onClick={() => { range.latest(); follow.returnToBottom(); }}
       />
       </div>
 

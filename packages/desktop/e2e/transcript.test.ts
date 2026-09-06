@@ -222,7 +222,7 @@ async function runTurn(): Promise<Frame[]> {
 				says: runs.map((r) => (r.querySelector("button > span")?.innerText ?? "").replace(/\\s+/g, " ").trim()),
 				kept,
 				// The turn's own indicator: present for the whole turn, gaps between batches included.
-				turning: Boolean([...document.querySelectorAll("main svg")].some((s) => s.classList.contains("ly-spin"))),
+				turning: Boolean(document.querySelector('button[aria-label="停止"]')),
 			};
 		};
 

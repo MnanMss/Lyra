@@ -21,7 +21,7 @@ export function GroupHeader({
   onAction: () => void;
 }) {
   return (
-    <div className="flex items-center gap-1.5 px-1 pt-2 pb-1">
+    <div className="flex items-center gap-1.5 px-1.5 pt-2 pb-1">
       <Text size="caption" tone="faint" weight="medium">
         {label}
       </Text>
@@ -33,7 +33,7 @@ export function GroupHeader({
         type="button"
         disabled={disabled}
         onClick={onAction}
-        className="rounded px-1 text-caption text-ink-faint transition-colors hover:text-ink disabled:opacity-40"
+        className="w-9 rounded text-right text-caption text-ink-faint transition-colors hover:text-ink disabled:opacity-40"
       >
         {action}
       </button>

@@ -56,6 +56,7 @@ function answered(id: string): Message {
 function shape(rows: Run[]): string[] {
 	return rows.map((row) => {
 		if (row.kind === "compaction") return "compaction";
+		if (row.kind === "command") return `command:${row.command.id}`;
 		if (row.kind === "message") return `message@${row.index}:${row.upTo}`;
 		return `tools:${row.calls.map((c) => c.block.id).join(",")}`;
 	});
@@ -72,6 +73,12 @@ test("a call from a reply that is still streaming joins the run above, not a row
 	]);
 
 	assert.deepEqual(shape(rows), ["message@0:1", "tools:a,b,c,d,e"]);
+});
+
+test("a manual command remains before resumed tool work even when the continuation has no visible user message", () => {
+	const messages = [user("inspect"), assistant([call("a")], "aborted"), answered("a"), nudge(), assistant([call("b")], "pending")];
+	const rows = runs(messages, [], [{ id: "manual", name: "compact", input: "/compact", at: 3, timestamp: 3, status: "done", detail: "完成" }]);
+	assert.deepEqual(shape(rows), ["message@0:1", "tools:a", "command:manual", "tools:b"]);
 });
 
 test("finishing a reply does not move its calls into a different row", () => {

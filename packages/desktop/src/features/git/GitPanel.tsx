@@ -16,6 +16,7 @@ import { PanelEmpty } from "../../ui/layout/PanelEmpty.tsx";
 import { Text } from "../../ui/primitives/Text.tsx";
 import { useApp } from "../../store/index.ts";
 
+import { RetainedViews } from "../../ui/layout/RetainedViews.tsx";
 import { BranchesView } from "./BranchesView.tsx";
 import { ChangesView } from "./ChangesView.tsx";
 import { HistoryView } from "./HistoryView.tsx";
@@ -689,15 +690,8 @@ export function GitPanel() {
         </div>
       )}
 
-      {/*
-       * Keyed on the branch, so a switch replays the entry animation.
-       *
-       * Without it the list simply contains different files a moment later, with nothing to say
-       * that the ground moved — which is the one thing worth signalling when the branch changed
-       * underneath it. Re-mounting is affordable here: the view holds no scroll position or
-       * selection worth carrying across a branch it no longer belongs to.
-       */}
-      {view === "changes" && (
+      <RetainedViews key={cwd} active={view} limit={4} render={(shown) => <>
+      {shown === "changes" && (
         <ChangesView
           key={status?.branch ?? "detached"}
           loading={slowSwitch}
@@ -718,8 +712,8 @@ export function GitPanel() {
           onPull={() => void remote("pull", (id) => bridge.git.pull(cwd, id))}
         />
       )}
-      {view === "history" && <HistoryView cwd={cwd} />}
-      {view === "branches" && (
+      {shown === "history" && <HistoryView cwd={cwd} />}
+      {shown === "branches" && (
         <BranchesView
           cwd={cwd}
           status={status}
@@ -730,12 +724,14 @@ export function GitPanel() {
           onSelectRepo={setSelected}
         />
       )}
-      {view === "pipelines" && (
+      {shown === "pipelines" && (
         <PipelinesView
           cwd={cwd}
           onOpenRelease={() => setReleaseOpen(true)}
         />
       )}
+
+      </>} />
 
       {releaseOpen && (
         // Same reason as `ChangesView`: release from the repository on screen, not from the folder

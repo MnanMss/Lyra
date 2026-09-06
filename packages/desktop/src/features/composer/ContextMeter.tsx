@@ -1,21 +1,15 @@
-import { ChevronRight, FileText } from "lucide-react";
-/*
- * The subpath, not the package root.
- *
- * `@lyra/core` is the kernel's entry point and pulls in the bash tool, the settings loader
- * and the plugin host with it — all of which reach for `process`, which the renderer does not
- * have. Importing the root here took the whole window white on load.
- */
-import { estimateTokens } from "@lyra/core/tokens";
+import { FileText } from "lucide-react";
 import type { Message, Settings } from "@lyra/core";
 import { useEffect, useState } from "react";
 
 import type { ContextBreakdown, ContextSegmentKey, MemoryFileItem } from "../../../electron/ipc-types.ts";
+import { useApp } from "../../store/index.ts";
 import { findModel } from "../models/index.ts";
 import { Popover, usePopover } from "../../ui/overlay/Popover.tsx";
 import { formatTokens } from "../conversation/index.ts";
 import { bridge } from "../../services/index.ts";
 import { useOpenFile } from "../../store/openFile.ts";
+import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
 import { companionOf, useDock } from "../dock/index.ts";
 
 /**
@@ -29,7 +23,7 @@ import { companionOf, useDock } from "../dock/index.ts";
  * The ring alone answers "am I close?". Opening it answers "why?", which is the question you
  * actually act on — the culprit is nearly always one segment, and which one decides whether you
  * start a new conversation, drop an MCP server, or go and trim a CLAUDE.md nobody has read in
- * months. That detail is not free to compute, so it is fetched on open rather than on render.
+ * months. Rebuild at turn boundaries or while inspecting, never on every streamed chunk.
  */
 export function ContextMeter({
 	messages,
@@ -43,27 +37,28 @@ export function ContextMeter({
 	sessionId: string | null;
 }) {
 	const popover = usePopover();
-	const [detail, setDetail] = useState<ContextBreakdown | null>(null);
-	const [memoryExpanded, setMemoryExpanded] = useState(false);
+	const [snapshot, setSnapshot] = useState<{ sessionId: string; modelId: string | null; detail: ContextBreakdown | null; error?: string } | null>(null);
+	const current = snapshot?.sessionId === sessionId && snapshot.modelId === modelId ? snapshot : null;
+	const detail = current?.detail;
+	const hasMessages = messages.length > 0;
+	const compacted = useApp((s) => s.compactions.length);
+	const running = useApp((s) => s.running);
 	const open = popover.open;
+	const revision = open || !running ? messages.length : 0;
 
-	/*
-	 * Re-fetched every time it opens, and dropped when it closes.
-	 *
-	 * The breakdown reflects the conversation at the moment it was asked for; keeping the last
-	 * one around would show a stale total under a ring that had already moved on.
-	 */
+	// Refresh at conversation boundaries; hidden meters do not rebuild prompts for each tool message.
 	useEffect(() => {
-		if (!open || !sessionId) return;
+		if (!sessionId || !hasMessages) return;
 		let cancelled = false;
 		void bridge.sessions.contextBreakdown(sessionId).then((result) => {
-			if (!cancelled) setDetail(result);
+			if (!cancelled) setSnapshot({ sessionId, modelId, detail: result, error: result ? undefined : "当前模型的上下文用量不可用" });
+		}, (error: unknown) => {
+			if (!cancelled) setSnapshot({ sessionId, modelId, detail: null, error: error instanceof Error ? error.message : String(error) });
 		});
 		return () => {
 			cancelled = true;
-			setDetail(null);
 		};
-	}, [open, sessionId]);
+	}, [open, sessionId, modelId, hasMessages, revision, compacted, running, settings]);
 
 	const model = findModel(settings, modelId);
 	if (!model || model.contextWindow <= 0) return null;
@@ -76,8 +71,8 @@ export function ContextMeter({
 	 */
 	if (messages.length === 0) return null;
 
-	// The ring reads from the transcript so it is correct before the detail has been asked for.
-	const used = detail?.used ?? measureContext(messages);
+	// Both readings use the model history, which can differ from the visible transcript.
+	const used = detail?.used ?? 0;
 	const limit = detail?.limit ?? model.contextWindow;
 	const ratio = Math.min(1, used / limit);
 	const percent = Math.round(ratio * 100);
@@ -89,8 +84,8 @@ export function ContextMeter({
 		<>
 			<button
 				type="button"
-				data-ly-tip={`上下文占用 ${percent}%`}
-				aria-label={`上下文占用 ${percent}%`}
+				data-ly-tip={detail ? `上下文占用 ${percent}%${detail.measured ? "" : "（估算）"}` : current?.error ?? "正在读取上下文用量"}
+				aria-label={detail ? `上下文占用 ${percent}%${detail.measured ? "" : "（估算）"}` : current?.error ?? "正在读取上下文用量"}
 				aria-haspopup="dialog"
 				aria-expanded={open}
 				onClick={popover.toggle}
@@ -124,58 +119,40 @@ export function ContextMeter({
 						<div className="flex items-baseline justify-between gap-4">
 							<span className="text-label text-ink">上下文窗口</span>
 							<span className={`text-label tabular-nums ${tight ? "text-danger" : "text-ink-muted"}`}>
-								{formatTokens(used)} / {formatTokens(limit)}（{percent}%）
+								{detail ? `${formatTokens(used)} / ${formatTokens(limit)}（${percent}%）` : current?.error ? "暂时无法读取" : "正在读取…"}
 							</span>
 						</div>
 
 						<Bar segments={detail?.segments ?? []} limit={limit} used={used} tight={tight} />
 
+						{tight && (
+							<p className="mt-2.5 border-t border-line-soft pt-2 text-detail leading-relaxed text-ink-faint">
+								接近上限，较早的消息会被自动摘要压缩。开新对话可以拿回全部窗口。
+							</p>
+						)}
+
 						{detail ? (
 							<div className="mt-2.5 flex flex-col gap-[3px]">
-								{detail.segments.map((segment, index) => {
-									const isMemory = segment.key === "memory" && (detail.memoryFiles?.length ?? 0) > 0;
-									return (
-										<div key={segment.key} className="flex flex-col">
-											<Row
-												swatch={shadeOf(index)}
-												label={SEGMENT_LABEL[segment.key]}
-												tokens={segment.tokens}
-												share={segment.tokens / limit}
-												expandable={isMemory}
-												expanded={memoryExpanded}
-												onToggleExpand={isMemory ? () => setMemoryExpanded((e) => !e) : undefined}
-											/>
-											{isMemory && memoryExpanded && detail.memoryFiles && (
-												<div className="mt-1 ml-4 flex flex-col gap-[2px] border-l border-line-soft pl-2">
-													{detail.memoryFiles.map((file) => (
-														<MemoryFileRow
-															key={file.path}
-															file={file}
-															limit={limit}
-															onPreview={() => {
-																popover.close();
-																void useOpenFile.getState().open({
-																	path: file.path,
-																	name: file.path.split("/").pop() || file.path,
-																	isDirectory: false,
-																	size: 0,
-																});
-																useDock.getState().open("file", companionOf("file"));
-															}}
-														/>
-													))}
-												</div>
-											)}
-										</div>
-									);
-								})}
+								{detail.segments.filter((segment) => segment.key !== "memory" && segment.key !== "projectMemory").map((segment) => <Row key={segment.key} swatch={shadeOf(detail.segments.indexOf(segment))} label={SEGMENT_LABEL[segment.key]} tokens={segment.tokens} share={segment.tokens / limit} />)}
 								<Row
 									swatch="var(--color-line)"
 									label="剩余空间"
 									tokens={Math.max(0, limit - used)}
 									share={Math.max(0, limit - used) / limit}
 								/>
+								{!detail.measured && <p className="text-micro text-ink-faint">按当前模型上下文估算；下次响应后校准。</p>}
+								<details className="mt-1 border-t border-line-soft pt-1">
+									<summary className="cursor-pointer py-1 text-detail text-ink-muted">项目指令 <span className="float-right tabular-nums">{formatTokens(detail.segments.find((segment) => segment.key === "memory")?.tokens ?? 0)}</span></summary>
+									{detail.memoryFiles?.map((file) => <MemoryFileRow key={file.path} file={file} limit={limit} onPreview={() => { popover.close(); void useOpenFile.getState().open({ path: file.path, name: file.path.split(/[\\/]/).pop() || file.path, isDirectory: false, size: 0 }); useDock.getState().open("file", companionOf("file")); }} />) ?? <p className="py-1 text-detail text-ink-faint">未加载项目指令</p>}
+								</details>
+								<details className="text-detail text-ink-muted">
+									<summary className="cursor-pointer py-1">项目记忆 <span className="float-right tabular-nums">{formatTokens(detail.segments.find((segment) => segment.key === "projectMemory")?.tokens ?? 0)}</span></summary>
+									<p className="py-1 whitespace-pre-wrap break-words leading-relaxed text-ink-faint">{detail.projectMemory?.trim() || "当前未注入项目记忆，可在设置 → 个性化中管理。"}</p>
+								</details>
+
 							</div>
+						) : current?.error ? (
+							<p role="status" className="mt-3 break-words text-detail text-danger">{current.error}</p>
 						) : (
 							// One row per segment we are about to show, so opening does not jump.
 							<div className="mt-2.5 flex flex-col gap-[3px]">
@@ -185,11 +162,6 @@ export function ContextMeter({
 							</div>
 						)}
 
-						{tight && (
-							<p className="mt-2.5 border-t border-line-soft pt-2 text-detail leading-relaxed text-ink-faint">
-								接近上限，较早的消息会被自动摘要压缩。开新对话可以拿回全部窗口。
-							</p>
-						)}
 					</div>
 				</Popover>
 			)}
@@ -204,6 +176,7 @@ const SEGMENT_LABEL: Record<ContextSegmentKey, string> = {
 	skills: "技能目录",
 	systemPrompt: "系统提示词",
 	memory: "项目指令",
+	projectMemory: "项目记忆",
 };
 
 /**
@@ -258,35 +231,15 @@ function Row({
 	label,
 	tokens,
 	share,
-	expandable,
-	expanded,
-	onToggleExpand,
 }: {
 	swatch: string;
 	label: string;
 	tokens: number;
 	share: number;
-	expandable?: boolean;
-	expanded?: boolean;
-	onToggleExpand?: () => void;
 }) {
 	return (
-		<div
-			onClick={onToggleExpand}
-			className={`flex items-center gap-2 rounded px-1 py-0.5 text-detail transition-colors ${
-				expandable ? "cursor-pointer hover:bg-card-hover" : ""
-			}`}
-		>
-			{expandable ? (
-				<ChevronRight
-					size={11}
-					className={`shrink-0 text-ink-faint transition-transform duration-[var(--ly-t-quick)] ${
-						expanded ? "rotate-90 text-ink" : ""
-					}`}
-				/>
-			) : (
-				<span className="h-[8px] w-[8px] shrink-0 rounded-[2px]" style={{ background: swatch }} />
-			)}
+		<div className="flex items-center gap-2 rounded px-1 py-0.5 text-detail">
+			<span className="h-[8px] w-[8px] shrink-0 rounded-[2px]" style={{ background: swatch }} />
 			<span className="min-w-0 flex-1 truncate text-ink-muted">{label}</span>
 			<span className="shrink-0 tabular-nums text-ink-muted">{formatTokens(tokens)}</span>
 			<span className="w-[44px] shrink-0 text-right tabular-nums text-ink-faint">{(share * 100).toFixed(1)}%</span>
@@ -304,20 +257,21 @@ function MemoryFileRow({
 	onPreview: () => void;
 }) {
 	return (
-		<div
+		<button
+			type="button"
 			onClick={onPreview}
 			data-ly-tip="点击在文件容器中预览"
-			className="group/file flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-1 text-detail transition-colors hover:bg-card-hover"
+			className="group/file ly-scroll flex w-full cursor-pointer items-center gap-1.5 rounded px-1.5 py-1 text-detail transition-colors hover:bg-card-hover"
 		>
 			<FileText size={12} className="shrink-0 text-ink-faint group-hover/file:text-accent" />
-			<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-muted group-hover/file:text-ink">
-				{file.path}
+			<span className="min-w-0 flex-1 text-left font-mono text-[11px] text-ink-muted group-hover/file:text-ink">
+				<ScrollText text={file.path} />
 			</span>
 			<span className="shrink-0 tabular-nums text-[11px] text-ink-faint">{formatTokens(file.tokens)}</span>
 			<span className="w-[40px] shrink-0 text-right tabular-nums text-[11px] text-ink-faint/70">
 				{((file.tokens / limit) * 100).toFixed(1)}%
 			</span>
-		</div>
+		</button>
 	);
 }
 
@@ -350,24 +304,4 @@ function Ring({ ratio, tight }: { ratio: number; tight: boolean }) {
 			/>
 		</svg>
 	);
-}
-
-/**
- * The ring's own reading, from what the renderer already has.
- *
- * Deliberately duplicates what the main process computes properly, because the ring is on screen
- * all the time and the real breakdown costs a prompt rebuild. It agrees with the detailed figure
- * on the part that dominates — the conversation — and understates the fixed overhead, which is
- * why opening the card can nudge the number up slightly.
- */
-function measureContext(messages: Message[]): number {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const message = messages[i];
-		if (message.role !== "assistant" || message.stopReason === "pending") continue;
-		const { input, cacheRead, output } = message.usage;
-		const measured = input + cacheRead + output;
-		if (measured <= 0) break;
-		return measured + estimateTokens(messages.slice(i + 1));
-	}
-	return estimateTokens(messages);
 }

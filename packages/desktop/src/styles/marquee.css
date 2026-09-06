@@ -103,11 +103,11 @@
 
 /* Reduced motion needs the scroll gone, not sped up. */
 @media (prefers-reduced-motion: reduce) {
-  :root[data-reduce-motion="system"] .ly-scroll:hover .ly-marquee-track {
+  :root[data-reduce-motion="system"] .ly-marquee-track {
     animation: none !important;
   }
 }
 
-:root[data-reduce-motion="on"] .ly-scroll:hover .ly-marquee-track {
+:root[data-reduce-motion="on"] .ly-marquee-track {
   animation: none !important;
 }

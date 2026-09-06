@@ -1,7 +1,7 @@
 /**
  * Branches, and the diff between any two of them.
  */
-import { Check, GitBranchPlus, FolderGit2 } from "lucide-react";
+import { GitBranchPlus, FolderGit2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import type { GitStatus, WorkspaceDiffFile } from "../../../electron/ipc-types.ts";
@@ -10,6 +10,8 @@ import type { BranchList, RepoRef } from "../../../electron/git.ts";
 import { useConfirmer } from "../../ui/overlay/Confirm.tsx";
 import { Scroller } from "../../ui/scroll/Scroller.tsx";
 
+import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
+import { SkeletonList, useSlowLoad } from "../../ui/primitives/Skeleton.tsx";
 import { Text } from "../../ui/primitives/Text.tsx";
 
 import { FileDiffList } from "./FileDiffList.tsx";
@@ -43,11 +45,9 @@ export function BranchesView({
   trees: Record<string, RepoRef[]>;
   onSelectRepo: (path: string) => void;
 }) {
-  const [branches, setBranches] = useState<BranchList>({
-    current: null,
-    local: [],
-    remote: [],
-  });
+  const [branches, setBranches] = useState<BranchList | null>(null);
+  const slow = useSlowLoad(branches === null);
+  const [revision, setRevision] = useState(0);
   const [compare, setCompare] = useState<{ base: string; head: string } | null>(
     null,
   );
@@ -62,14 +62,16 @@ export function BranchesView({
   /** Repositories and their worktrees, flattened in display order. */
   const checkouts = repos.flatMap((repo) => [repo, ...(trees[repo.path] ?? [])]);
 
-  const load = useCallback(() => {
-    void bridge.git.branches(cwd).then(setBranches);
-  }, [cwd]);
-
-  useEffect(load, [load, status?.branch]);
+  const load = useCallback(() => setRevision((value) => value + 1), []);
+  useEffect(() => {
+    let live = true;
+    void bridge.git.branches(cwd).then((result) => { if (live) setBranches(result); });
+    return () => { live = false; };
+  }, [cwd, revision, status?.branch]);
 
   useEffect(() => {
-    if (!compare) return setDiff(null);
+    setDiff(null);
+    if (!compare) return;
     let live = true;
     void bridge.git
       .diffRefs(cwd, compare.base, compare.head)
@@ -79,6 +81,7 @@ export function BranchesView({
     };
   }, [cwd, compare]);
 
+  if (branches === null) return slow ? <SkeletonList count={5} label="正在读取分支" /> : null;
   const current = branches.current;
   /*
    * The upstream belongs in this list even though the switcher filters it out.
@@ -94,7 +97,7 @@ export function BranchesView({
       : branches.remote;
 
   return (
-    <Scroller className="flex-1" contentClassName="px-1.5 pb-2" top="none" bottom="none">
+    <Scroller className="flex-1" contentClassName="px-1.5 pb-2">
       {compare ? (
         <>
           <div className="flex items-center gap-1.5 px-1 py-1.5">
@@ -141,25 +144,22 @@ export function BranchesView({
                   key={entry.path}
                   type="button"
                   data-ly-tip={entry.path}
+                  aria-current={entry.path === cwd ? "location" : undefined}
                   onClick={() => onSelectRepo(entry.path)}
-                  className={`flex w-full items-center gap-1.5 rounded-md py-1 pr-1.5 text-left transition-colors ${
+                  className={`ly-scroll flex w-full items-center gap-1.5 rounded-md py-1 pr-1.5 text-left transition-colors ${
                     entry.worktree ? "pl-5" : "pl-1.5"
-                  } ${entry.path === cwd ? "bg-card-hover" : "hover:bg-card-hover"}`}
+                  } ${entry.path === cwd ? "text-accent" : "text-ink-muted hover:text-ink"}`}
                 >
                   {entry.worktree ? (
-                    <GitBranchPlus size={12} strokeWidth={1.8} className="shrink-0 text-ink-faint" />
+                    <GitBranchPlus size={12} strokeWidth={1.8} className={`shrink-0 ${entry.path === cwd ? "text-accent" : "text-ink-faint"}`} />
                   ) : (
-                    <FolderGit2 size={12} strokeWidth={1.8} className="shrink-0 text-ink-faint" />
+                    <FolderGit2 size={12} strokeWidth={1.8} className={`shrink-0 ${entry.path === cwd ? "text-accent" : "text-ink-faint"}`} />
                   )}
                   {/* The name identifies the checkout; the branch qualifies it. Names keep their
                    * width and branches give theirs up, or `CliRelay-wt-audit` becomes `CliR…`. */}
-                  <Text size="label" tone={entry.path === cwd ? "default" : "muted"} className="min-w-0 shrink truncate">
-                    {entry.label}
-                  </Text>
-                  <Text size="caption" tone="faint" className="ml-auto min-w-0 shrink-[4] truncate">
-                    {entry.branch ?? "游离 HEAD"}
-                  </Text>
-                  {entry.path === cwd && <Check size={12} strokeWidth={2.2} className="shrink-0 text-accent" />}
+                  <ScrollText text={entry.label} className={`min-w-0 shrink text-label ${entry.path === cwd ? "text-accent" : "text-ink-muted"}`} />
+                  <ScrollText text={entry.branch ?? "游离 HEAD"} className={`ml-auto min-w-0 shrink-[4] text-caption ${entry.path === cwd ? "text-accent" : "text-ink-faint"}`} />
+
                 </button>
               ))}
             </>

@@ -1,6 +1,10 @@
 import type { Skill, SkillCandidate } from "@lyra/core";
 import { Sparkles, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { RowDeleteButton } from "../../ui/primitives/RowDeleteButton.tsx";
+import { useDefinitionRemoval } from "./useDefinitionRemoval.tsx";
+import { Scroller } from "../../ui/scroll/Scroller.tsx";
+import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
 import { SkillMark } from "./PluginIcon.tsx";
 import { useApp } from "../../store/index.ts";
 import { SkeletonList, useSlowLoad } from "../../ui/primitives/Skeleton.tsx";
@@ -29,7 +33,7 @@ export function SkillsSettings({ filter = "" }: { filter?: string }) {
 	const extensionsNonce = useApp((s) => s.extensionsNonce);
 	const [scan, setScan] = useState<Awaited<ReturnType<typeof bridge.plugins.list>> | null>(null);
 	/** Only when the scan is slow enough to notice; below that the list simply appears. */
-	const slow = useSlowLoad(scan === null);
+
 
 	/*
 	 * 等着人点头的那些，从会话里总结出来的。
@@ -38,16 +42,19 @@ export function SkillsSettings({ filter = "" }: { filter?: string }) {
 	 * 一个自动生成的技能会改变这个 agent 以后的行为，而看到它生效的人多半不记得自己批准过
 	 * 什么——所以这一段的整个存在意义，就是让那次批准真的发生过。
 	 */
-	const [pending, setPending] = useState<SkillCandidate[]>([]);
+	const [pending, setPending] = useState<SkillCandidate[] | null>(null);
 	const reloadPending = useCallback(() => {
-		if (!workspace?.path) return;
+		if (!workspace?.path) { setPending([]); return; }
 		void bridge.rules.pendingSkills(workspace.path).then(setPending).catch(() => {});
 	}, [workspace?.path]);
+
+	const slow = useSlowLoad(scan === null || pending === null);
 
 	// Scanned directly so the page works before any session exists.
 	const reloadScan = useCallback(() => {
 		void bridge.plugins.list(workspace?.path ?? "").then(setScan);
 	}, [workspace?.path]);
+	const removal = useDefinitionRemoval("skill", workspace?.path ?? "", reloadScan);
 	useEffect(() => {
 		reloadScan();
 		reloadPending();
@@ -80,12 +87,12 @@ export function SkillsSettings({ filter = "" }: { filter?: string }) {
 			{/* The two directory buttons that used to sit here are in the page's ⋯ now — three tabs
 			    each opening with its own pair of them was a header that said nothing about the tab. */}
 
-			{pending.length > 0 && (
+			{pending && pending.length > 0 && (
 				<Card className="mb-6 border-accent/35 bg-accent/6">
 					<div className="px-4 pt-3 pb-1">
 						<div className="flex items-center gap-1.5 text-label text-accent">
 							<Sparkles size={13} strokeWidth={1.9} />
-							从最近的会话里总结出 {pending.length} 个技能，等你决定
+							从最近的会话里总结出 {pending?.length} 个技能，等你决定
 						</div>
 						<p className="mt-0.5 text-detail text-ink-muted">
 							这些还没有生效。启用之后，它们会像你自己写的技能一样被用上。
@@ -93,12 +100,18 @@ export function SkillsSettings({ filter = "" }: { filter?: string }) {
 					</div>
 					{pending.map((candidate) => (
 						<div key={candidate.name} className="px-4 py-3">
-							<div className="font-mono text-body">{candidate.name}</div>
+							<div className="ly-scroll"><ScrollText text={candidate.name} className="font-mono text-body" /></div>
 							<p className="mt-0.5 text-detail text-ink-muted">{candidate.description}</p>
+							<p className="mt-1 text-caption text-ink-faint">
+								{candidate.scope === "portable" ? "可复用流程 · 保存在当前项目" : "当前项目的候选技能"}
+								{candidate.sourceSessions && ` · 来源 ${candidate.sourceSessions.length} 个会话`}
+							</p>
 							{/* 正文全文摆出来。批准一段自己没读过的指令，跟没有这个确认步骤是一回事。 */}
-							<pre className="ly-rule-excerpt mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded p-2 font-mono text-detail leading-relaxed">
+							<Scroller className="ly-rule-excerpt mt-2 max-h-52 rounded" contentClassName="p-2">
+							<pre className="whitespace-pre-wrap break-words font-mono text-detail leading-relaxed">
 								{candidate.body}
 							</pre>
+							</Scroller>
 							<div className="mt-2 flex items-center gap-2">
 								<button
 									type="button"
@@ -174,7 +187,7 @@ export function SkillsSettings({ filter = "" }: { filter?: string }) {
 
 			{slow ? (
 				<SkeletonList count={6} label="正在读取技能" />
-			) : skills.length === 0 ? (
+			) : scan === null || pending === null ? null : skills.length === 0 ? (
 				<EmptyHint>
 					还没有技能。
 					<br />
@@ -197,17 +210,21 @@ export function SkillsSettings({ filter = "" }: { filter?: string }) {
 						icon={<SkillMark size={30} />}
 						title={
 							<span className="flex min-w-0 items-center gap-2">
-								<span className="truncate font-mono">{skill.name}</span>
+								<ScrollText text={skill.name} className="min-w-0 font-mono" />
 								{skill.disableModelInvocation && <Badge tone="accent">仅手动调用</Badge>}
 							</span>
 						}
 						detail={skill.description}
-						control={<span className="text-detail whitespace-nowrap text-ink-faint">{originOf(skill)}</span>}
+						actions={<>
+							<span className="text-detail whitespace-nowrap text-ink-faint">{originOf(skill)}</span>
+							{skill.source !== "builtin" && !skill.pluginId && <RowDeleteButton label={`删除技能 ${skill.name}`} pending={removal.pending.has(skill.path)} onClick={() => removal.ask(skill.name, skill.path)} />}
+						</>}
 						onOpen={() => void bridge.system.openPath(skill.path)}
 						openLabel={`打开 ${skill.name}`}
 					/>
 				))
 			)}
+			{removal.element}
 		</div>
 	);
 }

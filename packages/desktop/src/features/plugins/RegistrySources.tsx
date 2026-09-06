@@ -11,9 +11,12 @@
  * and back to answer that is three screens for one line of text.
  */
 
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, CircleAlert, Library, X } from "lucide-react";
 import { useState } from "react";
 
+import { Scroller } from "../../ui/scroll/Scroller.tsx";
+import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
+import { RowDeleteButton } from "../../ui/primitives/RowDeleteButton.tsx";
 import { useConfirmer } from "../../ui/overlay/Confirm.tsx";
 import { Overlay } from "../../ui/overlay/Overlay.tsx";
 import { GhostButton } from "../settings/index.ts";
@@ -49,26 +52,24 @@ export function RegistrySources({
 	};
 
 	return (
-		<Overlay onClose={onClose} width={520}>
-			<div className="px-5 py-4">
-				<h2 className="text-body font-medium text-ink">插件市场</h2>
+		<Overlay onClose={onClose} width={520}>{(dismiss) => <>
+			<Scroller contentClassName="px-5 py-4">
+				<div className="flex items-center justify-between"><h2 className="flex items-center gap-2.5 text-body font-semibold text-ink"><Library size={20} className="text-accent" />插件市场</h2><button type="button" aria-label="关闭插件市场" data-ly-tip="关闭" onClick={() => dismiss()} className="flex h-7 w-7 items-center justify-center rounded-lg text-ink-faint hover:bg-card-hover hover:text-ink"><X size={16} /></button></div>
 				<p className="mt-1 text-detail leading-relaxed text-ink-muted">
-					一个市场就是一个 https 地址，指向一份列出插件的 JSON。加进来之后，它列的插件会出现在插件页里。
+					添加市场地址，浏览其中的插件。
 				</p>
 
 				<div className="mt-4 flex flex-col gap-1.5">
 					{sources.map((url) => {
 						const failed = errors.find((e) => e.url === url);
 						return (
-							<div key={url} className="flex items-center gap-2 text-detail">
-								<span className={`min-w-0 flex-1 truncate font-mono ${failed ? "text-danger" : "text-ink-faint"}`}>
-									{url}
+							<div key={url} data-row-actions className="ly-scroll flex items-center gap-2 rounded-lg bg-card px-3 py-2 text-detail">
+								<span className={`min-w-0 flex-1 font-mono ${failed ? "text-danger" : "text-ink-faint"}`}>
+									<ScrollText text={url} />
 								</span>
-								{failed && <span className="shrink-0 text-danger">{failed.message}</span>}
-								<button
-									type="button"
-									data-ly-tip="移除这个市场"
-									aria-label={`移除 ${url}`}
+								{failed && <button type="button" aria-label="市场读取失败" data-ly-tip={failed.message} className="shrink-0 text-danger"><CircleAlert size={14} /></button>}
+								<RowDeleteButton
+									label={`移除 ${url}`}
 									onClick={() =>
 										confirm.ask({
 											title: "移除这个插件市场？",
@@ -77,10 +78,7 @@ export function RegistrySources({
 											onConfirm: () => remove(url),
 										})
 									}
-									className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors duration-[var(--ly-t-quick)] hover:bg-danger/10 hover:text-danger"
-								>
-									<Trash2 size={12} strokeWidth={1.8} />
-								</button>
+								/>
 							</div>
 						);
 					})}
@@ -101,7 +99,7 @@ export function RegistrySources({
 
 					{confirm.element}
 				</div>
-			</div>
-		</Overlay>
+			</Scroller>
+		</>}</Overlay>
 	);
 }

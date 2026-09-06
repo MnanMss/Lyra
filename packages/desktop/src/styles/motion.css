@@ -137,3 +137,31 @@
 :root[data-theme-switching] *::after {
   transition: none !important;
 }
+
+/* Navigation previews fade without moving the transcript or its reading anchor. */
+.ly-question-preview {
+	opacity: 0;
+	transform: translateX(-4px);
+	transition: opacity var(--ly-t-quick) var(--ly-e-out), transform var(--ly-t-quick) var(--ly-e-out), top var(--ly-t-quick) var(--ly-e-out);
+}
+
+@keyframes ly-page-in {
+	from { opacity: 0.88; }
+	to { opacity: 1; }
+}
+
+.ly-page-enter {
+	animation: ly-page-in var(--ly-t-quick) var(--ly-e-out);
+}
+
+.ly-question-preview[data-open="true"] {
+	opacity: 1;
+	transform: translateX(0);
+}
+
+@starting-style {
+	.ly-question-preview[data-open="true"] {
+		opacity: 0;
+		transform: translateX(-4px);
+	}
+}

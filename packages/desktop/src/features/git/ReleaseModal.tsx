@@ -1,7 +1,6 @@
 import {
 	Check,
 	CheckCircle2,
-	ChevronDown,
 	ChevronRight,
 	Edit3,
 	Eye,
@@ -11,6 +10,7 @@ import {
 	Play,
 	RefreshCw,
 	Tag,
+	Info,
 	X,
 	XCircle,
 } from "lucide-react";
@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReleaseInfo, WorkflowRunStatus } from "../../../electron/ipc-types.ts";
 import { useApp } from "../../store/index.ts";
 import { Markdown } from "../conversation/index.ts";
+import { releaseNotes } from "./release-notes.ts";
 import { MenuBody, MenuItem } from "../../ui/overlay/Menu.tsx";
 import { Overlay } from "../../ui/overlay/Overlay.tsx";
 import { Popover } from "../../ui/overlay/Popover.tsx";
@@ -35,11 +36,12 @@ export function ReleaseModal({ cwd, onClose }: ReleaseModalProps) {
 	const [selectedType, setSelectedType] = useState<"patch" | "minor" | "major" | "custom">("patch");
 	const [customVersion, setCustomVersion] = useState("");
 	const [notes, setNotes] = useState("");
+	const notesRevision = useRef(0);
 	const [generatingNotes, setGeneratingNotes] = useState(false);
 	const [notesLang, setNotesLang] = useState<"zh" | "en">("zh");
 	const [langMenuOpen, setLangMenuOpen] = useState(false);
 	const langButtonRef = useRef<HTMLButtonElement | null>(null);
-	const [previewMode, setPreviewMode] = useState(false);
+	const [previewMode, setPreviewMode] = useState(true);
 	const notify = useApp((s) => s.notify);
 
 	// Dry Run state
@@ -59,56 +61,18 @@ export function ReleaseModal({ cwd, onClose }: ReleaseModalProps) {
 		setError(null);
 		try {
 			const res = await bridge.git.releaseInfo(cwd);
-			if (res) {
+			if (!res) throw new Error("无法读取仓库的发布信息");
+			{
 				setInfo(res);
 				setCustomVersion(res.suggestedVersion.patch);
-				// Automatically generate notes if commits are found
-				if (res.commitsSinceTag.length > 0) {
-					const commits = res.commitsSinceTag;
-					const isZh = notesLang === "zh";
-					const featCommits = commits.filter((c) => /^feat(\(.*\))?:/i.test(c.subject));
-					const perfCommits = commits.filter((c) => /^(perf|style|refactor)(\(.*\))?:/i.test(c.subject));
-					const fixCommits = commits.filter((c) => /^fix(\(.*\))?:/i.test(c.subject));
-					const otherCommits = commits.filter(
-						(c) => !featCommits.includes(c) && !perfCommits.includes(c) && !fixCommits.includes(c),
-					);
-
-					const cleanSubject = (subject: string) => {
-						return subject.replace(/^(feat|fix|perf|style|refactor|docs|chore|test)(\(.*?\))?:\s*/i, "");
-					};
-
-					const sections: string[] = [];
-					if (featCommits.length > 0) {
-						sections.push(
-							`### ${isZh ? "✨ 新功能" : "✨ Features"}\n${featCommits.map((c) => `- ${cleanSubject(c.subject)}`).join("\n")}`,
-						);
-					}
-					if (perfCommits.length > 0) {
-						sections.push(
-							`### ${isZh ? "⚡ 优化与体验" : "⚡ Performance & Improvements"}\n${perfCommits.map((c) => `- ${cleanSubject(c.subject)}`).join("\n")}`,
-						);
-					}
-					if (fixCommits.length > 0) {
-						sections.push(
-							`### ${isZh ? "🐛 问题修复" : "🐛 Bug Fixes"}\n${fixCommits.map((c) => `- ${cleanSubject(c.subject)}`).join("\n")}`,
-						);
-					}
-					if (otherCommits.length > 0) {
-						sections.push(
-							`### ${isZh ? "📦 其他更新" : "📦 Other Changes"}\n${otherCommits.map((c) => `- ${cleanSubject(c.subject)}`).join("\n")}`,
-						);
-					}
-					setNotes(sections.join("\n\n"));
-				} else {
-					setNotes(notesLang === "zh" ? "无新增变更记录" : "No new changes recorded");
-				}
+				setNotes(releaseNotes(res.commitsSinceTag, "zh"));
 			}
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err));
 		} finally {
 			setLoading(false);
 		}
-	}, [cwd, notesLang]);
+	}, [cwd]);
 
 	// Fetch repository release status on mount
 	useEffect(() => {
@@ -123,72 +87,14 @@ export function ReleaseModal({ cwd, onClose }: ReleaseModalProps) {
 	// Generate Release notes with categorized sections in Chinese or English
 	const handleGenerateNotes = useCallback(
 		async (lang: "zh" | "en" = notesLang, showToast = false) => {
+			const revision = ++notesRevision.current;
 			setGeneratingNotes(true);
 			try {
-				const isZh = lang === "zh";
-				// Fetch fresh release info from repository
-				const freshInfo = await bridge.git.releaseInfo(cwd).catch(() => null);
-				const targetInfo = freshInfo ?? info;
-				if (freshInfo) setInfo(freshInfo);
-
-				const commits = targetInfo?.commitsSinceTag ?? [];
-				if (commits.length === 0) {
-					const fallback = isZh ? "无新增变更记录" : "No new changes recorded";
-					setNotes(fallback);
-					if (showToast) {
-						notify(isZh ? "未检测到新提交记录（当前处于最新 Tag 上）" : "No new commits detected", "warn");
-					}
-					return;
-				}
-
-				// Build categorized notes outline
-				const featCommits = commits.filter((c) => /^feat(\(.*\))?:/i.test(c.subject));
-				const perfCommits = commits.filter((c) => /^(perf|style|refactor)(\(.*\))?:/i.test(c.subject));
-				const fixCommits = commits.filter((c) => /^fix(\(.*\))?:/i.test(c.subject));
-				const otherCommits = commits.filter(
-					(c) => !featCommits.includes(c) && !perfCommits.includes(c) && !fixCommits.includes(c),
-				);
-
-				const cleanSubject = (subject: string) => {
-					return subject.replace(/^(feat|fix|perf|style|refactor|docs|chore|test)(\(.*?\))?:\s*/i, "");
-				};
-
-				const sections: string[] = [];
-				if (featCommits.length > 0) {
-					sections.push(
-						`### ${isZh ? "✨ 新功能" : "✨ Features"}\n${featCommits.map((c) => `- ${cleanSubject(c.subject)}`).join("\n")}`,
-					);
-				}
-				if (perfCommits.length > 0) {
-					sections.push(
-						`### ${isZh ? "⚡ 优化与体验" : "⚡ Performance & Improvements"}\n${perfCommits.map((c) => `- ${cleanSubject(c.subject)}`).join("\n")}`,
-					);
-				}
-				if (fixCommits.length > 0) {
-					sections.push(
-						`### ${isZh ? "🐛 问题修复" : "🐛 Bug Fixes"}\n${fixCommits.map((c) => `- ${cleanSubject(c.subject)}`).join("\n")}`,
-					);
-				}
-				if (otherCommits.length > 0) {
-					sections.push(
-						`### ${isZh ? "📝 其它改动" : "📝 Other Changes"}\n${otherCommits.map((c) => `- ${cleanSubject(c.subject)}`).join("\n")}`,
-					);
-				}
-
-				let generated = "";
-				if (sections.length > 0) {
-					generated = sections.join("\n\n");
-				} else {
-					generated = commits.map((c) => `- ${c.subject} (${c.shortSha})`).join("\n");
-				}
-
-				setNotes(generated);
-				if (showToast) {
-					notify(
-						isZh ? `已根据 ${commits.length} 条提交生成更新日志` : `Generated release notes from ${commits.length} commits`,
-						"info",
-					);
-				}
+				const freshInfo = await bridge.git.releaseInfo(cwd);
+				if (!freshInfo) throw new Error("无法读取仓库的发布信息");
+				setInfo(freshInfo);
+				if (revision === notesRevision.current) setNotes(releaseNotes(freshInfo.commitsSinceTag, lang));
+				if (showToast) notify(`已根据 ${freshInfo.commitsSinceTag.length} 条提交生成更新日志`, "info");
 			} catch (err) {
 				if (showToast) {
 					notify(err instanceof Error ? err.message : "提取日志失败", "error");
@@ -197,15 +103,8 @@ export function ReleaseModal({ cwd, onClose }: ReleaseModalProps) {
 				setGeneratingNotes(false);
 			}
 		},
-		[cwd, info, notesLang, notify],
+		[cwd, notesLang, notify],
 	);
-
-	// Initialize default notes when info is loaded
-	useEffect(() => {
-		if (info && !notes) {
-			void handleGenerateNotes("zh");
-		}
-	}, [info, notes, handleGenerateNotes]);
 
 	// Poll dry run status if dryRunId is set
 	useEffect(() => {
@@ -275,8 +174,8 @@ export function ReleaseModal({ cwd, onClose }: ReleaseModalProps) {
 	};
 
 	return (
-		<Overlay onClose={onClose} width={560}>
-			<div className="flex flex-col max-h-[85vh] bg-float text-ink">
+		<Overlay onClose={onClose} width={560}>{(dismiss) => <>
+			<div className="ly-release-modal flex min-h-0 flex-col bg-float text-ink">
 				{/* Clean Header */}
 				<div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-line-soft">
 					<div className="flex items-center gap-2.5">
@@ -285,12 +184,13 @@ export function ReleaseModal({ cwd, onClose }: ReleaseModalProps) {
 						</div>
 						<div>
 							<h2 className="text-label font-semibold text-ink leading-none">发版中心</h2>
-							<p className="text-caption text-ink-faint mt-0.5">打包发布新版本并同步 GitHub Release</p>
+							<p className="text-caption text-ink-faint mt-0.5">选择版本并准备发布</p>
 						</div>
 					</div>
 					<button
 						type="button"
-						onClick={onClose}
+						onClick={() => dismiss()}
+						aria-label="关闭发版中心" data-ly-tip="关闭"
 						className="flex h-7 w-7 items-center justify-center rounded-md text-ink-muted hover:bg-card-hover hover:text-ink transition-colors cursor-pointer"
 					>
 						<X size={15} />
@@ -298,7 +198,7 @@ export function ReleaseModal({ cwd, onClose }: ReleaseModalProps) {
 				</div>
 
 				{/* Body Content */}
-				<Scroller className="flex-1 max-h-[62vh]" contentClassName="p-5 space-y-4">
+				<Scroller className="h-[min(520px,calc(85dvh-132px))] min-h-0" contentClassName="p-5 space-y-4">
 					{loading && (
 						<div className="flex items-center justify-center py-12">
 							<Loader2 size={20} className="animate-spin text-ink-faint" />
@@ -316,7 +216,7 @@ export function ReleaseModal({ cwd, onClose }: ReleaseModalProps) {
 							</p>
 							<button
 								type="button"
-								onClick={onClose}
+								onClick={() => dismiss()}
 								className="mt-2 rounded-lg bg-ink px-4 py-1.5 text-detail font-medium text-shell hover:opacity-90 cursor-pointer"
 							>
 								完成
@@ -328,7 +228,7 @@ export function ReleaseModal({ cwd, onClose }: ReleaseModalProps) {
 						<>
 							{/* Current info & Target Version Picker */}
 							<div className="rounded-xl bg-card p-3.5 space-y-3">
-								<div className="flex items-center justify-between text-detail text-ink-muted">
+								<div className="flex items-center justify-between gap-2 flex-wrap text-detail text-ink-muted">
 									<span>
 										当前: <span className="font-mono text-ink font-medium">{info.currentVersion}</span>
 									</span>
@@ -350,7 +250,7 @@ export function ReleaseModal({ cwd, onClose }: ReleaseModalProps) {
 												onClick={() => setSelectedType(type)}
 												className={`flex flex-col items-center justify-center py-2 px-1.5 rounded-lg border text-detail transition-all cursor-pointer ${
 													selectedType === type
-														? "border-primary bg-primary/10 text-primary font-medium shadow-xs"
+														? "border-accent bg-accent/5 text-accent font-medium shadow-xs"
 														: "border-line-soft bg-card-hover/40 hover:bg-card-hover text-ink"
 												}`}
 											>
@@ -365,7 +265,7 @@ export function ReleaseModal({ cwd, onClose }: ReleaseModalProps) {
 											onClick={() => setSelectedType("custom")}
 											className={`flex flex-col items-center justify-center py-2 px-1.5 rounded-lg border text-detail transition-all cursor-pointer ${
 												selectedType === "custom"
-													? "border-primary bg-primary/10 text-primary font-medium shadow-xs"
+													? "border-accent bg-accent/5 text-accent font-medium shadow-xs"
 													: "border-line-soft bg-card-hover/40 hover:bg-card-hover text-ink"
 											}`}
 										>
@@ -376,36 +276,28 @@ export function ReleaseModal({ cwd, onClose }: ReleaseModalProps) {
 										</button>
 									</div>
 
-									{selectedType === "custom" && (
-										<input
-											type="text"
-											value={customVersion}
-											onChange={(e) => setCustomVersion(e.target.value)}
-											placeholder="0.8.6"
-											className="mt-2.5 w-full rounded-lg border border-line-soft bg-card-hover/30 px-3 py-1.5 text-detail font-mono text-ink focus:border-primary focus:outline-none"
-										/>
-									)}
+									<div className="mt-2 h-7">{selectedType === "custom" ? <input aria-label="自定义版本" value={customVersion} onChange={(event) => setCustomVersion(event.target.value)} placeholder="x.y.z" className="h-7 w-full rounded-lg border border-line bg-input px-3 font-mono text-detail" /> : <p className="flex h-7 items-center text-caption text-ink-faint">{selectedType === "patch" ? "问题修复" : selectedType === "minor" ? "兼容的新功能" : "包含不兼容变更"}</p>}</div>
 								</div>
 							</div>
 
 							{/* Release Notes */}
-							<div className="space-y-1.5">
+							<div className="group/notes space-y-1.5">
 								<div className="flex items-center justify-between px-0.5">
 									<span className="text-caption font-medium text-ink-muted">
-										版本更新日志 (Release Notes)
+										更新日志
 									</span>
-									<div className="flex items-center gap-1.5">
+									<div data-open={langMenuOpen} className="ly-notes-actions flex items-center gap-1 opacity-0 transition-opacity group-hover/notes:opacity-100 group-focus-within/notes:opacity-100">
 										{/* Language Dropdown */}
 										<div className="relative">
 											<button
 												ref={langButtonRef}
+												disabled={generatingNotes}
 												type="button"
 												onClick={() => setLangMenuOpen((v) => !v)}
-												className="flex h-6 items-center gap-1 rounded-md border border-line bg-card px-2 text-micro font-medium text-ink transition-colors hover:bg-card-hover cursor-pointer"
+												aria-label="更新日志语言" data-ly-tip={`语言：${notesLang === "zh" ? "中文" : "English"}`}
+												className="flex h-7 w-7 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-card-hover hover:text-ink"
 											>
-												<Globe size={11} className="text-ink-muted" />
-												<span>{notesLang === "zh" ? "中文" : "English"}</span>
-												<ChevronDown size={10} className="text-ink-faint" />
+												<Globe size={14} className="text-ink-muted" />
 											</button>
 											{langMenuOpen && (
 												<Popover
@@ -441,43 +333,25 @@ export function ReleaseModal({ cwd, onClose }: ReleaseModalProps) {
 											)}
 										</div>
 
-										{/* Preview Toggle */}
-										<button
-											type="button"
-											onClick={() => setPreviewMode(!previewMode)}
-											className={`flex h-6 items-center gap-1 rounded-md px-2 text-micro border transition-colors cursor-pointer ${
-												previewMode
-													? "border-primary bg-primary/10 text-primary font-medium"
-													: "border-line bg-card hover:bg-card-hover text-ink-muted"
-											}`}
-										>
-											{previewMode ? <Edit3 size={11} /> : <Eye size={11} />}
-											<span>{previewMode ? "编辑" : "预览"}</span>
+										<button type="button" onClick={() => setPreviewMode(!previewMode)} aria-label={previewMode ? "编辑更新日志" : "预览更新日志"} data-ly-tip={previewMode ? "编辑" : "预览"} className="flex h-7 w-7 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-card-hover hover:text-ink">
+											{previewMode ? <Edit3 size={14} /> : <Eye size={14} />}
 										</button>
-
-										{/* Re-extract Action */}
-										<button
-											type="button"
-											onClick={() => void handleGenerateNotes(notesLang, true)}
-											disabled={generatingNotes}
-											className="flex h-6 items-center gap-1 rounded-md border border-line bg-card px-2 text-micro font-medium text-ink-muted hover:bg-card-hover hover:text-ink transition-colors cursor-pointer disabled:opacity-50"
-										>
-											<RefreshCw size={11} strokeWidth={1.9} className={generatingNotes ? "animate-spin text-ink" : "text-ink-muted"} />
-											<span>{generatingNotes ? "提取中…" : "重新提取"}</span>
+										<button type="button" onClick={() => void handleGenerateNotes(notesLang, true)} disabled={generatingNotes} aria-label="重新生成更新日志" data-ly-tip="重新生成" className="flex h-7 w-7 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-card-hover hover:text-ink disabled:opacity-50">
+											<RefreshCw size={14} className={generatingNotes ? "ly-spin" : ""} />
 										</button>
 									</div>
 								</div>
 
 								{previewMode ? (
-									<div className="min-h-[140px] max-h-[220px] overflow-y-auto rounded-xl border border-line-soft bg-card p-3.5 text-detail text-ink leading-relaxed">
+									<Scroller className="h-[180px] rounded-xl border border-line-soft bg-card" contentClassName="p-3.5 text-detail text-ink leading-relaxed">
 										<Markdown text={notes || "*(无内容)*"} />
-									</div>
+									</Scroller>
 								) : (
 									<textarea
 										value={notes}
-										onChange={(e) => setNotes(e.target.value)}
-										rows={6}
-										className="w-full rounded-xl border border-line-soft bg-card p-3 text-detail font-mono text-ink focus:border-primary focus:outline-none resize-none leading-relaxed"
+										onChange={(e) => { notesRevision.current++; setNotes(e.target.value); }}
+										aria-label="更新日志内容"
+										className="block h-[180px] w-full rounded-xl border border-line-soft bg-card p-3.5 text-detail font-mono text-ink focus:border-primary focus:outline-none resize-none leading-relaxed"
 										placeholder="在此编辑发版说明..."
 									/>
 								)}
@@ -488,7 +362,7 @@ export function ReleaseModal({ cwd, onClose }: ReleaseModalProps) {
 								<div className="flex items-center justify-between">
 									<div className="flex items-center gap-2">
 										<span className="text-detail font-medium text-ink">
-											跨平台打包试运行 (Dry Run)
+											打包试运行
 										</span>
 									</div>
 									<button
@@ -570,25 +444,22 @@ export function ReleaseModal({ cwd, onClose }: ReleaseModalProps) {
 								)}
 							</div>
 
-							{error && (
-								<div className="rounded-lg bg-rose-500/10 border border-rose-500/20 p-3 text-caption text-rose-500">
-									{error}
-								</div>
-							)}
+
 						</>
 					)}
+					{error && <p role="alert" className="rounded-lg bg-danger/10 p-3 text-caption text-danger">{error}</p>}
 				</Scroller>
 
 				{/* Footer Actions */}
 				{!publishSuccess && (
 					<div className="flex items-center justify-between border-t border-line-soft px-5 py-3 bg-card-hover/20">
 						<div className="text-detail text-ink-muted">
-							发布目标: <span className="font-mono font-semibold text-ink">v{currentTargetVersion}</span>
+							<button type="button" aria-label="发布操作说明" data-ly-tip="发布会更新版本文件、创建 Tag 并推送到远程。"><Info size={12} className="mr-1 inline-block" /></button>目标: <span className="font-mono font-semibold text-ink">v{currentTargetVersion}</span>
 						</div>
 						<div className="flex items-center gap-2">
 							<button
 								type="button"
-								onClick={onClose}
+								onClick={() => dismiss()}
 								className="rounded-lg px-3 py-1.5 text-detail text-ink-muted hover:bg-card-hover hover:text-ink transition-colors cursor-pointer"
 							>
 								取消
@@ -606,7 +477,7 @@ export function ReleaseModal({ cwd, onClose }: ReleaseModalProps) {
 									</>
 								) : (
 									<>
-										<span>确认并发布 (打 Tag & Push)</span>
+										<span>发布版本</span>
 										<ChevronRight size={13} />
 									</>
 								)}
@@ -615,6 +486,6 @@ export function ReleaseModal({ cwd, onClose }: ReleaseModalProps) {
 					</div>
 				)}
 			</div>
-		</Overlay>
+		</>}</Overlay>
 	);
 }

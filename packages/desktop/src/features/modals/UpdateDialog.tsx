@@ -70,7 +70,7 @@ export function UpdateDialog({
 		 * so leaving does not interrupt it — the badge keeps its ring going, and coming back finds it
 		 * where it was.
 		 */
-		<Overlay onClose={onClose} width={500}>
+		<Overlay onClose={onClose} width={500}>{(dismiss) => <>
 			<div className="px-5 pt-5 pb-3">
 				<div className="flex items-center gap-2">
 					<div className="flex h-7 w-7 items-center justify-center rounded-lg bg-ink/5 text-ink">
@@ -176,7 +176,7 @@ export function UpdateDialog({
 					) : (
 						<button
 							type="button"
-							onClick={onClose}
+							onClick={() => dismiss()}
 							className="h-[32px] rounded-lg border border-line px-3 text-label text-ink-muted transition-colors duration-[var(--ly-t-quick)] hover:border-ink-faint hover:text-ink"
 						>
 							关闭
@@ -205,7 +205,7 @@ export function UpdateDialog({
 							type="button"
 							onClick={() => {
 								void bridge.updates.open(info.url);
-								onClose();
+								dismiss();
 							}}
 							className="h-[32px] rounded-lg bg-ink px-3.5 text-label font-medium text-shell transition-opacity duration-[var(--ly-t-quick)] hover:opacity-90"
 						>
@@ -214,6 +214,6 @@ export function UpdateDialog({
 					)}
 				</div>
 			</div>
-		</Overlay>
+		</>}</Overlay>
 	);
 }

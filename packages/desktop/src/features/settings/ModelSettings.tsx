@@ -33,7 +33,7 @@ export function ModelSettings() {
      * 一条——供应商列表还在，右边的编辑器一点不剩。给两栏一个下限、让页面自己滚，是这两块
      * 都能好好待着的唯一排法。
      */
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+    <Scroller className="flex-1" contentClassName="flex flex-col">
       <header className="flex shrink-0 items-start justify-between pt-8 pb-6">
         <div>
           <h1 className="text-display leading-tight font-semibold tracking-tight text-ink">
@@ -84,7 +84,7 @@ export function ModelSettings() {
                 key={provider.id}
                 type="button"
                 onClick={() => p.select(provider.id)}
-                className={`flex h-[38px] w-full items-center gap-2.5 rounded-lg px-2.5 text-left transition-colors ${
+                className={`ly-scroll flex h-[38px] w-full items-center gap-2.5 rounded-lg px-2.5 text-left transition-colors ${
                   p.selected?.id === provider.id
                     ? "bg-card-hover"
                     : "hover:bg-card-hover/60"
@@ -188,6 +188,6 @@ export function ModelSettings() {
           onImport={(selectedIds) => void p.importDiscoveredModels(selectedIds)}
         />
       )}
-    </div>
+    </Scroller>
   );
 }

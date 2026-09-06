@@ -10,8 +10,9 @@
 import type { AgentEvent, TodoItem } from "@lyra/core";
 import type { AppState } from "./index.ts";
 
-type Get = () => AppState;
-type Set = (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void;
+type State = Pick<AppState, "toolRuns" | "todos">;
+type Get = () => State;
+type Set = (partial: Partial<State>) => void;
 
 /** Handles `tool_start`, `tool_update` and `tool_end`; anything else is ignored. */
 export function applyToolEvent(event: AgentEvent, set: Set, get: Get): void {

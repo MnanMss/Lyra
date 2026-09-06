@@ -81,3 +81,15 @@ test("the hidden list is about capability, not taste", () => {
 		assert.ok(!HIDDEN_ON_MOBILE.has(id as SettingsSection), `${id} 不该被隐藏`);
 	}
 });
+
+
+test("every visible platform setting resolves to its own page", async () => {
+	const { settingsGroups } = await import("../src/features/settings/settings-navigation.ts");
+	for (const platform of ["darwin", "win32", "linux"]) {
+		for (const phone of [false, true]) {
+			const groups = settingsGroups(platform, phone);
+			for (const id of ids(groups)) assert.equal(sectionFor(groups, id, phone), id);
+			assert.equal(ids(groups).includes("screenshot"), platform === "darwin" && !phone);
+		}
+	}
+});

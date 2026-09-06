@@ -1,6 +1,7 @@
 import type { HookConfig } from "@lyra/core";
 import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
-import { Anchor, Plus, Trash2 } from "lucide-react";
+import { Anchor, Plus } from "lucide-react";
+import { RowDeleteButton } from "../../ui/primitives/RowDeleteButton.tsx";
 import { useState } from "react";
 import { useConfirmer } from "../../ui/overlay/Confirm.tsx";
 import { useApp } from "../../store/index.ts";
@@ -179,7 +180,7 @@ function HookCard({
 
   return (
     <Card>
-      <div className="flex items-center gap-2.5 border-b border-line-soft px-4 py-3">
+			<div data-row-actions className="flex items-center gap-2.5 border-b border-line-soft px-4 py-3">
         <Anchor
           size={15}
           strokeWidth={1.8}
@@ -197,10 +198,8 @@ function HookCard({
           checked={hook.enabled}
           onChange={(enabled) => onChange({ enabled })}
         />
-        <button
-          type="button"
-          data-ly-tip="删除"
-          aria-label="删除这个钩子"
+				<RowDeleteButton
+					label="删除这个钩子"
           onClick={() =>
             confirm.ask({
               title: "删除这个钩子？",
@@ -209,10 +208,7 @@ function HookCard({
               onConfirm: onRemove,
             })
           }
-          className="text-ink-faint transition-colors hover:text-danger"
-        >
-          <Trash2 size={14} strokeWidth={1.8} />
-        </button>
+				/>
 
         {confirm.element}
       </div>

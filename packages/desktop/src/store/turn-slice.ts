@@ -6,176 +6,97 @@
  * is created reads as broken — and the stored copy replaces it when the runtime confirms it.
  */
 
-import type { ApprovalDecision, Message, ThinkingLevel, Usage, UserContent } from "@lyra/core";
-import { without } from "./derive.ts";
+import type { ApprovalDecision, Message, ThinkingLevel, UserContent } from "@lyra/core";
+import { prune, without } from "./derive.ts";
 import { loadCarried, relight, saveCarried } from "./turn-meter.ts";
 import type { AppState } from "./index.ts";
 import { bridge } from "../services/index.ts";
-
-const ZERO_USAGE: Usage = {
-	input: 0,
-	output: 0,
-	cacheRead: 0,
-	cacheWrite: 0,
-	total: 0,
-	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-};
 
 type Get = () => AppState;
 type Set = (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void;
 
 export function turnSlice(set: Set, get: Get) {
-  return {
-  async send(content: UserContent[], options: { synthetic?: boolean; carryOn?: boolean; deliver?: "steer" | "followUp" } = {}) {
-    const { workspace, settings, scratchCwd } = get();
-    let sessionId = get().activeSessionId;
-    /*
-     * A project if there is one, a scratch directory if there is not.
-     *
-     * Not every conversation is about a checkout. A review is of a branch that may not be on this
-     * machine, and 「不在项目中工作」 is the user saying there is no project on purpose. Both used
-     * to end here: with no workspace this opened a directory picker and dropped the message, which
-     * made the second one a dead end and the first one impossible.
-     *
-     * Only a conversation with nowhere at all to run still asks.
-     */
-    const cwd = workspace?.path ?? scratchCwd;
-    if (!sessionId && !cwd) {
-      await get().pickWorkspace();
-      return;
-    }
-
-    /*
-     * Paint the message before anything is stored.
-     *
-     * Creating a session takes around two seconds — skills, MCP servers, the symbol index.
-     * Until that returned, the composer had cleared and nothing had appeared in its place,
-     * which reads as a swallowed message. The agent's own copy replaces this one when
-     * `message_start` arrives.
-     */
-    const pending: Message = {
-      role: "user",
-      content,
-      timestamp: Date.now(),
-      // Composed by the app rather than typed — 「继续」. The transcript hides these; see `rows.tsx`.
-      ...(options.synthetic ? { synthetic: true } : {}),
-    };
-    /*
-     * 继续 carries the clock and the tokens across the pause; anything else starts them at zero.
-     *
-     * `relight` handles both, which is why it is called unconditionally: with nothing carried it is
-     * an ordinary start. The frozen copy is consumed here — a resume happens once, and leaving it
-     * in place would add the same minutes to the turn after this one as well.
-     *
-     * Written into `turns` and not only into the pair the running line reads, because `agent_start`
-     * decides whether a turn is a continuation by looking there ("kept if it is already running").
-     * Setting only the mirror is what let the event that arrives two seconds later overwrite the
-     * carried clock with `Date.now()` and put the count back to zero.
-     */
-    const carriedMeter = sessionId ? (get().carried[sessionId] ?? loadCarried(sessionId)) : null;
-    const meter = relight(options.carryOn && sessionId ? carriedMeter : null, Date.now());
-    if (sessionId) saveCarried(sessionId, null);
-    set({
-      messages: [...get().messages, pending],
-      pendingUserMessage: { sessionId: sessionId ?? null, message: pending },
-      running: true,
-      turnStartedAt: meter.startedAt,
-      turnTokens: meter.tokens,
-      ...(sessionId
-        ? { turns: { ...get().turns, [sessionId]: meter }, carried: without(get().carried, sessionId) }
-        : {}),
-      /*
-       * Touched now, so the sidebar moves it now.
-       *
-       * The list is re-read from disk when a turn *ends*, which is the only thing that used to
-       * update this — so writing to a conversation from yesterday left it sitting under 「昨天」 for
-       * however long the turn took, while its own transcript was on screen filling up. The band a
-       * conversation is in answers "when did I last touch this", and the answer changed the moment
-       * the message was sent.
-       *
-       * Optimistic, like the message above it: the read at `agent_end` replaces it with the stored
-       * timestamp, which is this one give or take the round trip.
-       */
-      sessions: get().sessions.map((each) =>
-        each.id === sessionId ? { ...each, updatedAt: Date.now() } : each,
-      ),
-    });
-
-    // This is where a blank conversation becomes a real one — the first message is the
-    // first thing worth storing, so it is also the first thing that creates a session.
-    if (!sessionId) {
-      try {
-        const snapshot = await bridge.sessions.create(
-          cwd!,
-          settings?.defaultModelId ?? "",
-        );
-        sessionId = snapshot.meta.id;
-        /*
-         * One message, because one was just sent.
-         *
-         * `create` returns the session as it was created — empty, `messageCount: 0` — and the
-         * prompt that follows is what puts a message in it. The sidebar lists a conversation once
-         * it has one, with an exemption for the session you are currently in, and between those
-         * two facts sat the bug: the row was on screen only because it was selected, so clicking
-         * any other conversation dropped it out of the list entirely. It came back whenever the
-         * turn ended and the list was re-read from disk — which, on a turn that takes a minute,
-         * is a minute of the conversation you just started not existing.
-         *
-         * Counting the message the composer already sent is the honest fix: the stored count is
-         * stale rather than zero, and the refresh at `agent_end` replaces it with the real one.
-         */
-        const listed = {
-          ...snapshot.meta,
-          messageCount: 1,
-          usage: snapshot.meta.usage ?? ZERO_USAGE,
-        };
-        set({
-          activeSessionId: sessionId,
-          meta: listed,
-          toolRuns: {},
-          approvals: [],
-          loadingSession: false,
-          /*
-           * Straight into the list rather than waiting on a round trip: `agent:prompt` does not
-           * resolve until the turn ends, which would leave the row you are actively talking to
-           * missing from the sidebar for the whole reply. The title arrives with the refresh at
-           * `agent_end`.
-           *
-           * Filtered by id first. Prepending unconditionally assumes this session cannot already
-           * be listed, which is true of the id but not of the array: anything that rebuilds the
-           * list — a refresh landing between `create` writing the index and this line running —
-           * puts it there first, and the sidebar then shows the same conversation twice until the
-           * next rebuild quietly drops one. Cheap, and it makes the invariant hold by construction
-           * rather than by timing.
-           */
-          sessions: [listed, ...get().sessions.filter((s) => s.id !== listed.id)],
-        });
-        void bridge.sessions
-          .capabilities(sessionId)
-          .then((capabilities) => {
-            if (get().activeSessionId === sessionId) set({ capabilities });
-          });
-      } catch (cause) {
-        set({
-          running: false,
-          turnStartedAt: null,
-          pendingUserMessage: null,
-          messages: get().messages.filter((m) => m !== pending),
-          notices: [
-            ...get().notices,
-            {
-              id: `${Date.now()}-${Math.random()}`,
-              level: "error" as const,
-              message: `新建会话失败：${cause instanceof Error ? cause.message : String(cause)}`,
-            },
-          ],
-        });
-        return;
-      }
-    }
-
-    await bridge.agent.prompt(sessionId, content, options);
-  },
+	const creating = new Map<number, ReturnType<typeof bridge.sessions.create>>();
+	return {
+	async send(content: UserContent[], options: { synthetic?: boolean; carryOn?: boolean; deliver?: "steer" | "followUp" } = {}) {
+		const { workspace, settings, scratchCwd, selectionEpoch: epoch } = get();
+		let sessionId = get().activeSessionId;
+		const cwd = workspace?.path ?? scratchCwd;
+		if (!sessionId && !cwd) { await get().pickWorkspace(); return; }
+		// A second submission in the same draft shares its identity, never its title as a key.
+		const inFlight = !sessionId ? creating.get(epoch) : undefined;
+		if (inFlight) {
+			try { sessionId = (await inFlight).meta.id; }
+			catch { return; }
+		}
+		const ownsSelection = () => get().selectionEpoch === epoch;
+		const pending: Message = { role: "user", content, timestamp: Date.now(), ...(options.synthetic ? { synthetic: true } : {}) };
+		const carriedMeter = sessionId ? (get().carried[sessionId] ?? loadCarried(sessionId)) : null;
+		const meter = relight(options.carryOn && sessionId ? carriedMeter : null, Date.now());
+		if (sessionId) saveCarried(sessionId, null);
+		if (ownsSelection()) set({
+			messages: [...get().messages, pending], pendingUserMessage: pending,
+			running: true, stopped: null, turnStartedAt: meter.startedAt, turnTokens: meter.tokens,
+		});
+		if (sessionId) set({
+			turns: { ...get().turns, [sessionId]: meter }, carried: without(get().carried, sessionId),
+			activity: { ...get().activity, [sessionId]: "running" },
+			sessions: get().sessions.map((session) => session.id === sessionId ? { ...session, updatedAt: Date.now() } : session),
+		});
+		let resumePending = false;
+		if (!sessionId && cwd) {
+			const creation = bridge.sessions.create(cwd, settings?.defaultModelId ?? "", { content, synthetic: options.synthetic });
+			creating.set(epoch, creation);
+			try {
+				const snapshot = await creation;
+				sessionId = snapshot.meta.id;
+				resumePending = true;
+				const listed = snapshot.meta;
+				const messages = snapshot.messages;
+				set({
+					sessions: [listed, ...get().sessions.filter((session) => session.id !== listed.id)],
+					activity: { ...get().activity, [sessionId]: "running" },
+					turns: { ...get().turns, [sessionId]: meter },
+					sessionCache: prune({ ...get().sessionCache, [sessionId]: {
+						meta: listed, messages, toolRuns: {},
+						state: { running: true, approvals: [], todos: [], compactions: [], stopped: null, retrying: null, capabilities: null, pendingUserMessage: null },
+					} }, sessionId),
+					...(ownsSelection() ? {
+						activeSessionId: sessionId, meta: listed, messages, toolRuns: {}, approvals: [],
+						loadingSession: false, pendingUserMessage: null,
+					} : {}),
+				});
+			} catch (cause) {
+				if (ownsSelection()) set({ running: false, stopped: "error", turnStartedAt: null, pendingUserMessage: null });
+				get().notify(`新建会话失败：${cause instanceof Error ? cause.message : String(cause)}`, "error");
+				return;
+			} finally { creating.delete(epoch); }
+		}
+		if (!sessionId) return;
+		const id = sessionId;
+		try {
+			const meta = await bridge.agent.prompt(id, content, { ...options, resumePending });
+			const cached = get().sessionCache[id];
+			set({
+				sessions: get().sessions.map((listed) => listed.id === id ? meta : listed),
+				...(cached ? { sessionCache: { ...get().sessionCache, [id]: { ...cached, meta } } } : {}),
+				...(get().activeSessionId === id ? { meta } : {}),
+			});
+			if (get().activeSessionId === id && get().workspace && get().workspace?.path !== meta.cwd) {
+				const workspace = await bridge.workspace.info(meta.cwd);
+				if (get().activeSessionId === id) set({ workspace });
+			}
+			const capabilities = await bridge.sessions.capabilities(id);
+			if (get().activeSessionId === id) set({ capabilities });
+		} catch (cause) {
+			const cached = get().sessionCache[id];
+			set({ activity: { ...get().activity, [id]: "failed" }, turns: without(get().turns, id),
+				...(cached?.state ? { sessionCache: { ...get().sessionCache, [id]: { ...cached, state: { ...cached.state, running: false, stopped: "error", pendingUserMessage: null } } } } : {}),
+			});
+			if (get().activeSessionId === id) set({ running: false, stopped: "error", pendingUserMessage: null, turnStartedAt: null });
+			get().notify(`发送失败：${cause instanceof Error ? cause.message : String(cause)}`, "error");
+		}
+	},
 
   /**
    * Run the turn again, from the message that started it.
@@ -187,26 +108,11 @@ export function turnSlice(set: Set, get: Get) {
    */
   async retryFrom(index: number) {
     const messages = get().messages;
-    const bounded = Math.min(index, messages.length - 1);
-    // If the immediately preceding user message was synthetic (such as "继续"),
-    // retrying from a failed tail should re-attempt that step rather than discarding all previous work.
-    for (let i = bounded; i >= 0; i--) {
+    for (let i = Math.min(index, messages.length - 1); i >= 0; i--) {
       const message = messages[i];
-      if (message.role === "user") {
-        if (message.synthetic) {
-          // Only retry a synthetic message if there are no other assistant messages between it and the failed tail
-          const intermediate = messages.slice(i + 1, bounded + 1);
-          const hasCompletedAssistant = intermediate.some(
-            (m) => m.role === "assistant" && m.stopReason !== "error" && m.stopReason !== "aborted"
-          );
-          if (!hasCompletedAssistant) {
-            await get().editMessage(i, message.content);
-            return;
-          }
-        } else {
-          await get().editMessage(i, message.content);
-          return;
-        }
+      if (message.role === "user" && !message.synthetic) {
+        await get().editMessage(i, message.content);
+        return;
       }
     }
   },
@@ -229,7 +135,7 @@ export function turnSlice(set: Set, get: Get) {
     };
     set({
       messages: [...get().messages.slice(0, index), pending],
-      pendingUserMessage: { sessionId, message: pending },
+      pendingUserMessage: pending,
       toolRuns: {},
       approvals: [],
       running: true,
@@ -249,27 +155,12 @@ export function turnSlice(set: Set, get: Get) {
     });
     saveCarried(sessionId, null);
 
-    try {
-      await bridge.agent.editMessage(sessionId, index, content);
-    } catch (error) {
-      // If dispatch failed immediately, do not leave the UI frozen in running state.
-      set({ running: false, pendingUserMessage: null });
-      throw error;
-    }
+    await bridge.agent.editMessage(sessionId, index, content);
   },
 
   async abort() {
     const sessionId = get().activeSessionId;
-    if (!sessionId) return;
-    await bridge.agent.abort(sessionId).catch(() => {});
-    // Safeguard: if the backend never emits an agent_end (e.g. process hung or state desynced),
-    // forcibly restore running state after a bounded grace period so the user is never permanently locked out.
-    setTimeout(() => {
-      const current = get();
-      if (current.activeSessionId === sessionId && current.running) {
-        set({ running: false, retrying: null, pendingUserMessage: null });
-      }
-    }, 2000);
+    if (sessionId) await bridge.agent.abort(sessionId);
   },
 
   async respondToApproval(id: string, decision: ApprovalDecision) {

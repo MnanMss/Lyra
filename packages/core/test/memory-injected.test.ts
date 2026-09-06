@@ -86,3 +86,14 @@ test("接线：一轮的 gatherMemory 把两边都盖上今天的戳", async () 
 	assert.deepEqual(off, { memorySnippet: "", projectMemory: "" }, "switched off: nothing gathered");
 	assert.equal((await readInjected(userInjectedPath()))[ids[0]], now, "and nothing stamped");
 });
+
+test("project memory has an independent switch and inspecting usage never records an injection", async () => {
+	const before = await readInjected(projectInjectedPath(project));
+	const personalOnly = await gatherMemory(project, true, 90_000_000, false, false);
+	assert.ok(personalOnly.memorySnippet);
+	assert.equal(personalOnly.projectMemory, "");
+	const projectOnly = await gatherMemory(project, false, 90_000_000, true, false);
+	assert.equal(projectOnly.memorySnippet, "");
+	assert.match(projectOnly.projectMemory, /node --test/);
+	assert.deepEqual(await readInjected(projectInjectedPath(project)), before);
+});

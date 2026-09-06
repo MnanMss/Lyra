@@ -190,3 +190,18 @@ test("each lesson carries how long ago it was written — age is what lets a mod
 	assert.match(block, /- 今天学的 · 今天记下/);
 	assert.match(block, /每条标了记下的时间/);
 });
+
+test("disabling project memory gates learn before it can touch the repository store", async () => {
+	const { learnTool } = await import("../src/tools/learn.ts");
+	const { PROJECT_MEMORY_ENABLED_KEY } = await import("../src/runtime/project-memory.ts");
+	const file = join(projectMemoryDir(project), "learned.md");
+	const before = await readFile(file, "utf8");
+	const state = new Map([[PROJECT_MEMORY_ENABLED_KEY, false]]);
+	const result = await learnTool.execute({ lesson: "This must never be stored." }, { cwd: project, sessionId: "disabled-memory", state });
+	assert.equal(result.isError, true);
+	assert.equal(await readFile(file, "utf8"), before);
+	state.set(PROJECT_MEMORY_ENABLED_KEY, true);
+	const enabled = await learnTool.execute({ lesson: "Inspect package scripts before selecting validation commands." }, { cwd: project, sessionId: "disabled-memory", state });
+	assert.notEqual(enabled.isError, true);
+	assert.match(await readFile(file, "utf8"), /Inspect package scripts/);
+});

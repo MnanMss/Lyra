@@ -6,8 +6,9 @@
  * mostly rules that were learned the hard way and are worth reading on their own.
  */
 
-import { lazy, Suspense, useEffect, useState } from "react";
+import { Activity, lazy, Suspense, useEffect, useState } from "react";
 import { CalendarClock, GitPullRequest, MessageSquare, Puzzle } from "lucide-react";
+import { RetainedViews } from "../ui/layout/RetainedViews.tsx";
 import { BootScreen, MIN_BOOT_MS } from "./boot/BootScreen.tsx";
 import { Conversation, ConversationSkeleton } from "../features/conversation/index.ts";
 import { EmptyState } from "../features/conversation/index.ts";
@@ -26,6 +27,7 @@ import { useApp } from "../store/index.ts";
 import { useTrayCommands } from "./window/tray-commands.ts";
 import { useFileTreeStore } from "../store/fileTree.ts";
 import { useMemoryPass } from "../features/memory/useMemoryPass.ts";
+import { WINDOW_HEADER_HEIGHT } from "../../shared/window-chrome.ts";
 
 /*
  * The screens that are not a conversation, fetched when they are first opened.
@@ -175,6 +177,8 @@ function Shell() {
 	const { dismissNav } = useLayout();
 
 	const settings = view === "settings";
+	const [settingsVisited, setSettingsVisited] = useState(settings);
+	if (settings && !settingsVisited) setSettingsVisited(true);
 
 	// Settings and the workspace each own a navigation pane; a drawer opened over one has no
 	// meaning over the other, so leaving the view puts it away.
@@ -204,11 +208,11 @@ function Shell() {
 			<div className={settings ? "pointer-events-none invisible absolute inset-0" : "h-full"}>
 				<ChatShell settings={settings} />
 			</div>
-			{settings && (
+			{settingsVisited && <Activity mode={settings ? "visible" : "hidden"}>
 				<LazyScreen shape="settings">
 					<SettingsShell />
 				</LazyScreen>
-			)}
+			</Activity>}
 		</>
 	);
 }
@@ -250,7 +254,7 @@ function SettingsFallback() {
 		<div className="ly-shell relative flex h-full" role="status" aria-label="正在打开">
 			{!compact && (
 				<div className="ly-sidebar-fill flex h-full shrink-0 flex-col" style={{ width: sidebarWidth }}>
-					<div className="h-[44px] shrink-0" />
+					<div className="shrink-0" style={{ height: WINDOW_HEADER_HEIGHT }} />
 					<div className="px-2.5 pb-2">
 						<SkeletonBar width="96px" height={11} className="mx-2 my-[10px]" />
 					</div>
@@ -263,7 +267,7 @@ function SettingsFallback() {
 			)}
 
 			<div className="ly-opaque flex min-w-0 flex-1 flex-col">
-				<div className="h-[44px] shrink-0" />
+				<div className="shrink-0" style={{ height: WINDOW_HEADER_HEIGHT }} />
 				<div className={`mx-auto w-full max-w-[900px] ${compact ? "px-4" : "px-9"}`}>
 					{/* 标题、副标题、第一组卡片——每张设置页开头都是这三样。 */}
 					<div className="pt-8">
@@ -292,8 +296,6 @@ function SettingsFallback() {
 function useMainPane() {
 	const view = useApp((s) => s.view);
 	const meta = useApp((s) => s.meta);
-	const messages = useApp((s) => s.messages);
-	const loadingSession = useApp((s) => s.loadingSession);
 
 	/*
 	 * `solo` marks the screens that are not a conversation in a project.
@@ -304,20 +306,33 @@ function useMainPane() {
 	 * not merely empty on those screens, they are about somewhere else, and they step aside.
 	 */
 	if (view === "pull-requests") {
-		return { title: "拉取请求", icon: <GitPullRequest size={12.5} strokeWidth={1.8} />, body: <LazyScreen>{<PullRequestsView />}</LazyScreen>, solo: true };
+		return { title: "拉取请求", icon: <GitPullRequest size={12.5} strokeWidth={1.8} />, solo: true };
 	}
 	if (view === "plugins") {
-		return { title: "插件", icon: <Puzzle size={12.5} strokeWidth={1.8} />, body: <LazyScreen shape="grid">{<PluginsView />}</LazyScreen>, solo: true };
+		return { title: "插件", icon: <Puzzle size={12.5} strokeWidth={1.8} />, solo: true };
 	}
 	if (view === "scheduled") {
-		return { title: "计划任务", icon: <CalendarClock size={12.5} strokeWidth={1.8} />, body: <LazyScreen>{<ScheduledView />}</LazyScreen>, solo: true };
+		return { title: "计划任务", icon: <CalendarClock size={12.5} strokeWidth={1.8} />, solo: true };
 	}
 	return {
 		title: sessionTitle(meta?.title),
 		icon: <MessageSquare size={12.5} strokeWidth={1.8} />,
-		body: messages.length > 0 || (meta && meta.messageCount > 0) ? <Conversation /> : loadingSession ? <ConversationSkeleton /> : <EmptyState />,
 		solo: false,
 	};
+}
+
+function MainContent() {
+	const view = useApp((state) => state.view);
+	const meta = useApp((state) => state.meta);
+	const messages = useApp((state) => state.messages);
+	const loading = useApp((state) => state.loadingSession);
+	const active = view === "settings" ? "chat" : view;
+	return <RetainedViews active={active} limit={4} render={(key) => {
+		if (key === "plugins") return <LazyScreen shape="grid"><PluginsView /></LazyScreen>;
+		if (key === "pull-requests") return <LazyScreen><PullRequestsView /></LazyScreen>;
+		if (key === "scheduled") return <LazyScreen><ScheduledView /></LazyScreen>;
+		return messages.length > 0 || (meta && meta.messageCount > 0) ? <Conversation /> : loading ? <ConversationSkeleton /> : <EmptyState />;
+	}} />;
 }
 
 function ChatShell({ settings }: { settings: boolean }) {
@@ -377,7 +392,7 @@ function ChatShell({ settings }: { settings: boolean }) {
 					// No panel controls on a screen the panels do not belong to.
 					actions={main.solo ? undefined : <PanelMenu />}
 					solo={main.solo}
-					renderConversation={() => main.body}
+					renderConversation={() => <MainContent />}
 				/>
 			</main>
 

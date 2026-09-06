@@ -1,3 +1,4 @@
+import type { CommandRun } from "@lyra/core";
 /**
  * Reading state back out of a transcript.
  *
@@ -13,7 +14,7 @@ import type { SessionMeta } from "@lyra/core";
 import { summarizeToolCall } from "../lib/tool-summary.ts";
 import type { AppState, ToolRun } from "./index.ts";
 
-export type CachedSessionState = Pick<AppState, "running" | "todos" | "compactions" | "approvals" | "stopped" | "retrying" | "capabilities">;
+export type CachedSessionState = Pick<AppState, "running" | "todos" | "compactions" | "approvals" | "stopped" | "retrying" | "capabilities" | "pendingUserMessage"> & { commandRuns?: CommandRun[] };
 
 export type Cache = Record<
   string,
@@ -22,6 +23,8 @@ export type Cache = Record<
     messages: Message[];
     toolRuns: Record<string, ToolRun>;
     state?: CachedSessionState;
+	/** Live events advance beyond the stored sequence until the next authoritative read. */
+	dirty?: boolean;
     scrollTop?: number;
     pinnedToBottom?: boolean;
   }

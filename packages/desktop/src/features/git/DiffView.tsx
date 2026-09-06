@@ -91,13 +91,11 @@ export function DiffView({
 											}`}
 										/>
 										{/*
-										 * Coloured by grammar when there is one, by change type when there
-										 * is not — an unparseable file still has to read as a diff.
+										 * The rail and background convey changes even before the grammar loads.
+										 * Neutral fallback text avoids flashing an entirely green or red file.
 										 */}
 										<span
-											className={`shrink-0 px-2.5 whitespace-pre ${
-												tokens ? "text-ink" : added ? "text-ok" : removed ? "text-danger/90" : "text-ink-muted"
-											}`}
+											className="shrink-0 px-2.5 whitespace-pre text-ink"
 										>
 											{tokens?.length
 												? tokens.map((token, index) => (

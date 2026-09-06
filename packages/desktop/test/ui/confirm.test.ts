@@ -7,15 +7,14 @@
  * the focus, and the destructive button is the one that is not focused. A rewrite that swaps them
  * turns Enter from "never mind" into "do it".
  *
- * `ConfirmBody` is tested rather than `Confirm`, because the latter goes through `Overlay` and
- * portals to `document.body`. The decisions live in the body; the portal is `Overlay`'s business.
+ * Body tests cover wording and actions; focus is tested through the real modal shell.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement as h } from "react";
 
-import { ConfirmBody } from "../../src/ui/overlay/Confirm.tsx";
+import { Confirm, ConfirmBody } from "../../src/ui/overlay/Confirm.tsx";
 import { click, mount } from "../helpers/mount.ts";
 
 function open(overrides: Record<string, unknown> = {}) {
@@ -44,15 +43,15 @@ test("Confirm: 标题、说明与动词都照原样显示", async () => {
 });
 
 test("Confirm: 焦点在取消上，不在那个不可逆的按钮上", async () => {
-	const view = await open();
-	const buttons = view.all<HTMLButtonElement>("button");
+	const view = await mount(h(Confirm, { title: "卸载 Chrome？", confirmLabel: "卸载", onConfirm: () => {}, onCancel: () => {} }));
+	const buttons = document.querySelectorAll<HTMLButtonElement>('[data-ly-modal] button');
 
 	assert.equal(buttons.length, 2, "两个出口：取消与执行");
 	const [cancel, confirm] = buttons;
 
 	assert.equal(cancel!.textContent, "取消");
-	// autoFocus 落在取消上。这一条守的是「敲回车等于放弃」而不是「敲回车等于删除」。
-	assert.ok(cancel!.hasAttribute("autofocus") || document.activeElement === cancel, "取消必须持有焦点");
+	// The shell owns focus so short dialogs do not scroll past their title at mount.
+	assert.equal(document.activeElement, cancel, "取消必须持有焦点");
 	assert.notEqual(document.activeElement, confirm, "焦点不能落在不可逆的那一半上");
 
 	await view.unmount();
@@ -62,8 +61,8 @@ test("Confirm: 执行按钮用危险色，取消不用", async () => {
 	const view = await open();
 	const [cancel, confirm] = view.all<HTMLButtonElement>("button");
 
-	assert.match(confirm!.className, /bg-danger/, "不可逆的动作要看起来不可逆");
-	assert.doesNotMatch(cancel!.className, /bg-danger/, "取消是安全的那一个");
+	assert.match(confirm!.className, /ly-dialog-action-danger/, "不可逆的动作要看起来不可逆");
+	assert.doesNotMatch(cancel!.className, /ly-dialog-action-danger/, "取消是安全的那一个");
 
 	await view.unmount();
 });

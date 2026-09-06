@@ -7,14 +7,15 @@
  * showed the transcript from *before* that turn — presented as current, with nothing to say so —
  * until the re-read landed.
  *
- * The claim: an event that changes what a background conversation says drops what was parked for
- * it, and an event that does not, does not. The second half is what keeps the cache worth having.
+ * Events are folded into the parked transcript. Dropping it used to replace stale content
+ * with a fresh cold load on every visit; keeping it current avoids both stale replies and flashes.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { AgentEvent, Message } from "@lyra/core";
+import type { AgentEvent, CommandRun, Message, SessionMeta } from "@lyra/core";
 import { applyAgentEvent } from "../src/store/apply-event.ts";
+import { cachedEvent } from "../src/store/cached-event.ts";
 
 const usage = {
 	input: 0,
@@ -44,7 +45,7 @@ const reply: Message = {
  * "other" is the background conversation; "watching" is the one the window has open. Writes are
  * folded back into the state so a handler that reads what it just wrote sees it.
  */
-function afterEvent(event: AgentEvent): { parked: boolean } {
+function afterEvent(event: AgentEvent): { parked: boolean; dirty: boolean } {
 	const state = {
 		activity: {},
 		turns: {},
@@ -64,7 +65,8 @@ function afterEvent(event: AgentEvent): { parked: boolean } {
 		() => state as never,
 	);
 
-	return { parked: "other" in (state.sessionCache as Record<string, unknown>) };
+	const cache = state.sessionCache as Record<string, { dirty?: boolean }>;
+	return { parked: "other" in cache, dirty: cache.other?.dirty === true };
 }
 
 for (const [name, event] of [
@@ -75,8 +77,8 @@ for (const [name, event] of [
 	["history being rewound", { type: "rewound", messageCount: 1 }],
 	["history being summarised", { type: "compacted", before: 10, after: 2 }],
 ] as [string, AgentEvent][]) {
-	test(`${name} elsewhere drops what was parked for it`, () => {
-		assert.equal(afterEvent(event).parked, false);
+	test(`${name} elsewhere updates the parked transcript without a cold load`, () => {
+		assert.deepEqual(afterEvent(event), { parked: true, dirty: true });
 	});
 }
 
@@ -120,39 +122,16 @@ test("a conversation on screen keeps its cache — it is being kept up to date l
 	assert.ok("watching" in (state.sessionCache as Record<string, unknown>));
 });
 
-test("pendingUserMessage matches its own session and does not clear on events from another session", () => {
-	const userMsg: Message = { role: "user", content: [{ type: "text", text: "同样的提问" }], timestamp: 10 };
-	const state = {
-		activity: {},
-		turns: {},
-		sessions: [],
-		activeSessionId: "session-a",
-		messages: [userMsg],
-		toolRuns: {},
-		pendingUserMessage: { sessionId: "session-a", message: userMsg },
-		sessionCache: {},
-	} as Record<string, unknown>;
-
-	// Event coming from session-b with the exact same text
-	applyAgentEvent(
-		"session-b",
-		{ type: "message_start", message: { role: "user", content: [{ type: "text", text: "同样的提问" }], timestamp: 10 } },
-		(partial) => Object.assign(state, typeof partial === "function" ? partial(state as never) : partial),
-		() => state as never,
-	);
-
-	// Should still be pending for session-a
-	assert.ok(state.pendingUserMessage !== null);
-	assert.equal((state.pendingUserMessage as { sessionId: string }).sessionId, "session-a");
-
-	// Now event comes from session-a
-	applyAgentEvent(
-		"session-a",
-		{ type: "message_start", message: { role: "user", content: [{ type: "text", text: "同样的提问" }], timestamp: 10 } },
-		(partial) => Object.assign(state, typeof partial === "function" ? partial(state as never) : partial),
-		() => state as never,
-	);
-
-	// Now pendingUserMessage is successfully cleared
-	assert.equal(state.pendingUserMessage, null);
+test("background command updates stay singular and rewinding retains only earlier command records", () => {
+	const meta: SessionMeta = { id: "other", title: "same title", cwd: "/project", projectId: "p", projectName: "p", createdAt: 1, updatedAt: 1, modelId: "m", messageCount: 2, usage };
+	const command: CommandRun = { id: "compact-1", name: "compact", input: "/compact", at: 1, timestamp: 2, status: "running", detail: "正在压缩" };
+	let cached = cachedEvent({ meta, messages: [said("first"), reply], toolRuns: {} }, { type: "command_status", command });
+	assert.equal(cached.state?.running, true);
+	cached = cachedEvent(cached, { type: "command_status", command: { ...command, status: "done" } });
+	assert.equal(cached.state?.running, false);
+	assert.equal(cached.state?.commandRuns?.length, 1);
+	cached = cachedEvent(cached, { type: "command_status", command: { ...command, id: "compact-2", at: 2, status: "done" } });
+	cached = cachedEvent(cached, { type: "rewound", messageCount: 1 });
+	assert.deepEqual(cached.state?.commandRuns?.map((run) => run.id), ["compact-1"]);
+	assert.equal(cached.messages.length, 1);
 });

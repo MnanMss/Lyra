@@ -1,3 +1,4 @@
+import type { Settings } from "../config/settings.ts";
 /**
  * What this project taught us, kept where the project can be found again.
  *
@@ -236,4 +237,10 @@ export function formatProjectMemory(lessons: Lesson[], extracted = "", now = Dat
 	}
 	parts.push("</project_memory>");
 	return parts.join("\n");
+}
+
+/** Kept in the session state so changing the setting also gates an already-running tool call. */
+export const PROJECT_MEMORY_ENABLED_KEY = "lyra.project-memory.enabled";
+export function projectMemoryEnabled(settings: Pick<Settings, "personalization">): boolean {
+	return (settings.personalization?.enableProjectMemory ?? settings.personalization?.enableMemory) !== false;
 }

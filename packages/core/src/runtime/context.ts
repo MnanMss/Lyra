@@ -15,7 +15,7 @@
 import type { Message, ModelConfig, Tool } from "../types.ts";
 import { estimateTokens } from "../tokens.ts";
 
-export type ContextSegmentKey = "messages" | "systemTools" | "mcpTools" | "skills" | "systemPrompt" | "memory";
+export type ContextSegmentKey = "messages" | "systemTools" | "mcpTools" | "skills" | "systemPrompt" | "memory" | "projectMemory";
 
 export interface ContextSegment {
 	key: ContextSegmentKey;
@@ -37,6 +37,7 @@ export interface ContextBreakdown {
 	measured: boolean;
 	/** Individual memory / instruction files making up the 'memory' segment. */
 	memoryFiles?: MemoryFileItem[];
+	projectMemory?: string;
 }
 
 /** What a tool costs on the wire: the schema the provider is given, every single request. */
@@ -61,7 +62,9 @@ export function buildContextBreakdown(input: {
 	skillCatalogue: string;
 	/** As `buildSystemPrompt` receives them, so the same text is measured that gets embedded. */
 	projectInstructions: { path: string; content: string }[];
+	projectMemory?: string;
 }): ContextBreakdown {
+	const projectMemory = textTokens(input.projectMemory ?? "");
 	const skills = textTokens(input.skillCatalogue);
 	const memoryFiles: MemoryFileItem[] = input.projectInstructions.map((file) => ({
 		path: file.path,
@@ -69,16 +72,16 @@ export function buildContextBreakdown(input: {
 	}));
 	const memory = memoryFiles.reduce((acc, f) => acc + f.tokens, 0);
 	/*
-	 * The prompt minus the two parts listed separately.
+	 * The prompt minus the parts listed separately.
 	 *
-	 * Both are embedded in the prompt string, so counting them as their own segments and leaving
+	 * They are embedded in the prompt string, so counting them as their own segments and leaving
 	 * the prompt whole would report a total larger than anything that gets sent.
 	 */
-	const systemPrompt = Math.max(0, textTokens(input.systemPrompt) - skills - memory);
+	const systemPrompt = Math.max(0, textTokens(input.systemPrompt) - skills - memory - projectMemory);
 
 	const systemTools = toolTokens(input.builtinTools);
 	const mcpTools = toolTokens(input.mcpTools);
-	const overhead = systemTools + mcpTools + skills + systemPrompt + memory;
+	const overhead = systemTools + mcpTools + skills + systemPrompt + memory + projectMemory;
 
 	/*
 	 * The provider's number is the total, not the conversation's share.
@@ -99,11 +102,13 @@ export function buildContextBreakdown(input: {
 		{ key: "skills", tokens: skills },
 		{ key: "systemPrompt", tokens: systemPrompt },
 		{ key: "memory", tokens: memory },
+		{ key: "projectMemory", tokens: projectMemory },
 	] satisfies ContextSegment[])
 		.filter((segment) => segment.tokens > 0)
 		.sort((a, b) => b.tokens - a.tokens);
 
 	return {
+		projectMemory: input.projectMemory,
 		limit: input.model.contextWindow,
 		segments,
 		used: messages + overhead,
@@ -154,7 +159,7 @@ export function measureTotal(messages: Message[]): { measured: boolean; tokens: 
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const message = messages[i];
 		if (message.role !== "assistant" || message.stopReason === "pending") continue;
-		if (compactedAt !== null && message.timestamp < compactedAt) break;
+		if (compactedAt !== null && message.timestamp <= compactedAt) break;
 		const total = message.usage.input + message.usage.cacheRead + message.usage.output;
 		if (total <= 0) break;
 		return { measured: true, tokens: total + estimateTokens(messages.slice(i + 1)) };

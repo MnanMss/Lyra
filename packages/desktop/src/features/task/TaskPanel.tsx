@@ -55,7 +55,7 @@ export function TaskPanel() {
 	}
 
 	return (
-		<Scroller className="flex-1 pt-2" contentClassName="px-2 pb-3" top="none" bottom="none">
+		<Scroller className="flex-1 pt-2" contentClassName="px-2 pb-3">
 			{todos.length > 0 && (
 				<>
 					<Header label="计划" hint={`${done}/${todos.length}`} />

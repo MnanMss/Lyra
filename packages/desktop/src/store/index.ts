@@ -1,10 +1,10 @@
 import type {
   AgentEvent,
+	CommandRun,
   Message,
   SessionMeta,
   Settings,
   ThinkingLevel,
-  ToolResult,
   UserContent,
 } from "@lyra/core";
 import { type SessionActivity } from "@lyra/core/activity";
@@ -33,6 +33,8 @@ import type {
  */
 import { useSide } from "../features/dock/sideStore.ts";
 import { bridge } from "../services/index.ts";
+import type { ToolRun } from "./tool-run.ts";
+export type { ToolRun } from "./tool-run.ts";
 
 /**
  * `plugins` is the catalogue, not the plugin *settings*.
@@ -72,17 +74,6 @@ export type SettingsSection =
 
 /** The tabs on the 插件 page; the page itself is the `plugins` section. */
 export type ExtensionsTab = "plugins" | "skills" | "rules" | "mcp" | "extensions";
-
-export interface ToolRun {
-  toolCallId: string;
-  toolName: string;
-  summary: string;
-  args: Record<string, unknown>;
-  status: "running" | "done" | "error";
-  result?: ToolResult;
-  startedAt: number;
-  finishedAt?: number;
-}
 
 export interface PendingApproval {
   id: string;
@@ -189,6 +180,7 @@ export interface AppState {
   setDraft(key: string, draft: { text: string; attachments?: { id: string; name: string; mimeType: string; data?: string; text?: string; isText?: boolean }[] } | null): void;
 
   activeSessionId: string | null;
+  selectionEpoch: number;
   meta: SessionMeta | null;
   messages: Message[];
   /** True between clicking a session and its transcript arriving. Drives the loading state. */
@@ -197,7 +189,7 @@ export interface AppState {
    * The message the composer painted before the agent confirmed it, held by reference so the
    * stored copy can replace it instead of appearing twice.
    */
-  pendingUserMessage: { sessionId: string | null; message: Message } | null;
+  pendingUserMessage: Message | null;
   /**
    * Transcripts already read this run, keyed by session id.
    *
@@ -301,6 +293,7 @@ export interface AppState {
   stopped: TurnStop;
   /** Where history was summarised, by position in the transcript. */
   compactions: { at: number; before: number; after: number }[];
+	commandRuns: CommandRun[];
   notices: { id: string; level: "info" | "warn" | "error"; message: string }[];
   /**
    * A correction the runtime thinks could become a rule, waiting to be answered.
@@ -426,6 +419,7 @@ export const useApp = create<AppState>((set, get) => ({
   composerDraft: { text: "", replace: false },
   drafts: {},
   activeSessionId: null,
+  selectionEpoch: 0,
   meta: null,
   messages: [],
   loadingSession: false,
@@ -443,6 +437,7 @@ export const useApp = create<AppState>((set, get) => ({
   retrying: null,
   stopped: null,
   compactions: [],
+	commandRuns: [],
   todos: [],
   notices: [],
   ruleOffer: null,

@@ -22,6 +22,7 @@ import {
 	useState,
 } from "react";
 
+import { OverlayDepth } from "./Overlay.tsx";
 import { setTooltipSuppressed } from "./tooltip.ts";
 import { Scroller } from "../scroll/Scroller.tsx";
 import { portal } from "./portal.ts";
@@ -483,6 +484,7 @@ export function Popover({
 
 	// Frosted: every surface a menu opens over paints a background of its own for it to blur.
 	const surface = "ly-glass";
+	const overlayDepth = useContext(OverlayDepth);
 
 	/*
 	 * Rendered into `<body>`, not where it was written.
@@ -507,7 +509,7 @@ export function Popover({
 				// How deeply nested this one is, for the press-outside test above — the only way a
 				// portalled sibling can tell an ancestor from an unrelated surface.
 				data-ly-popover={self.depth}
-				style={style}
+				style={{ ...style, zIndex: 60 + overlayDepth * 20 + (overlayDepth ? 10 : 0) }}
 				/*
 				 * Above everything, including the side panel.
 				 *

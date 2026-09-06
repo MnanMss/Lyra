@@ -10,7 +10,8 @@
  * the boundary is visible at every call site.
  */
 
-import type { AgentEvent, AgentEventSink, QueuedTask } from "../agent/events.ts";
+import { randomUUID } from "node:crypto";
+import type { AgentEvent, AgentEventSink, CommandRun, QueuedTask } from "../agent/events.ts";
 import type { AgentRunConfig } from "../agent/loop.ts";
 import type { Settings } from "../config/settings.ts";
 import { layerProjectSettings, resolveModel } from "../config/settings.ts";
@@ -26,6 +27,7 @@ import { CapabilityWatcher } from "./capability-watch.ts";
 import { SessionCapabilities } from "./session-capabilities.ts";
 import { scratchDir, sessionFacts } from "./session-facts.ts";
 import { SessionLog } from "./session-log.ts";
+import { PROJECT_MEMORY_ENABLED_KEY, projectMemoryEnabled } from "./project-memory.ts";
 import { compactIfNeeded } from "./compaction.ts";
 import { driveTurn, modelHistory, summaryStream } from "./session-turn.ts";
 import { SubAgentRegistry } from "./sub-agents.ts";
@@ -94,6 +96,10 @@ export class AgentSession {
 	private streamFn?: AgentRunConfig["streamFn"];
 	private controller: AbortController | null = null;
 	private activeTurn: Promise<void> | null = null;
+	private compactionTask: Promise<{ ok: boolean; reason?: string; before?: number; after?: number }> | null = null;
+	private pendingResume: Promise<void> | null = null;
+	private acceptingPrompt = false;
+	private abortEpoch = 0;
 	private steering: Message[] = [];
 	/**
 	 * 说了「等这一轮做完再说」的那些消息。
@@ -164,7 +170,7 @@ export class AgentSession {
 	}
 
 	get running(): boolean {
-		return this.controller !== null;
+		return this.acceptingPrompt || this.controller !== null;
 	}
 
 	/** Load skills, agents and MCP tools. Safe to call again after settings change. */
@@ -275,6 +281,7 @@ export class AgentSession {
 		const layered = await layerProjectSettings(this.globalSettings, this.cwd).catch(() => null);
 		if (!layered) return;
 		this.settings = layered.settings;
+		this.can.state.set(PROJECT_MEMORY_ENABLED_KEY, projectMemoryEnabled(this.settings));
 
 		/*
 		 * 被拒的键要说出来，而且要说得像一次拒绝。
@@ -297,7 +304,9 @@ export class AgentSession {
 	}
 
 	async contextBreakdown(): Promise<ContextBreakdown | null> {
-		return describeContext(this.facts());
+		const resolved = resolveModel(this.settings, this.log.meta.modelId || this.settings.defaultModelId);
+		if (!resolved) return null;
+		return describeContext({ ...this.facts(), messages: modelHistory(this.log, resolved.provider, resolved.model) });
 	}
 
 	private facts(): SessionFacts {
@@ -315,8 +324,37 @@ export class AgentSession {
 	 * Refused mid-turn: the running loop is holding its own copy of the history and would write its
 	 * own boundary at the end of the turn, over this one.
 	 */
-	async compact(): Promise<{ ok: boolean; reason?: string; before?: number; after?: number }> {
-		if (this.running) return { ok: false, reason: "对话正在进行中，等它结束再压缩。" };
+	compact(instructions = ""): Promise<{ ok: boolean; reason?: string; before?: number; after?: number }> {
+		if (this.compactionTask) return this.compactionTask;
+		if (this.running) return Promise.resolve({ ok: false, reason: "对话正在进行中，等它结束再压缩。" });
+		const controller = new AbortController();
+		this.controller = controller;
+		this.compactionTask = this.reportCompaction(instructions, controller.signal).finally(() => {
+			this.controller = null;
+			this.compactionTask = null;
+			void this.watcher?.resume();
+			void this.tasks.drain();
+		});
+		return this.compactionTask;
+	}
+
+	private async reportCompaction(instructions: string, signal: AbortSignal) {
+		const command: CommandRun = { id: randomUUID(), name: "compact", timestamp: Date.now(), input: `/compact${instructions.trim() ? ` ${instructions.trim()}` : ""}`,
+			at: this.messages.length, status: "running", detail: "正在压缩会话…" };
+		await this.emit({ type: "command_status", command });
+		try {
+			const result = await this.compactHistory(instructions, signal);
+			await this.emit({ type: "command_status", command: { ...command, status: result.ok ? "done" : "skipped",
+				detail: result.ok ? `已压缩上下文：${result.before} 条消息整理为 ${result.after} 条，完整对话仍可查看。` : result.reason ?? "无需进一步压缩。" } });
+			return result;
+		} catch (cause) {
+			const reason = signal.aborted ? "压缩已取消，原上下文保持不变。" : `压缩失败：${cause instanceof Error ? cause.message : String(cause)}`;
+			await this.emit({ type: "command_status", command: { ...command, status: signal.aborted ? "cancelled" : "failed", detail: reason } });
+			return { ok: false, reason };
+		}
+	}
+
+	private async compactHistory(instructions: string, signal: AbortSignal): Promise<{ ok: boolean; reason?: string; before?: number; after?: number }> {
 
 		const resolved = resolveModel(this.settings, this.log.meta.modelId || this.settings.defaultModelId);
 		if (!resolved) return { ok: false, reason: "还没有配置模型。" };
@@ -335,6 +373,7 @@ export class AgentSession {
 			// 剪掉的原文存下来，占位标记里给出 `artifact://` 地址。
 			{ keep: (tool, content) => this.can.keepArtifact(tool, content) },
 			summarizer,
+			{ instructions, signal },
 		);
 		/*
 		 * Two different outcomes, and they used to say the same thing.
@@ -351,6 +390,7 @@ export class AgentSession {
 		if (!compaction) return { ok: false, reason: "已经够紧凑了，这次压缩不会更小。" };
 		if (compaction.kept === undefined) return { ok: false, reason: "只裁掉了几段过长的工具输出，没有需要总结的历史。" };
 
+		if (signal.aborted) throw new Error("压缩已取消。");
 		this.log.markCompaction(compaction.summary, compaction.kept);
 		await this.emit({
 			type: "compacted",
@@ -392,6 +432,7 @@ export class AgentSession {
 	updateSettings(settings: Settings): void {
 		this.globalSettings = settings;
 		this.settings = settings;
+		this.can.state.set(PROJECT_MEMORY_ENABLED_KEY, projectMemoryEnabled(settings));
 		for (const subject of settings.alwaysAllow) this.approvals.allow(subject);
 		/*
 		 * 项目层重新叠一遍，不等这次调用。
@@ -506,6 +547,28 @@ export class AgentSession {
 		return this.subAgents.dismissFinished();
 	}
 
+	/** Consume a durable opening message once, without appending a second copy. */
+	resumePendingPrompt(): Promise<void> {
+		if (this.pendingResume) return this.pendingResume;
+		if (!this.log.meta.pendingPrompt) return Promise.resolve();
+		this.acceptingPrompt = true;
+		const epoch = this.abortEpoch;
+		const resume = async () => {
+			await this.cancelPendingPrompt();
+			if (this.abortEpoch !== epoch) return;
+			await this.run();
+			await this.drainPending();
+		};
+		this.pendingResume = resume().finally(() => { this.pendingResume = null; this.acceptingPrompt = false; void this.tasks.drain(); });
+		return this.pendingResume;
+	}
+
+	async cancelPendingPrompt(): Promise<void> {
+		if (!this.log.meta.pendingPrompt) return;
+		this.log.meta = { ...this.log.meta, pendingPrompt: undefined };
+		await this.log.append({ type: "meta", meta: this.log.meta });
+	}
+
 	async prompt(
 		content: UserContent[],
 		options: {
@@ -533,6 +596,8 @@ export class AgentSession {
 			deliver?: "steer" | "followUp";
 		} = {},
 	): Promise<void> {
+		// A prompt waits for the manual boundary before creating a turn against that history.
+		if (this.compactionTask) await this.compactionTask;
 		const message: Message = {
 			role: "user",
 			content,
@@ -554,6 +619,11 @@ export class AgentSession {
 			return;
 		}
 
+		// Reserve the turn before the first disk write; another submission must queue during it.
+		this.acceptingPrompt = true;
+		const epoch = this.abortEpoch;
+		try {
+		await this.cancelPendingPrompt();
 		await this.log.commit(message);
 		await this.emit({ type: "message_start", message });
 		await this.emit({ type: "message_end", message });
@@ -564,8 +634,10 @@ export class AgentSession {
 			await this.setTitleFromPrompt(content);
 		}
 
+		if (this.abortEpoch !== epoch) return;
 		await this.run(options.thinking);
 		await this.drainPending();
+		} finally { this.acceptingPrompt = false; void this.tasks.drain(); }
 	}
 
 	/**
@@ -579,9 +651,11 @@ export class AgentSession {
 			const next = this.pending.shift();
 			if (!next) break;
 			if (this.controller?.signal.aborted) break;
+			const epoch = this.abortEpoch;
 			await this.log.commit(next.message);
 			await this.emit({ type: "message_start", message: next.message });
 			await this.emit({ type: "message_end", message: next.message });
+			if (epoch !== this.abortEpoch) break;
 			await this.run(next.thinking);
 		}
 	}
@@ -615,6 +689,7 @@ export class AgentSession {
 			this.activeTurn = driveTurn({
 				cwd: this.cwd,
 				settings: this.settings,
+				getSettings: () => this.settings,
 				log: this.log,
 				can: this.can,
 				provider: resolved.provider,
@@ -650,7 +725,10 @@ export class AgentSession {
 	}
 
 	abort(): void {
+		this.abortEpoch++;
+		if (this.acceptingPrompt && !this.controller) void this.emit({ type: "agent_end", reason: "aborted" });
 		this.controller?.abort();
+		this.steering.length = 0;
 		/*
 		 * Explicitly, as well as through the chain.
 		 *

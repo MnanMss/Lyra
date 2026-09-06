@@ -15,6 +15,7 @@ import { bridge } from "../services/index.ts";
 import { loadCarried } from "./turn-meter.ts";
 import { flushCoalesced } from "./coalesce.ts";
 import { readSelectedSession } from "./session-read.ts";
+import { isDescendantPath } from "../lib/paths.ts";
 
 type Get = () => AppState;
 type Set = (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void;
@@ -27,10 +28,7 @@ type Set = (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>
  * time you are looking at a session all you have is a path.
  */
 function isProjectLess(cwd: string, scratchRoots: string[]): boolean {
-	return scratchRoots
-		.filter(Boolean)
-		.map((root) => (root.endsWith("/") ? root : `${root}/`))
-		.some((root) => cwd.startsWith(root));
+	return scratchRoots.some((root) => root !== "" && isDescendantPath(root, cwd));
 }
 
 export function sessionSlice(set: Set, get: Get) {
@@ -61,6 +59,7 @@ export function sessionSlice(set: Set, get: Get) {
       }, previous.activeSessionId) });
     }
     set({
+			selectionEpoch: get().selectionEpoch + 1,
       activeSessionId: null,
       meta: null,
       messages: [],
@@ -69,6 +68,7 @@ export function sessionSlice(set: Set, get: Get) {
       running: false,
       todos: [],
       compactions: [],
+			commandRuns: [],
       turnStartedAt: null,
       turnTokens: 0,
       // Belongs to the turn being left behind; carrying it over would report this conversation's
@@ -139,14 +139,15 @@ export function sessionSlice(set: Set, get: Get) {
       leavingMeta &&
       get().messages.length > 0 && !get().loadingSession
     ) {
+			const previous = cache[leaving];
       delete cache[leaving];
       cache[leaving] = {
         meta: leavingMeta,
         messages: get().messages,
         toolRuns: get().toolRuns,
         state: cachedState(get()),
-        scrollTop: cache[leaving]?.scrollTop,
-        pinnedToBottom: cache[leaving]?.pinnedToBottom,
+				scrollTop: previous?.scrollTop,
+				pinnedToBottom: previous?.pinnedToBottom,
       };
     }
 
@@ -183,6 +184,7 @@ export function sessionSlice(set: Set, get: Get) {
        */
       activity: readOutcome(get().activity, meta.id),
       sessionCache: prune(cache, meta.id),
+			selectionEpoch: get().selectionEpoch + 1,
       activeSessionId: meta.id,
       meta: cached?.meta ?? meta,
       messages: cached?.messages ?? [],
@@ -191,6 +193,7 @@ export function sessionSlice(set: Set, get: Get) {
       running: cached?.state?.running ?? false,
       todos: cached?.state?.todos ?? [],
       compactions: cached?.state?.compactions ?? [],
+			commandRuns: cached?.state?.commandRuns ?? [],
       capabilities: cached?.state?.capabilities ?? null,
       /*
        * This conversation's own meter, not whichever one last started a turn.
@@ -221,7 +224,7 @@ export function sessionSlice(set: Set, get: Get) {
       // Only a session with nothing to show is "loading"; a cached one is already on screen
       // and re-reads quietly behind it.
       loadingSession: !cached,
-      pendingUserMessage: null,
+			pendingUserMessage: cached?.state?.pendingUserMessage ?? null,
       view: "chat",
       ...(projectLess ? { workspace: null, scratchCwd: meta.cwd } : { scratchCwd: null }),
     });
@@ -284,6 +287,7 @@ export function sessionSlice(set: Set, get: Get) {
     set({ sessions });
     if (get().activeSessionId === meta.id) {
       set({
+				selectionEpoch: get().selectionEpoch + 1,
         activeSessionId: null,
         meta: null,
         messages: [],
@@ -311,6 +315,7 @@ export function sessionSlice(set: Set, get: Get) {
     });
     if (archived && get().activeSessionId === meta.id) {
       set({
+				selectionEpoch: get().selectionEpoch + 1,
         activeSessionId: null,
         meta: null,
         messages: [],
@@ -383,8 +388,8 @@ function readOutcome(
 
 function cachedState(state: AppState): CachedSessionState {
   return {
-    running: state.running, todos: state.todos, compactions: state.compactions,
+    running: state.running, todos: state.todos, compactions: state.compactions, commandRuns: state.commandRuns,
     approvals: state.approvals, stopped: state.stopped, retrying: state.retrying,
-    capabilities: state.capabilities,
+		capabilities: state.capabilities, pendingUserMessage: state.pendingUserMessage,
   };
 }

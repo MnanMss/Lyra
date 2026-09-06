@@ -2,6 +2,8 @@ import { Blocks, Cable, ChevronDown, FolderOpen, MoreHorizontal, Plus, Puzzle, S
 import { useEffect, useState } from "react";
 
 import { MenuBody, MenuItem, Popover, usePopover } from "../../ui/overlay/Popover.tsx";
+import { RetainedViews } from "../../ui/layout/RetainedViews.tsx";
+import { Scroller } from "../../ui/scroll/Scroller.tsx";
 import { SearchField } from "../../ui/inputs/SearchField.tsx";
 import { type ExtensionsTab, useApp } from "../../store/index.ts";
 import { ExtensionHostSettings } from "./ExtensionHostSettings.tsx";
@@ -171,8 +173,8 @@ export function ExtensionsSettings() {
 			)}
 
 			{/* One row: what to look at, and what to look for. */}
-			<div className="flex shrink-0 items-center gap-3 pb-5">
-				<div className="flex items-center gap-1">
+			<div className="flex shrink-0 flex-wrap items-center gap-3 pb-5">
+				<div className="flex max-w-full flex-wrap items-center gap-1">
 					{tabs.map((entry) => (
 						<button
 							key={entry.id}
@@ -271,13 +273,15 @@ export function ExtensionsSettings() {
 				</Popover>
 			)}
 
-			<div className="min-h-0 flex-1 overflow-y-auto pb-10">
-				{tab === "plugins" && <PluginsSettings filter={query} />}
-				{tab === "skills" && <SkillsSettings filter={query} />}
-				{tab === "rules" && <RulesSettings filter={query} />}
-				{tab === "mcp" && <McpSettings filter={query} />}
-				{tab === "extensions" && <ExtensionHostSettings filter={query} />}
-			</div>
+			<RetainedViews active={tab} limit={5} render={(shown) => (
+				<Scroller className="flex-1" contentClassName="pb-10">
+					{shown === "plugins" && <PluginsSettings filter={query} />}
+					{shown === "skills" && <SkillsSettings filter={query} />}
+					{shown === "rules" && <RulesSettings filter={query} />}
+					{shown === "mcp" && <McpSettings filter={query} />}
+					{shown === "extensions" && <ExtensionHostSettings filter={query} />}
+				</Scroller>
+			)} />
 
 		</div>
 	);

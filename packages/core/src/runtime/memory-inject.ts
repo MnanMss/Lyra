@@ -22,26 +22,26 @@ export interface GatheredMemory {
 	projectMemory: string;
 }
 
-export async function gatherMemory(cwd: string, enabled: boolean, now = Date.now()): Promise<GatheredMemory> {
-	if (!enabled) return { memorySnippet: "", projectMemory: "" };
+export async function gatherMemory(cwd: string, enabled: boolean, now = Date.now(), projectEnabled = enabled, recordInjection = true): Promise<GatheredMemory> {
+	if (!enabled && !projectEnabled) return { memorySnippet: "", projectMemory: "" };
 
 	let memorySnippet = "";
 	let userKeys: string[] = [];
 	try {
 		const store = await loadMemory();
-		memorySnippet = formatMemoryForPrompt(store.entries);
+		memorySnippet = enabled ? formatMemoryForPrompt(store.entries) : "";
 		userKeys = store.entries.map((entry) => entry.id);
 	} catch {
 		// Memory loading is resilient and silent.
 	}
 
-	const lessons = await readLessons(cwd).catch(() => []);
-	const extracted = await readExtractedMemory(cwd).catch(() => "");
-	const projectMemory = formatProjectMemory(lessons, extracted);
+	const lessons = projectEnabled ? await readLessons(cwd).catch(() => []) : [];
+	const extracted = projectEnabled ? await readExtractedMemory(cwd).catch(() => "") : "";
+	const projectMemory = formatProjectMemory(lessons, extracted, now);
 	const projectKeys = [...lessons.map((lesson) => lesson.text), ...(extracted.trim() ? [EXTRACTED_KEY] : [])];
 
 	// Recorded, not awaited for correctness: a failed timestamp must not cost the turn.
-	await Promise.all([
+	if (recordInjection) await Promise.all([
 		memorySnippet ? markInjected(userInjectedPath(), userKeys, now).catch(() => false) : Promise.resolve(false),
 		projectMemory ? markInjected(projectInjectedPath(cwd), projectKeys, now).catch(() => false) : Promise.resolve(false),
 	]);

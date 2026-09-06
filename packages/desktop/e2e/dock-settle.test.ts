@@ -102,6 +102,8 @@ async function opacityOverFrames(setup: string, frames: number): Promise<number[
 		const pane = document.querySelector("[data-dock-pane]");
 		if (!pane) throw new Error("no pane on screen");
 		const frame = () => new Promise((r) => requestAnimationFrame(r));
+		// Isolate adoption from the initial shell entrance, which may still be in progress.
+		await Promise.all(pane.getAnimations().map(animation => animation.finished));
 		${setup}
 		const out = [];
 		for (let i = 0; i < ${frames}; i++) {

@@ -8,6 +8,8 @@
  * measuring it would put a heading nobody can see at the top of the pane.
  */
 
+import type { SessionMeta } from "@lyra/core";
+import { GroupActivity } from "./GroupActivity.tsx";
 import { ChevronRight } from "lucide-react";
 import { useLayout } from "../../app/layout.tsx";
 import { Collapsible } from "./Collapsible.tsx";
@@ -66,7 +68,7 @@ export function ProjectList({
 		<>
 			{hasPinned && (
 				<>
-					<SectionLabel count={pinnedCount} collapsed={pinnedShut} onToggle={() => onToggleCollapsed(PINNED)}>
+					<SectionLabel sessions={[...groups.pinnedSessions, ...groups.pinned.flatMap((group) => group.sessions)]} count={pinnedCount} collapsed={pinnedShut} onToggle={() => onToggleCollapsed(PINNED)}>
 						置顶
 					</SectionLabel>
 					<Collapsible open={!pinnedShut}>
@@ -111,6 +113,7 @@ export function ProjectList({
 			{groups.loose.length > 0 && (
 				<>
 					<SectionLabel
+						sessions={groups.loose}
 						count={groups.loose.length}
 						collapsed={collapsed.includes(RECENT)}
 						onToggle={() => onToggleCollapsed(RECENT)}
@@ -162,11 +165,13 @@ export function ProjectList({
 function SectionLabel({
 	children,
 	count,
+	sessions,
 	collapsed,
 	onToggle,
 }: {
 	children: React.ReactNode;
 	count: number;
+	sessions: SessionMeta[];
 	collapsed: boolean;
 	onToggle: () => void;
 }) {
@@ -185,7 +190,8 @@ function SectionLabel({
 					collapsed ? "" : "rotate-90"
 				}`}
 			/>
-			{collapsed && count > 0 && <span className="ml-auto tabular-nums">{count}</span>}
+			<span className="ml-auto"><GroupActivity sessions={sessions} /></span>
+			<span className="min-w-5 text-right tabular-nums">{collapsed && count > 0 ? count : ""}</span>
 		</button>
 	);
 }

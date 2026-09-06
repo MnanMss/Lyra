@@ -27,6 +27,7 @@ interface ActivityEvent {
 	type: string;
 	reason?: string;
 	level?: string;
+	command?: { status: string };
 }
 
 /**
@@ -37,6 +38,8 @@ interface ActivityEvent {
  */
 export function nextActivity(event: ActivityEvent, current: SessionActivity | null): SessionActivity | null {
 	switch (event.type) {
+		case "command_status":
+			return event.command?.status === "running" ? "running" : event.command?.status === "failed" ? "failed" : event.command?.status === "done" ? "done" : null;
 		case "agent_start":
 		case "turn_start":
 			return "running";

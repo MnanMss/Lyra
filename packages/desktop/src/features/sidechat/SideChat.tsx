@@ -27,6 +27,8 @@ import { TaskStrip } from "./TaskStrip.tsx";
 export function SideChat() {
 	const messages = useSide((s) => s.messages);
 	const running = useSide((s) => s.running);
+	const loading = useSide((s) => s.loading);
+	const error = useSide((s) => s.error);
 	const sessionId = useSide((s) => s.sessionId);
 	const ask = useSide((s) => s.ask);
 	const abort = useSide((s) => s.abort);
@@ -56,6 +58,8 @@ export function SideChat() {
 				<PanelEmpty icon={MessageCirclePlus} title="侧边聊天">
 					先在左边开始一个对话。侧边聊天读的是那个对话，没有它就无从谈起。
 				</PanelEmpty>
+			) : loading && messages.length === 0 ? (
+				<div role="status" className="flex flex-1 items-center justify-center text-label text-ink-faint">正在读取侧边聊天…</div>
 			) : messages.length === 0 ? (
 				<PanelEmpty icon={MessageCirclePlus} title="侧边聊天">
 					它看得见主会话聊了什么，但说的话不会写进主会话；需要动手的事，它会交给主会话排队执行。这里的对话会保留，随时回来接着聊。
@@ -107,10 +111,11 @@ export function SideChat() {
 			)}
 
 			<TaskStrip />
+			{error && <p role="alert" className="px-3 py-2 text-label text-danger">{error}</p>}
 
 			<SideComposer
 				running={running}
-				disabled={!sessionId}
+				disabled={!sessionId || loading}
 				onSend={(content) => void ask(content)}
 				onStop={() => void abort()}
 				onReset={messages.length > 0 ? () => void reset() : undefined}

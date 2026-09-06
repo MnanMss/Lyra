@@ -57,7 +57,7 @@ export function UserMessage({
 
   if (editing) {
     return (
-      <div className="ly-enter mb-2.5 flex justify-end">
+      <div data-question-index={index} className="ly-enter mb-2.5 flex justify-end">
         <MessageEditor
           value={draft}
           onChange={setDraft}
@@ -72,7 +72,7 @@ export function UserMessage({
   }
 
   return (
-    <div className="group/msg ly-enter mb-2.5 flex flex-col items-end">
+    <div data-question-index={index} className="group/msg ly-enter mb-2.5 flex flex-col items-end">
       {/*
        * Always visible, not folded into the hover row below.
        *
@@ -87,12 +87,6 @@ export function UserMessage({
         </span>
       )}
 
-      <div className="max-w-[75%] rounded-[16px] rounded-br-[6px] bg-card px-4 py-2.5">
-        {text && (
-          <p className="text-body leading-relaxed whitespace-pre-wrap text-ink">
-            {text}
-          </p>
-        )}
         {/*
          * Thumbnails in a row, not a stack of full-size pictures.
          *
@@ -102,7 +96,7 @@ export function UserMessage({
          * the space, and the conversation lost it.
          */}
         {images.length > 0 && (
-          <div className={`flex flex-wrap gap-1.5 ${text ? "mt-2" : ""}`}>
+          <div className="ly-user-images mb-2 flex max-w-[85%] flex-wrap justify-end gap-2">
             {images.map((block, i) => (
               /*
                * Openable, but not replaceable: this one has already been sent. The viewer notices
@@ -120,7 +114,7 @@ export function UserMessage({
                     i,
                   )
                 }
-                className="block h-[64px] w-[64px] shrink-0 overflow-hidden rounded-lg border border-line transition-[opacity,transform] duration-[var(--ly-t-quick)] hover:opacity-88 active:scale-[0.97]"
+                className="block h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-line transition-[opacity,transform] duration-[var(--ly-t-quick)] hover:opacity-88 active:scale-[0.97]"
               >
                 {/* `cover`: a row of equal squares reads as a set. Letterboxed thumbnails of mixed
                     aspect ratios read as a layout that gave up. */}
@@ -133,7 +127,9 @@ export function UserMessage({
             ))}
           </div>
         )}
-      </div>
+      {text && <div className="ly-user-bubble max-w-[85%] rounded-2xl bg-card px-4 py-2.5 sm:max-w-[75%]">
+        <p className="text-body leading-relaxed whitespace-pre-wrap break-words text-ink">{text}</p>
+      </div>}
 
       {/* Editing is the one thing a sent message offers that a reply does not. */}
       <MessageActions

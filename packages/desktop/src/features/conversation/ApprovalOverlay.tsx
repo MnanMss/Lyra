@@ -65,7 +65,7 @@ export function ApprovalOverlay() {
 
         <Scroller
           className="max-h-[min(280px,30vh)] bg-shell/60"
-          bottom="none"
+
           contentClassName="px-4 py-3"
         >
           {/*

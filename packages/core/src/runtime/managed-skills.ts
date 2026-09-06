@@ -32,6 +32,9 @@ export interface SkillCandidate {
 	description: string;
 	/** SKILL.md 的正文。 */
 	body: string;
+	/** Portability is separate from storage: managed skills remain local to their project. */
+	scope?: "portable" | "project";
+	sourceSessions?: string[];
 }
 
 /** 名字要能当目录名，也要能被模型按名字叫出来。 */
@@ -108,10 +111,11 @@ export async function rejectSkill(cwd: string, name: string): Promise<boolean> {
  */
 
 function renderSkill(candidate: SkillCandidate): string {
-	return `---\nname: ${candidate.name}\ndescription: ${JSON.stringify(candidate.description.trim())}\n---\n\n${candidate.body.trim()}\n`;
+	const provenance = candidate.scope ? `\nscope: ${candidate.scope}\nsourceSessions: ${JSON.stringify(candidate.sourceSessions ?? [])}` : "";
+	return `---\nname: ${candidate.name}\ndescription: ${JSON.stringify(candidate.description.trim())}${provenance}\n---\n\n${candidate.body.trim()}\n`;
 }
 
-function parseSkill(raw: string): { description: string; body: string } | null {
+function parseSkill(raw: string): Omit<SkillCandidate, "name"> | null {
 	const match = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(raw);
 	if (!match) return null;
 	const described = /^description:\s*(.+)$/m.exec(match[1]);
@@ -122,5 +126,10 @@ function parseSkill(raw: string): { description: string; body: string } | null {
 	} catch {
 		// 引号没闭合就照原样用——一个引号问题不该让候选整个消失。
 	}
-	return { description, body: match[2].trim() };
+	const scope = /^scope:\s*(portable|project)$/m.exec(match[1])?.[1];
+	const encoded = /^sourceSessions:\s*(.+)$/m.exec(match[1])?.[1];
+	let sources: unknown;
+	try { sources = encoded ? JSON.parse(encoded) : undefined; } catch { sources = undefined; }
+	const sourceSessions = Array.isArray(sources) ? sources.filter((id): id is string => typeof id === "string") : undefined;
+	return { description, body: match[2].trim(), ...(scope === "portable" || scope === "project" ? { scope, sourceSessions } : {}) };
 }

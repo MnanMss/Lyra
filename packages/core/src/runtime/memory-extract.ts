@@ -20,11 +20,12 @@
  */
 
 import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import type { Message, ModelConfig, ProviderConfig } from "../types.ts";
 import type { streamAssistant } from "../ai/index.ts";
-import { proposeSkill } from "./managed-skills.ts";
+import { proposeSkill, type SkillCandidate } from "./managed-skills.ts";
 import { projectMemoryDir, redactSecrets } from "./project-memory.ts";
+import { loadProjectInstructions } from "../prompt/system.ts";
 
 /**
  * Sessions younger than this are left alone.
@@ -142,13 +143,30 @@ export function skillProposalPrompt(): string {
 		"- 只出现过一次的事",
 		"- 一句约定（那是记忆，不是技能）——「用 pnpm 不用 npm」不该做成技能",
 		"- 需要判断力才能执行的事（「审查代码质量」）",
+		"- 某次发布的版本号、目录快照、包数量、临时分支名；这些不是可复用流程",
+		"",
+		"复用质量要求：",
+		"- 至少两个不同来源会话反复支持同一个流程；只见过一次或证据不足就输出（没有）。",
+		"- 优先提炼 portable 流程：把项目名、版本号、分支、路径作为输入；保留具体的发现方法、步骤和验证。",
+		"- 只有项目独有约定才选 project，并在名字、描述和适用范围中明确限制，不能伪装成通用技能。",
+		"- 正文依次使用：## 适用范围、## 输入与前置检查、## 执行步骤、## 验证与失败处理。",
+		"- 执行前读取当前项目指令、manifest、workspace 配置和脚本以发现真实文件、数量、分支及命令；引用配置来源，不能把历史快照写成固定事实。",
+		"- 输入包含当前项目指令。它用于校正旧会话中已经过时的流程；新技能必须明确要求每次执行重新读取 AGENTS.md / LYRA.md 等当前指令。",
+		"- 优先调用仓库已有的版本同步、检查、发布脚本；不能把旧会话里手动改 6 个 package.json 的操作固化下来。",
+		"- 仓库有统一发布脚本时，不另写 git add -A、commit、tag、push 的手工旁路；只有当前指令明确允许手动流程才展开它。不假定 monorepo 的所有子包必须同版本。",
+		"- 保留强制门禁的强制性，不得把必须的发布预演降为推荐；明确触发条件、不适用条件及验证失败时停止的规则。",
+		"- 合并、发布、删除等操作仍以当前用户授权和项目指令为准，历史会话中的授权不能延续到未来任务。",
+		"- 失败时保留现场、说明原因并停止；不得自动回滚、覆盖用户已有修改，也不能为完成步骤而弱化门禁。",
+		"- 输出前自查：换一个目录结构和目标版本是否仍能按输入发现正确目标？否则重写或放弃。不要为了通用性删掉可执行细节。",
 		"",
 		"**宁可什么都不给。** 一个自动生成的技能会改变这个 agent 以后的行为，而看到它的人多半",
 		"不记得自己批准过什么。只有在你能写出具体步骤时才给。",
 		"",
-		"有的话按这个格式输出，只输出这三行加正文：",
+		"有的话按这个格式输出，只输出这些字段加正文：",
 		"NAME: <小写连字符的名字，三四个词>",
 		"DESCRIPTION: <一句话，说清什么时候该用它>",
+		"SCOPE: <portable 或 project>",
+		"SOURCES: <支持此流程的至少两个会话 ID，以逗号分隔，必须来自输入>",
 		"BODY:",
 		"<正文，步骤列表>",
 		"",
@@ -162,13 +180,21 @@ export function skillProposalPrompt(): string {
  * 任何一处不完整都返回 null：一个缺了步骤的技能会以一个人不知道的方式改变 agent 的行为，
  * 而「少一个候选」这件事没有任何代价。
  */
-export function parseSkillProposal(text: string): { name: string; description: string; body: string } | null {
+export function parseSkillProposal(text: string, sourceIds?: readonly string[]): SkillCandidate | null {
 	if (text.includes("（没有）") || text.includes("(没有)")) return null;
 	const name = /^NAME:\s*(.+)$/m.exec(text)?.[1]?.trim().toLowerCase();
 	const description = /^DESCRIPTION:\s*(.+)$/m.exec(text)?.[1]?.trim();
 	const body = text.split(/^BODY:\s*$/m)[1]?.trim();
 	if (!name || !description || !body) return null;
 	if (!/^[a-z][a-z0-9-]{1,40}$/.test(name)) return null;
+	if (sourceIds) {
+		const scope = /^SCOPE:\s*(.+)$/m.exec(text)?.[1]?.trim();
+		const sources = [...new Set((/^SOURCES:\s*(.+)$/m.exec(text)?.[1] ?? "").split(",").map((id) => id.trim()).filter(Boolean))];
+		if (scope !== "portable" && scope !== "project") return null;
+		if (sources.length < 2 || sources.some((id) => !sourceIds.includes(id))) return null;
+		if (!["适用范围", "输入与前置检查", "执行步骤", "验证与失败处理"].every((heading) => body.includes(`## ${heading}`))) return null;
+		return { name, description, body, scope, sourceSessions: sources };
+	}
 	return { name, description, body };
 }
 
@@ -199,6 +225,13 @@ export function renderSessions(candidates: ExtractionCandidate[]): string {
 	 * 一个人在会话里贴过 `sk-proj-…` 排查问题，那串东西不该以任何形式离开那次会话。
 	 */
 	return redactSecrets(blocks.join("\n\n"));
+}
+
+/** Historical commands need today's project rules before they can become tomorrow's workflow. */
+export async function skillProposalInput(cwd: string, candidates: ExtractionCandidate[]): Promise<string> {
+	const instructions = await loadProjectInstructions(cwd);
+	const current = instructions.map((file) => `### ${relative(cwd, file.path)}\n${file.content}`).join("\n\n");
+	return redactSecrets(`## 当前项目指令\n${current || "未找到项目指令文件。技能执行时仍须重新发现当前配置，不能假定历史命令仍然适用。"}\n\n## 历史会话证据\n${renderSessions(candidates)}`);
 }
 
 function textOf(message: Message): string {
@@ -320,12 +353,16 @@ export async function extractMemory(options: ExtractOptions): Promise<Extraction
  * 「宁可什么都不给」。一个被逼着找出来的流程，就是那种会被批准一次然后困扰一年的东西。
  */
 async function proposeFromSessions(options: ExtractOptions): Promise<string | null> {
+	// A single session cannot establish that a workflow recurs, regardless of the model's answer.
+	const sourceIds = [...new Set(options.candidates.map((candidate) => candidate.id))];
+	if (sourceIds.length < 2) return null;
+	const input = await skillProposalInput(options.cwd, options.candidates);
 	const stream = options.stream(
 		options.provider,
 		options.model,
 		{
 			systemPrompt: skillProposalPrompt(),
-			messages: [{ role: "user", content: [{ type: "text", text: renderSessions(options.candidates) }], timestamp: Date.now() }],
+			messages: [{ role: "user", content: [{ type: "text", text: input }], timestamp: Date.now() }],
 			tools: [],
 		},
 		{ signal: options.signal, thinking: "off" },
@@ -344,7 +381,7 @@ async function proposeFromSessions(options: ExtractOptions): Promise<string | nu
 		.map((block) => block.text)
 		.join("\n");
 
-	const proposal = parseSkillProposal(text);
+	const proposal = parseSkillProposal(text, sourceIds);
 	if (!proposal) return null;
 	const written = await proposeSkill(options.cwd, proposal);
 	return written ? proposal.name : null;
