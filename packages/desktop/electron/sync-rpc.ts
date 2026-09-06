@@ -159,10 +159,7 @@ export const RPC: Record<string, Handler> = {
 		}
 		const meta = (await deps.store().listSessions()).find((entry) => entry.id === s(sessionId));
 		if (!meta) return null;
-		const renamed = await deps.store().append(meta, { type: "title", title: clean });
-		return renamed.titleSetByUser
-			? renamed
-			: deps.store().append(renamed, { type: "meta", meta: { ...renamed, titleSetByUser: true } });
+		return deps.store().append(meta, { type: "title", title: clean, source: "user" });
 	},
 	"sessions.setArchived": async (deps, [projectId, sessionId, archived]) => {
 		if (archived) await deps.dispose(s(sessionId));

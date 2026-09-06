@@ -54,9 +54,9 @@ export interface AgentSessionOptions {
 	 * Exposed here so behaviour that lives in the session rather than the loop — the task
 	 * queue, in particular — can be exercised without a network round trip.
 	 */
-	/** Provide a custom summary stream or disable title summary. */
-	titleSummaryStream?: typeof streamAssistant;
 	streamFn?: AgentRunConfig["streamFn"];
+	/** A turn override suppresses title requests unless this separate stream is supplied. */
+	titleSummaryStream?: typeof streamAssistant;
 }
 
 /**
@@ -99,6 +99,9 @@ export class AgentSession {
 	private watcher: CapabilityWatcher | null = null;
 	private streamFn?: AgentRunConfig["streamFn"];
 	private titleSummaryStream?: typeof streamAssistant;
+	private titleSummaryAbort: AbortController | null = null;
+	private titleSummaryTask: Promise<void> | null = null;
+	private titleSummaryEpoch = 0;
 	private controller: AbortController | null = null;
 	private activeTurn: Promise<void> | null = null;
 	private compactionTask: Promise<{ ok: boolean; reason?: string; before?: number; after?: number }> | null = null;
@@ -436,6 +439,7 @@ export class AgentSession {
 	}
 
 	updateSettings(settings: Settings): void {
+		if (settings.autoSummarizeTitle === false) void this.cancelTitleSummary();
 		this.globalSettings = settings;
 		this.settings = settings;
 		this.can.state.set(PROJECT_MEMORY_ENABLED_KEY, projectMemoryEnabled(settings));
@@ -573,6 +577,7 @@ export class AgentSession {
 					await this.setTitleFromPrompt(userMessages[0].content, userMessages[0].displayText);
 				}
 			}
+			if (this.abortEpoch !== epoch) return;
 			await this.run();
 			await this.drainPending();
 		};
@@ -748,6 +753,7 @@ export class AgentSession {
 	}
 
 	abort(): void {
+		void this.cancelTitleSummary();
 		this.abortEpoch++;
 		if (this.acceptingPrompt && !this.controller) void this.emit({ type: "agent_end", reason: "aborted" });
 		this.controller?.abort();
@@ -852,6 +858,7 @@ export class AgentSession {
 		content: UserContent[],
 		options: { thinking?: ThinkingLevel } = {},
 	): Promise<void> {
+		await this.cancelTitleSummary();
 		if (this.running) {
 			this.abort();
 			if (this.activeTurn) {
@@ -867,50 +874,65 @@ export class AgentSession {
 	}
 
 	private async setTitleFromPrompt(content: UserContent[], displayText?: string): Promise<void> {
-		const raw = displayText || content.find((c) => c.type === "text")?.text || "";
-		// Strip injected context reference hint suffix (split by literal indicator to avoid ReDoS)
-		const refIndex = raw.indexOf("[上下文引用提示]");
-		let text = (refIndex >= 0 ? raw.slice(0, refIndex) : raw).trim();
-		// Strip injected skill header: 使用 `xxx` 技能（来自插件 yyy）。
-		if (text.startsWith("使用")) {
-			const skillEnd = text.indexOf("。");
-			if (skillEnd > 0 && skillEnd < 120 && text.slice(0, skillEnd).includes("技能")) {
-				text = text.slice(skillEnd + 1).trim();
-			}
-		}
-		const cleanText = text.replace(/\s+/g, " ").trim();
-		const fallbackTitle = cleanText.slice(0, 60) || "New session";
-		await this.log.append({ type: "title", title: fallbackTitle });
+		const pending = this.cancelTitleSummary();
+		const epoch = this.titleSummaryEpoch;
+		await pending;
+		if (epoch !== this.titleSummaryEpoch || this.log.meta.titleSetByUser) return;
+		// Structured display text excludes injected context; ordinary prose must never be guessed away.
+		const raw = displayText ?? content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
+		const cleanText = raw.replace(/\s+/g, " ").trim();
+		const fallbackTitle = [...cleanText].slice(0, 60).join("") || (content.some((block) => block.type === "image") ? "图片消息" : "New session");
+		await this.log.append({ type: "title", title: fallbackTitle, source: "auto" });
+		if (epoch !== this.titleSummaryEpoch || this.log.meta.titleSetByUser) return;
 		await this.emit({ type: "title", title: fallbackTitle });
 
-		if (this.settings.autoSummarizeTitle !== false && [...cleanText].length > TITLE_SUMMARY_THRESHOLD && !this.log.meta.titleSetByUser) {
-			void this.summarizeTitleInBackground(cleanText);
+		if (epoch === this.titleSummaryEpoch && this.settings.autoSummarizeTitle !== false && [...cleanText].length > TITLE_SUMMARY_THRESHOLD && !this.log.meta.titleSetByUser) {
+			this.summarizeTitleInBackground(cleanText, epoch);
 		}
 	}
 
-	private async summarizeTitleInBackground(text: string): Promise<void> {
+	private async cancelTitleSummary(): Promise<void> {
+		this.titleSummaryEpoch++;
+		this.titleSummaryAbort?.abort();
+		this.titleSummaryAbort = null;
+		await this.titleSummaryTask;
+	}
+
+	private summarizeTitleInBackground(text: string, epoch: number): void {
 		if (!this.titleSummaryStream && this.streamFn) return;
 		const stream = this.titleSummaryStream ?? streamAssistant;
 
 		const resolved = resolveModel(this.settings, this.log.meta.modelId || this.settings.defaultModelId);
 		if (!resolved) return;
 		const chosen = resolveModelRef(this.settings, "@fast", resolved);
-		const timeout = AbortSignal.timeout(TITLE_SUMMARY_TIMEOUT_MS);
-		try {
-			const summary = await summarizeTitle({
-				text,
-				provider: chosen.provider,
-				model: chosen.model,
-				stream,
-				signal: timeout,
-			});
-			if (!summary) return;
-			if (this.log.meta.titleSetByUser) return;
-			await this.log.append({ type: "title", title: summary });
-			await this.emit({ type: "title", title: summary });
-		} catch {
-			// Title summary failure is non-fatal; the initial fallback title remains in place.
-		}
+		const controller = new AbortController();
+		this.titleSummaryAbort = controller;
+		const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(TITLE_SUMMARY_TIMEOUT_MS)]);
+		const current = () => epoch === this.titleSummaryEpoch && !signal.aborted && !this.log.meta.titleSetByUser;
+		const run = async () => {
+			try {
+				const summary = await summarizeTitle({
+					text,
+					provider: chosen.provider,
+					model: chosen.model,
+					stream,
+					signal,
+				});
+				if (!summary || !current()) return;
+				await this.log.append({ type: "usage", source: "title-summary", providerId: chosen.provider.id, modelId: chosen.model.modelId, usage: summary.usage });
+				if (!summary.title || !current()) return;
+				await this.log.append({ type: "title", title: summary.title, source: "auto" });
+				if (current()) await this.emit({ type: "title", title: summary.title });
+			} catch {
+				// Title summary failure is non-fatal; the initial fallback title remains in place.
+			}
+		};
+		const task = run();
+		this.titleSummaryTask = task;
+		void task.finally(() => {
+			if (this.titleSummaryTask === task) this.titleSummaryTask = null;
+			if (this.titleSummaryAbort === controller) this.titleSummaryAbort = null;
+		});
 	}
 
 	/**
@@ -918,23 +940,21 @@ export class AgentSession {
 	 *
 	 * The title record is what the store already understands, so this is only the writing half.
 	 * The other half is `titleSetByUser`: without it the first prompt renames the session after
-	 * itself and the name typed a moment earlier is gone. Recorded through a `meta` write of its
-	 * own so a phone syncing with `?since=N` learns it too.
+	 * itself and the name typed a moment earlier is gone. Title and ownership share one record so
+	 * cold-session renames and late automatic writes are ordered at the store boundary too.
 	 */
 	async rename(title: string): Promise<void> {
 		const cleanTitle = title.trim();
 		if (!cleanTitle) return;
-		await this.log.append({ type: "title", title: cleanTitle });
-		if (!this.log.meta.titleSetByUser) {
-			const meta: SessionMeta = { ...this.log.meta, titleSetByUser: true };
-			this.log.meta = meta;
-			await this.log.append({ type: "meta", meta });
-		}
+		await this.cancelTitleSummary();
+		await this.log.append({ type: "title", title: cleanTitle, source: "user" });
 		await this.emit({ type: "title", title: cleanTitle });
 	}
 
 	async dispose(): Promise<void> {
 		this.abort();
+		// A host may delete the log as soon as disposal returns; finish any title write first.
+		await this.titleSummaryTask;
 		// 没人关的 fs.watch 会一直拿着描述符，而一天里会开关几十个会话。
 		this.watcher?.close();
 		this.watcher = null;
