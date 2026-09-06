@@ -838,11 +838,17 @@ export class AgentSession {
 
 	private async setTitleFromPrompt(content: UserContent[], displayText?: string): Promise<void> {
 		const raw = displayText || content.find((c) => c.type === "text")?.text || "";
-		// Strip injected skill header: 使用 `xxx` 技能（来自插件 yyy）。
-		const withoutSkill = raw.replace(/^使用\s*`[^`]+`\s*技能(?:（来自插件\s*[^）]+）)?。\s*/i, "");
-		// Strip injected context reference hint suffix
-		const withoutRef = withoutSkill.replace(/\n*\[上下文引用提示\][\s\S]*$/i, "");
-		const title = withoutRef.replace(/\s+/g, " ").trim().slice(0, 60) || "New session";
+		// Strip injected context reference hint suffix (split by literal indicator to avoid ReDoS)
+		const refIndex = raw.indexOf("[上下文引用提示]");
+		let text = (refIndex >= 0 ? raw.slice(0, refIndex) : raw).trim();
+		// Strip injected skill header: 使用 `xxx` 技能...
+		if (text.startsWith("使用")) {
+			const skillEnd = text.indexOf("。");
+			if (skillEnd > 0 && skillEnd < 120 && text.slice(0, skillEnd).includes("技能")) {
+				text = text.slice(skillEnd + 1).trim();
+			}
+		}
+		const title = text.replace(/\s+/g, " ").trim().slice(0, 60) || "New session";
 		await this.log.append({ type: "title", title });
 		await this.emit({ type: "title", title });
 	}
