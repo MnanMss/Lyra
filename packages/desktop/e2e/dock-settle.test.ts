@@ -167,7 +167,7 @@ test("a pane that is genuinely new still arrives rather than appearing", async (
  * the adoption, and it must be there rather than arrive.
  */
 for (const motion of ["off", "on"]) test(`a pane the adoption brings in lands rather than fading (reduced motion ${motion})`, async (t) => {
-	await app.evaluate(`document.documentElement.dataset.reduceMotion = ${JSON.stringify(motion)}`);
+	await app.evaluate(`document.documentElement.dataset.reduceMotion = ${motion === "on" ? '"on"' : '"off"'}`);
 	// Open the first conversation and give it a second pane, which saves that layout under its id.
 	await app.evaluate(`(async () => {
 		const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -233,7 +233,7 @@ for (const motion of ["off", "on"]) test(`a pane the adoption brings in lands ra
  * So it is measured over consecutive frames, from `getBoundingClientRect`.
  */
 for (const motion of ["off", "on"]) test(`a pane put down does not drift after it arrives (reduced motion ${motion})`, async (t) => {
-	await app.evaluate(`document.documentElement.dataset.reduceMotion = ${JSON.stringify(motion)}`);
+	await app.evaluate(`document.documentElement.dataset.reduceMotion = ${motion === "on" ? '"on"' : '"off"'}`);
 	// One panel beside the conversation, then carry it to the bottom of the dock and let go.
 	const positions = await app.evaluate<{ left: number; top: number; width: number }[]>(`(async () => {
 		const wait = (ms) => new Promise((r) => setTimeout(r, ms));
