@@ -647,7 +647,7 @@ test("compaction uses custom summarizer model when provided", async () => {
 	const spyStream = ((provider: ProviderConfig, model: ModelConfig) => {
 		calledWithModel = model;
 		calledWithProvider = provider;
-		return fakeStream("自定义模型摘要")(provider, model);
+		return fakeStream("自定义模型摘要")();
 	}) as unknown as typeof streamAssistant;
 
 	const result = await compactIfNeeded(
@@ -657,6 +657,7 @@ test("compaction uses custom summarizer model when provided", async () => {
 		spyStream,
 		0,
 		false,
+		undefined,
 		undefined,
 		{ provider: customProvider, model: customModel },
 	);
