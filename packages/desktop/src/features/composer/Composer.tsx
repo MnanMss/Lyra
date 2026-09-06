@@ -152,10 +152,10 @@ export function Composer() {
 			const chosen = paths[0];
 			let rel = chosen;
 			if (workspace?.path && chosen.startsWith(workspace.path)) {
-				rel = chosen.slice(workspace.path.length).replace(/^[/\\\\]+/, "");
+				rel = chosen.slice(workspace.path.length).replace(/^[/\\]+/, "");
 			} else {
 				// If outside workspace or absolute path, show base filename to avoid full system path leaks in display
-				const lastPart = chosen.split(/[/\\\\]/).pop();
+				const lastPart = chosen.split(/[/\\]/).pop();
 				if (lastPart) rel = lastPart;
 			}
 			const formatted = rel.includes(" ") ? `@"${rel}"` : `@${rel}`;
