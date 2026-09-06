@@ -50,11 +50,17 @@ pnpm --filter @lyra/desktop exec node --test --experimental-strip-types e2e/tran
 启动 `pnpm.cmd`。退出时 Windows 用 `taskkill /T` 回收 Electron 的进程树，启动失败同样清理
 临时 profile。
 
+CDP 求值先取得远程对象句柄，在同一连接内等待 Promise 或读取对象值，最后释放对象组。
+Electron 43 携带的 V8 尚未包含 [536271637 的修复](https://chromium-review.googlesource.com/c/v8/v8/+/8123081)，
+直接使用 `Runtime.evaluate(awaitPromise: true)` 只保留弱引用，GC 会让待完成求值报
+`Promise was collected`。`cdp-lifetime.test.ts` 强制 GC 验证等待期间保活，并检查完成、拒绝及
+序列化失败后的释放；不改变应用 IPC，也不重试失败的操作。
+
 ### Windows 桌面回归
 
 CI 的 `windows-ui` 在 push、PR 和手动执行时运行真实 Windows Electron，并纳入 `all-green`。
 它跑 `desktop-compatibility.test.ts`、`transcript-stability.test.ts`、`interaction-polish.test.ts`、
-`session-startup.test.ts`、`definition-actions.test.ts`、`command-workflow.test.ts`、`visual-details.test.ts` 与 `agent-profiles-sidechat.test.ts`：
+`session-startup.test.ts`、`definition-actions.test.ts`、`command-workflow.test.ts`、`visual-details.test.ts`、`agent-profiles-sidechat.test.ts`、`menu-scroll.test.ts` 与 `cdp-lifetime.test.ts`：
 
 - 100%、125%、150%、200% Chromium 显示缩放，深浅主题和 380px 起的窗口宽度。
 - 从 Window Controls Overlay API 读取系统按钮区域，验证应用按钮没有进入它。
@@ -75,7 +81,7 @@ CI 的 `windows-ui` 在 push、PR 和手动执行时运行真实 Windows Electro
 
 ```bash
 pnpm build
-pnpm --filter @lyra/desktop exec node --test --test-concurrency=1 --experimental-strip-types e2e/desktop-compatibility.test.ts e2e/transcript-stability.test.ts e2e/interaction-polish.test.ts e2e/session-startup.test.ts e2e/definition-actions.test.ts e2e/command-workflow.test.ts e2e/visual-details.test.ts e2e/agent-profiles-sidechat.test.ts
+pnpm --filter @lyra/desktop exec node --test --test-concurrency=1 --experimental-strip-types e2e/desktop-compatibility.test.ts e2e/transcript-stability.test.ts e2e/interaction-polish.test.ts e2e/session-startup.test.ts e2e/definition-actions.test.ts e2e/command-workflow.test.ts e2e/visual-details.test.ts e2e/agent-profiles-sidechat.test.ts e2e/menu-scroll.test.ts e2e/cdp-lifetime.test.ts
 ```
 
 macOS 上运行这些测试可验证共享 Chromium 布局，不能证明 Windows 的 DirectWrite、GPU 驱动、
