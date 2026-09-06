@@ -10,12 +10,12 @@
  * way in one of them and another way in the other is two different answers to the same question.
  */
 
-import { CalendarPlus, ChevronsDownUp, ChevronsUpDown, Clock, Check } from "lucide-react";
+import { ArrowUpDown, CalendarPlus, ChevronsDownUp, ChevronsUpDown, Clock, Check } from "lucide-react";
 import { MenuBody, MenuItem, MenuLabel, MenuSeparator, Popover, type Anchor } from "../../ui/overlay/Popover.tsx";
 import type { SidebarTab } from "./SidebarTabs.tsx";
 
 /** Which timestamp orders the list, and bands it. */
-export type SortKey = "updatedAt" | "createdAt";
+export type SortKey = "updatedAt" | "createdAt" | "manual";
 
 const SORTS: { value: SortKey; label: string; icon: React.ReactNode }[] = [
 	{ value: "updatedAt", label: "最近更新", icon: <Clock size={14} strokeWidth={1.8} /> },
@@ -26,6 +26,7 @@ export function ListMenu({
 	anchor,
 	tab,
 	sort,
+	hasManual,
 	onSort,
 	allFolded,
 	onFoldAll,
@@ -34,6 +35,7 @@ export function ListMenu({
 	anchor: Anchor;
 	tab: SidebarTab;
 	sort: SortKey;
+	hasManual?: boolean;
 	onSort: (sort: SortKey) => void;
 	/** Whether every project is currently shut, which is what makes this one control and not two. */
 	allFolded: boolean;
@@ -44,7 +46,12 @@ export function ListMenu({
 		<Popover anchor={anchor} onClose={onClose} placement="bottom" width="compact" label="列表设置">
 			<MenuBody insetIcons>
 				<MenuLabel>排序方式</MenuLabel>
-				{SORTS.map((option) => (
+				{[
+					...SORTS,
+					...(hasManual || sort === "manual"
+						? [{ value: "manual" as const, label: "手动排序", icon: <ArrowUpDown size={14} strokeWidth={1.8} /> }]
+						: []),
+				].map((option) => (
 					<MenuItem
 						key={option.value}
 						icon={option.icon}

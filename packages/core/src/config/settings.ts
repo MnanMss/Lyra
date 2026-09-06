@@ -232,6 +232,8 @@ export interface Settings {
 	projects: ProjectEntry[];
 	/** Pinned session IDs across projects and loose chats. */
 	pinnedSessionIds?: string[];
+	/** Custom session ordering per project: maps project path to ordered session IDs. */
+	sessionOrder?: Record<string, string[]>;
 	/** Worktrees configuration and auto-cleanup preferences. */
 	worktrees?: {
 		/** Managed worktrees root directory. Defaults to ~/.lyra/worktrees or sibling directory if empty. */

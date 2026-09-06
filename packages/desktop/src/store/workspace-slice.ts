@@ -185,6 +185,58 @@ export function workspaceSlice(set: Set, get: Get) {
       pinnedSessionIds: Array.from(current),
     });
   },
+  async reorderProjects(sourcePath: string, targetPath: string, placement: "before" | "after") {
+    const settings = get().settings;
+    if (!settings || sourcePath === targetPath) return;
+    const list = [...settings.projects];
+    const sourceIdx = list.findIndex((p) => p.path === sourcePath);
+    if (sourceIdx === -1) return;
+    const [item] = list.splice(sourceIdx, 1);
+    const targetIdx = list.findIndex((p) => p.path === targetPath);
+    if (targetIdx === -1) {
+      list.push(item);
+    } else {
+      const insertIdx = placement === "before" ? targetIdx : targetIdx + 1;
+      list.splice(insertIdx, 0, item);
+    }
+    await get().saveSettings({
+      ...settings,
+      projects: list,
+    });
+  },
+
+  async reorderProjectSessions(projectPath: string, sourceId: string, targetId: string, placement: "before" | "after") {
+    const settings = get().settings;
+    if (!settings || sourceId === targetId) return;
+    // Collect current session order for this project
+    const sessionsInProject = get().sessions.filter((s) => s.cwd === projectPath && !s.archived);
+    const existingOrder = settings.sessionOrder?.[projectPath] ?? [];
+    // Build normalized sequence containing all current sessions
+    const known = new Set(existingOrder);
+    const ordered = existingOrder.filter((id) => sessionsInProject.some((s) => s.id === id));
+    for (const s of sessionsInProject) {
+      if (!known.has(s.id)) ordered.unshift(s.id);
+    }
+    const sourceIdx = ordered.indexOf(sourceId);
+    if (sourceIdx === -1) return;
+    ordered.splice(sourceIdx, 1);
+    const targetIdx = ordered.indexOf(targetId);
+    if (targetIdx === -1) {
+      ordered.push(sourceId);
+    } else {
+      const insertIdx = placement === "before" ? targetIdx : targetIdx + 1;
+      ordered.splice(insertIdx, 0, sourceId);
+    }
+    const nextMap: Record<string, string[]> = {
+      ...settings.sessionOrder,
+      [projectPath]: ordered,
+    };
+    await get().saveSettings({
+      ...settings,
+      sessionOrder: nextMap,
+    });
+  },
+
 
   /**
    * Rename a conversation: on screen at once, on disk right after.

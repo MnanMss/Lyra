@@ -62,14 +62,15 @@ export function useSidebarLists({
 	 * bands sort again by the same key because they also have to cut on it. Both come from one
 	 * setting, so the two halves can never disagree about what "most recent" means.
 	 */
+	const poolSortField = sort === "createdAt" ? "createdAt" : "updatedAt";
 	const pool = useMemo(
-		() => [...(archiveOpen ? archived : listable)].sort((a, b) => b[sort] - a[sort]),
-		[archiveOpen, archived, listable, sort],
+		() => [...(archiveOpen ? archived : listable)].sort((a, b) => b[poolSortField] - a[poolSortField]),
+		[archiveOpen, archived, listable, poolSortField],
 	);
 
 	const groups = useMemo(
-		() => groupSessions(pool, settings?.projects ?? [], query, scratchRoots, settings?.pinnedSessionIds ?? []),
-		[pool, settings, query, scratchRoots],
+		() => groupSessions(pool, settings?.projects ?? [], query, scratchRoots, settings?.pinnedSessionIds ?? [], settings?.sessionOrder, sort),
+		[pool, settings, query, scratchRoots, sort],
 	);
 
 	const matching = useMemo(() => {
@@ -87,8 +88,8 @@ export function useSidebarLists({
 	 * also fixes it.
 	 */
 	const bands = useMemo(
-		() => bandByRecency(matching.slice(0, chatShown), Date.now(), sort),
-		[matching, chatShown, sort],
+		() => bandByRecency(matching.slice(0, chatShown), Date.now(), poolSortField),
+		[matching, chatShown, poolSortField],
 	);
 
 	/*

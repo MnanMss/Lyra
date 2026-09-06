@@ -38,6 +38,7 @@ const COLLAPSED_KEY = "ly-collapsed-projects";
 const TAB_KEY = "ly-sidebar-tab";
 /** And what "most recent" means, which is a preference rather than a place. */
 const SORT_KEY = "ly-sidebar-sort";
+const MANUAL_KEY = "ly-sidebar-has-manual";
 
 export function Sidebar() {
 	const workspace = useApp((s) => s.workspace);
@@ -70,9 +71,11 @@ export function Sidebar() {
 	/** And for the flat 「聊天」 list, which is every conversation there is. */
 	const [chatShown, setChatShown] = useState(CHAT_PAGE);
 	/** Which timestamp orders both halves and the archive. Persisted: it is a preference, not a mode. */
-	const [sort, setSort] = useState<SortKey>(() =>
-		localStorage.getItem(SORT_KEY) === "createdAt" ? "createdAt" : "updatedAt",
-	);
+	const [sort, setSort] = useState<SortKey>(() => {
+		const val = localStorage.getItem(SORT_KEY);
+		return val === "createdAt" ? "createdAt" : val === "manual" ? "manual" : "updatedAt";
+	});
+	const [hasManual, setHasManual] = useState<boolean>(() => localStorage.getItem(MANUAL_KEY) === "true");
 	const menu = usePopover();
 	/**
 	 * Which projects are folded shut.
@@ -110,7 +113,8 @@ export function Sidebar() {
 		} catch {
 			// A full or disabled storage costs the memory of the choice, not the choice itself.
 		}
-	}, [collapsed, tab, sort]);
+			if (hasManual) localStorage.setItem(MANUAL_KEY, "true");
+	}, [collapsed, tab, sort, hasManual]);
 
 	const viewport = useRef<HTMLDivElement>(null);
 	/*
@@ -321,6 +325,14 @@ export function Sidebar() {
 							onLooseCollapse={() => setLooseShown(SESSION_PAGE)}
 							actions={actions}
 							empty={empty}
+							onReordered={() => {
+								setHasManual(true);
+								setSort("manual");
+								try {
+									localStorage.setItem(MANUAL_KEY, "true");
+									localStorage.setItem(SORT_KEY, "manual");
+								} catch {}
+							}}
 						/>
 					) : (
 						<ChatList
@@ -345,6 +357,7 @@ export function Sidebar() {
 					anchor={menu.anchor}
 					tab={tab}
 					sort={sort}
+					hasManual={hasManual}
 					onSort={setSort}
 					allFolded={allFolded}
 					onFoldAll={foldAll}
