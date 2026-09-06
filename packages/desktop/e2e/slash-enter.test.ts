@@ -90,7 +90,7 @@ const seed = async (home: string) => {
 };
 
 before(async () => {
-	app = await startApp({ port: 9467, seed });
+	app = await startApp({ port: 9474, seed });
 	await settle(2200);
 	// Open the seeded conversation, which is what gives `/compact` something to act on.
 	await app.evaluate<boolean>(`(() => {
@@ -105,21 +105,18 @@ after(async () => {
 	await app?.stop();
 });
 
-const type = (value: string) =>
-	app.evaluate<boolean>(`(() => {
+const type = async (value: string) => {
+	await app.evaluate(`(() => {
 		const field = document.querySelector("textarea");
-		if (!field) return false;
-		const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
-		setter?.call(field, ${JSON.stringify(value)});
-		field.dispatchEvent(new Event("input", { bubbles: true }));
-		return true;
+		field.focus();
+		field.select();
 	})()`);
-const enter = () =>
-	app.evaluate<boolean>(`(() => {
-		const field = document.querySelector("textarea");
-		field?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-		return true;
-	})()`);
+	await app.send("Input.insertText", { text: value });
+};
+const enter = async () => {
+	await app.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", windowsVirtualKeyCode: 13 });
+	await app.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", windowsVirtualKeyCode: 13 });
+};
 const settle = (ms = 900) => new Promise((r) => setTimeout(r, ms));
 /** What is in the composer right now. */
 const field = () => app.evaluate<string>(`document.querySelector("textarea")?.value ?? ""`);
@@ -133,7 +130,7 @@ test("the list offers a command as it is typed", async () => {
 	await type("/comp");
 	await settle(700);
 	assert.ok(
-		await app.evaluate<boolean>(`Boolean(document.body.innerText.match(/把之前的对话压缩成摘要/))`),
+		await app.evaluate<boolean>(`[...document.querySelectorAll('[role="option"]')].some(row => row.textContent.includes('compact'))`),
 		"the built-in is listed while the name is half typed",
 	);
 });
