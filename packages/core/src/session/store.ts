@@ -454,9 +454,8 @@ export class SessionStore implements SessionStorage {
 			}
 		}
 
-		// The seq to keep is the seq of the last message that survives.
-		// 0 means no messages survive (drop everything).
-		const cutoff = targetIndex === 0 ? 0 : loaded.entries[targetIndex - 1].seq;
+		// The seq to keep is the one just before the record carrying the doomed message.
+		const cutoff = loaded.entries[targetIndex].seq - 1;
 
 		const meta = await this.append(loaded.meta, { type: "truncate", afterSeq: cutoff });
 		const messages = loaded.messages.slice(0, targetIndex);
