@@ -230,6 +230,9 @@ export function Composer() {
 		 * write paths and a composer that rejected them would be wrong far more often than right.
 		 */
 		let outgoing = trimmed;
+		let userDisplayText: string | undefined;
+		let triggeredSkill: { name: string; path?: string; pluginId?: string } | undefined;
+		const referencedSessions: Array<{ id: string; title: string }> = [];
 		/* 命令可以声明会话正忙时怎么送——见 `SlashCommand.deliver`。 */
 		let deliver: "steer" | "followUp" | undefined;
 		/*
@@ -300,12 +303,24 @@ export function Composer() {
 				 * `disableModelInvocation` means "do not choose this yourself", not "never run
 				 * this" — the tool looks skills up by name and has never filtered on that flag.
 				 */
-				// `/pdf` and `/skill:pdf` name the same skill; the prefix is how the plan spells it.
-				const skill = fresh.skills?.find((entry) => skillCommandName(entry) === skillNameOf(invocation));
+				// `/pdf` and `/skill:pdf` name the same skill; both qualified and bare names match
+				const targetSkillName = skillNameOf(invocation).toLowerCase();
+				const skill = fresh.skills?.find((entry) => {
+					const qualified = skillCommandName(entry).toLowerCase();
+					const bare = entry.name.toLowerCase();
+					return qualified === targetSkillName || bare === targetSkillName;
+				});
 				if (skill) {
+					triggeredSkill = {
+						name: skill.name,
+						path: skill.path,
+						pluginId: skill.pluginId,
+					};
+					const restText = invocation.rest.trim();
+					userDisplayText = restText;
 					outgoing = [
 						`使用 \`${skill.name}\` 技能${skill.pluginId ? `（来自插件 ${skill.pluginId}）` : ""}。`,
-						invocation.rest.trim(),
+						restText,
 					]
 						.filter(Boolean)
 						.join("\n\n");
@@ -326,13 +341,17 @@ export function Composer() {
 			if (targetSessionId) {
 				const matchedSession = mention.sessions.find((s) => s.id === targetSessionId);
 				const label = matchedSession?.title || token;
+				referencedSessions.push({ id: targetSessionId, title: label });
 				sessionPrompts.push(`- 引用了历史会话「${label}」：请使用 \`read\` 工具读取 \`session://${targetSessionId}\` 获取该会话的详细历史与上下文。`);
 			}
 		}
 		if (sessionPrompts.length > 0) {
+			// If displayText is not yet set by skill invocation, default to the clean outgoing before appending system hints
+			if (userDisplayText === undefined) {
+				userDisplayText = outgoing;
+			}
 			outgoing = `${outgoing}\n\n[上下文引用提示]\n${sessionPrompts.join("\n")}`;
 		}
-
 		if (attachments.length > 0) {
 			const textFiles = attachments.filter((a) => a.isText && a.text);
 			if (textFiles.length > 0) {
@@ -353,7 +372,12 @@ export function Composer() {
 		setAttachments([]);
 		setDraft(draftKey, null);
 		release();
-		await send(content, deliver ? { deliver } : {});
+		await send(content, {
+			...(deliver ? { deliver } : {}),
+			...(userDisplayText !== undefined ? { displayText: userDisplayText } : {}),
+			...(triggeredSkill ? { skillRef: triggeredSkill } : {}),
+			...(referencedSessions.length > 0 ? { sessionRefs: referencedSessions } : {}),
+		});
 	}
 
 	/**

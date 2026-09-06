@@ -84,6 +84,8 @@ export interface PendingApproval {
   reason?: string;
   /** What an "always" answer gets remembered against. */
   subject?: string;
+  /** Interactive choices offered to user. */
+  options?: string[];
 }
 
 export interface AppState {
@@ -376,7 +378,7 @@ export interface AppState {
    * `carryOn` says this send continues a turn that stopped rather than starting a new one, so its
    * clock and token count are picked up from where the pause left them. See `turn-meter.ts`.
    */
-  send(content: UserContent[], options?: { synthetic?: boolean; carryOn?: boolean; deliver?: "steer" | "followUp" }): Promise<void>;
+	send(content: UserContent[], options?: { synthetic?: boolean; carryOn?: boolean; deliver?: "steer" | "followUp"; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }> }): Promise<void>;
   /** Replace a message and re-run from there; everything after it is discarded. */
   editMessage(index: number, content: UserContent[]): Promise<void>;
   /** Re-send the user message that produced the reply at `index`. */

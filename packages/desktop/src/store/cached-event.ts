@@ -34,7 +34,7 @@ export function cachedEvent(cached: Cache[string], event: AgentEvent): Cache[str
 			state = { ...state, running: false, approvals: [], pendingUserMessage: null, retrying: null, stopped: howItStopped(messages, event.reason) };
 			break;
 		case "approval_request":
-			state = { ...state, approvals: [...state.approvals, { id: event.requestId, kind: event.kind, title: event.title, detail: event.detail, subject: event.subject }] };
+			state = { ...state, approvals: [...state.approvals, { id: event.requestId, kind: event.kind, title: event.title, detail: event.detail, subject: event.subject, ...(event.options ? { options: event.options } : {}) }] };
 			break;
 		case "title": meta = { ...meta, title: event.title }; break;
 		case "rewound":

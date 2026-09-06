@@ -18,7 +18,7 @@ type Set = (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>
 export function turnSlice(set: Set, get: Get) {
 	const creating = new Map<number, ReturnType<typeof bridge.sessions.create>>();
 	return {
-	async send(content: UserContent[], options: { synthetic?: boolean; carryOn?: boolean; deliver?: "steer" | "followUp" } = {}) {
+	async send(content: UserContent[], options: { synthetic?: boolean; carryOn?: boolean; deliver?: "steer" | "followUp"; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }> } = {}) {
 		const { workspace, settings, scratchCwd, selectionEpoch: epoch } = get();
 		let sessionId = get().activeSessionId;
 		const cwd = workspace?.path ?? scratchCwd;
@@ -30,7 +30,15 @@ export function turnSlice(set: Set, get: Get) {
 			catch { return; }
 		}
 		const ownsSelection = () => get().selectionEpoch === epoch;
-		const pending: Message = { role: "user", content, timestamp: Date.now(), ...(options.synthetic ? { synthetic: true } : {}) };
+		const pending: Message = {
+			role: "user",
+			content,
+			timestamp: Date.now(),
+			...(options.synthetic ? { synthetic: true } : {}),
+			...(options.displayText !== undefined ? { displayText: options.displayText } : {}),
+			...(options.skillRef ? { skillRef: options.skillRef } : {}),
+			...(options.sessionRefs?.length ? { sessionRefs: options.sessionRefs } : {}),
+		};
 		const carriedMeter = sessionId ? (get().carried[sessionId] ?? loadCarried(sessionId)) : null;
 		const meter = relight(options.carryOn && sessionId ? carriedMeter : null, Date.now());
 		if (sessionId) saveCarried(sessionId, null);
@@ -45,7 +53,13 @@ export function turnSlice(set: Set, get: Get) {
 		});
 		let resumePending = false;
 		if (!sessionId && cwd) {
-			const creation = bridge.sessions.create(cwd, settings?.defaultModelId ?? "", { content, synthetic: options.synthetic });
+			const creation = bridge.sessions.create(cwd, settings?.defaultModelId ?? "", {
+				content,
+				synthetic: options.synthetic,
+				displayText: options.displayText,
+				skillRef: options.skillRef,
+				sessionRefs: options.sessionRefs,
+			});
 			creating.set(epoch, creation);
 			try {
 				const snapshot = await creation;
@@ -75,7 +89,13 @@ export function turnSlice(set: Set, get: Get) {
 		if (!sessionId) return;
 		const id = sessionId;
 		try {
-			const meta = await bridge.agent.prompt(id, content, { ...options, resumePending });
+			const meta = await bridge.agent.prompt(id, content, {
+				...options,
+				resumePending,
+				displayText: options.displayText,
+				skillRef: options.skillRef,
+				sessionRefs: options.sessionRefs,
+			});
 			const cached = get().sessionCache[id];
 			set({
 				sessions: get().sessions.map((listed) => listed.id === id ? meta : listed),
