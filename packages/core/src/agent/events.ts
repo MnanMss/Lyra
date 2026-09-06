@@ -5,7 +5,18 @@ import type { SubAgentSummary } from "../runtime/sub-agents.ts";
  * Everything the UI needs to render a live session. The desktop renderer, the mobile app
  * and the session log all consume this one event type.
  */
+export interface CommandRun {
+	id: string;
+	name: "compact";
+	timestamp: number;
+	input: string;
+	at: number;
+	status: "running" | "done" | "skipped" | "failed" | "cancelled";
+	detail: string;
+}
+
 export type AgentEvent =
+	| { type: "command_status"; command: CommandRun }
 	| { type: "agent_start"; sessionId: string }
 	| { type: "turn_start"; turn: number }
 	| { type: "message_start"; message: Message }

@@ -10,6 +10,7 @@
  * something you can reason about after the fact rather than only watch happen.
  */
 
+import { PROJECT_MEMORY_ENABLED_KEY, projectMemoryEnabled } from "./project-memory.ts";
 import { gatherMemory } from "./memory-inject.ts";
 import { platform } from "node:os";
 import { access } from "node:fs/promises";
@@ -48,6 +49,8 @@ import type { SubAgentRegistry } from "./sub-agents.ts";
 export interface TurnInputs {
 	cwd: string;
 	settings: Settings;
+	/** Resolve preferences at dispatch time without altering an already running model request. */
+	getSettings?: () => Settings;
 	log: SessionLog;
 	can: SessionCapabilities;
 	provider: ProviderConfig;
@@ -173,11 +176,16 @@ export function modelHistory(log: SessionLog, provider: ProviderConfig, model: M
 		return [droppedMessage(standing), ...tail];
 	}
 
-	return [...summaryMessages(boundary.summary, lastRequest(older), provider, model), ...tail];
+	const head = summaryMessages(boundary.summary, lastRequest(older), provider, model);
+	const at = boundary.at ?? Math.max(0, ...tail.map((message) => message.timestamp));
+	return [...head.map((message) => ({ ...message, timestamp: at })), ...tail];
 }
 
 async function assembleTurn(input: TurnInputs): Promise<{ config: AgentRunConfig; systemPrompt: string }> {
 	const { cwd, can, log, settings } = input;
+	const memoryEnabled = projectMemoryEnabled(settings);
+	can.state.set(PROJECT_MEMORY_ENABLED_KEY, memoryEnabled);
+	const tools = can.tools.filter((tool) => tool.name !== "learn" || memoryEnabled);
 
 	/*
 	 * Where `agent://` finds the sub-agents this session dispatched.
@@ -190,11 +198,11 @@ async function assembleTurn(input: TurnInputs): Promise<{ config: AgentRunConfig
 	if (input.subAgents) can.state.set(SUBAGENTS_KEY, input.subAgents);
 
 	// Both memories, read from disk this turn, and each entry stamped as having reached the model.
-	const { memorySnippet, projectMemory } = await gatherMemory(cwd, settings.personalization?.enableMemory !== false);
+	const { memorySnippet, projectMemory } = await gatherMemory(cwd, settings.personalization?.enableMemory !== false, Date.now(), memoryEnabled);
 
 	const turn = await prepareTurn({
 		cwd,
-		tools: can.tools,
+		tools,
 		/*
 		 * 日期接在末尾，而不是写在 system prompt 里。
 		 *
@@ -205,7 +213,7 @@ async function assembleTurn(input: TurnInputs): Promise<{ config: AgentRunConfig
 		messages: withEnvironment(modelHistory(log, input.provider, input.model)),
 		systemPrompt: await buildSystemPrompt({
 			cwd,
-			tools: can.tools,
+			tools,
 			skills: can.skills,
 			agents: can.agents,
 			projectInstructions: await loadProjectInstructions(cwd),
@@ -238,8 +246,9 @@ async function assembleTurn(input: TurnInputs): Promise<{ config: AgentRunConfig
 			provider: input.provider,
 			model: input.model,
 			settings,
+			getSettings: input.getSettings,
 			state: can.state,
-			tools: can.tools,
+			tools,
 			skills: can.skills,
 			agents: can.agents,
 			ruleMonitor: can.ruleMonitor,

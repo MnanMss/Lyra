@@ -1,7 +1,7 @@
 /**
  * Branches, and the diff between any two of them.
  */
-import { Check, GitBranchPlus, FolderGit2 } from "lucide-react";
+import { GitBranchPlus, FolderGit2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import type { GitStatus, WorkspaceDiffFile } from "../../../electron/ipc-types.ts";
@@ -144,23 +144,22 @@ export function BranchesView({
                   key={entry.path}
                   type="button"
                   data-ly-tip={entry.path}
+                  aria-current={entry.path === cwd ? "location" : undefined}
                   onClick={() => onSelectRepo(entry.path)}
                   className={`ly-scroll flex w-full items-center gap-1.5 rounded-md py-1 pr-1.5 text-left transition-colors ${
                     entry.worktree ? "pl-5" : "pl-1.5"
-                  } ${entry.path === cwd ? "bg-card-hover" : "hover:bg-card-hover"}`}
+                  } ${entry.path === cwd ? "text-accent" : "text-ink-muted hover:text-ink"}`}
                 >
                   {entry.worktree ? (
-                    <GitBranchPlus size={12} strokeWidth={1.8} className="shrink-0 text-ink-faint" />
+                    <GitBranchPlus size={12} strokeWidth={1.8} className={`shrink-0 ${entry.path === cwd ? "text-accent" : "text-ink-faint"}`} />
                   ) : (
-                    <FolderGit2 size={12} strokeWidth={1.8} className="shrink-0 text-ink-faint" />
+                    <FolderGit2 size={12} strokeWidth={1.8} className={`shrink-0 ${entry.path === cwd ? "text-accent" : "text-ink-faint"}`} />
                   )}
                   {/* The name identifies the checkout; the branch qualifies it. Names keep their
                    * width and branches give theirs up, or `CliRelay-wt-audit` becomes `CliR…`. */}
-                  <ScrollText text={entry.label} className={`min-w-0 shrink text-label ${entry.path === cwd ? "text-ink" : "text-ink-muted"}`} />
-                  <ScrollText text={entry.branch ?? "游离 HEAD"} className="ml-auto min-w-0 shrink-[4] text-caption text-ink-faint" />
-                  <span className="flex h-3 w-3 shrink-0 items-center justify-center" aria-hidden>
-                    {entry.path === cwd && <Check size={12} strokeWidth={2.2} className="text-accent" />}
-                  </span>
+                  <ScrollText text={entry.label} className={`min-w-0 shrink text-label ${entry.path === cwd ? "text-accent" : "text-ink-muted"}`} />
+                  <ScrollText text={entry.branch ?? "游离 HEAD"} className={`ml-auto min-w-0 shrink-[4] text-caption ${entry.path === cwd ? "text-accent" : "text-ink-faint"}`} />
+
                 </button>
               ))}
             </>

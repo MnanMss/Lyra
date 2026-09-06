@@ -12,7 +12,7 @@
  */
 
 import { errorResult } from "../agent/tool-run.ts";
-import { MAX_LESSON_CHARS, recordLesson } from "../runtime/project-memory.ts";
+import { MAX_LESSON_CHARS, PROJECT_MEMORY_ENABLED_KEY, recordLesson } from "../runtime/project-memory.ts";
 import type { Tool, ToolResult } from "../types.ts";
 
 interface LearnArgs {
@@ -51,6 +51,7 @@ export const learnTool: Tool<LearnArgs> = {
 	summarize: (args) => `Learn: ${(args.lesson ?? "").slice(0, 40)}`,
 
 	async execute(args, ctx): Promise<ToolResult> {
+		if (ctx.state.get(PROJECT_MEMORY_ENABLED_KEY) === false) return errorResult("Project memory is disabled in settings.");
 		if (typeof args.lesson !== "string" || !args.lesson.trim()) return errorResult("`lesson` is required.");
 		if (args.lesson.length > MAX_LESSON_CHARS) {
 			return errorResult(`\`lesson\` is ${args.lesson.length} characters; the limit is ${MAX_LESSON_CHARS}. Say it more briefly.`);

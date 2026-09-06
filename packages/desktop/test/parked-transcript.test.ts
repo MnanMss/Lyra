@@ -13,8 +13,9 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { AgentEvent, Message } from "@lyra/core";
+import type { AgentEvent, CommandRun, Message, SessionMeta } from "@lyra/core";
 import { applyAgentEvent } from "../src/store/apply-event.ts";
+import { cachedEvent } from "../src/store/cached-event.ts";
 
 const usage = {
 	input: 0,
@@ -119,4 +120,18 @@ test("a conversation on screen keeps its cache — it is being kept up to date l
 	);
 
 	assert.ok("watching" in (state.sessionCache as Record<string, unknown>));
+});
+
+test("background command updates stay singular and rewinding retains only earlier command records", () => {
+	const meta: SessionMeta = { id: "other", title: "same title", cwd: "/project", projectId: "p", projectName: "p", createdAt: 1, updatedAt: 1, modelId: "m", messageCount: 2, usage };
+	const command: CommandRun = { id: "compact-1", name: "compact", input: "/compact", at: 1, timestamp: 2, status: "running", detail: "正在压缩" };
+	let cached = cachedEvent({ meta, messages: [said("first"), reply], toolRuns: {} }, { type: "command_status", command });
+	assert.equal(cached.state?.running, true);
+	cached = cachedEvent(cached, { type: "command_status", command: { ...command, status: "done" } });
+	assert.equal(cached.state?.running, false);
+	assert.equal(cached.state?.commandRuns?.length, 1);
+	cached = cachedEvent(cached, { type: "command_status", command: { ...command, id: "compact-2", at: 2, status: "done" } });
+	cached = cachedEvent(cached, { type: "rewound", messageCount: 1 });
+	assert.deepEqual(cached.state?.commandRuns?.map((run) => run.id), ["compact-1"]);
+	assert.equal(cached.messages.length, 1);
 });

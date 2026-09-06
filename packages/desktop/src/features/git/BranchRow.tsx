@@ -26,7 +26,7 @@ export function BranchRow({
   onDelete?: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
   return (
-    <div className="ly-scroll group/branch flex items-center gap-1 rounded-md px-1.5 py-1 transition-colors hover:bg-card-hover">
+    <div className="ly-scroll group/branch flex items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors">
       <GitBranch
         size={12}
         strokeWidth={1.8}
@@ -34,7 +34,7 @@ export function BranchRow({
       />
       <ScrollText text={name} className={`min-w-0 flex-1 text-label ${current ? "text-ink" : "text-ink-muted"}`} />
       {current ? (
-        <Text size="caption" tone="faint" className="shrink-0 pr-1">
+        <Text size="caption" tone="faint" className="w-9 shrink-0 text-right">
           当前
         </Text>
       ) : (
@@ -51,14 +51,6 @@ export function BranchRow({
               onClick={onCompare}
             />
           )}
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onSwitch}
-            className="h-[22px] rounded px-1.5 text-caption text-ink-muted transition-colors hover:bg-elevated hover:text-ink disabled:opacity-40"
-          >
-            {remote ? "检出" : "切换"}
-          </button>
           {onDelete && (
             <IconButton
               icon={<Trash2 size={12} strokeWidth={1.9} />}
@@ -68,6 +60,14 @@ export function BranchRow({
               onClick={onDelete}
             />
           )}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onSwitch}
+            className="h-[22px] w-9 rounded text-right text-caption text-ink-muted transition-colors hover:bg-elevated hover:text-ink disabled:opacity-40"
+          >
+            {remote ? "检出" : "切换"}
+          </button>
         </span>
       )}
     </div>

@@ -25,7 +25,7 @@ import { buildSystemPrompt, loadProjectInstructions } from "../prompt/system.ts"
 import { sandboxModeFor } from "../sandbox/mode-for.ts";
 import { lyraHome } from "../session/store.ts";
 import { CODE_INTEL_KEY, CodeIntelManager } from "../lsp/manager.ts";
-import { resolveModelRef } from "../config/model-roles.ts";
+import { resolveSubAgentModel } from "../config/model-roles.ts";
 import { compactWith } from "./compaction.ts";
 import { childDispatch, DEFAULT_MAX_DEPTH, DISPATCH_KEY, DispatchGate, rootDispatch, type DispatchContext } from "./dispatch-guard.ts";
 import { textTokens, toolTokens } from "./context.ts";
@@ -66,6 +66,8 @@ export interface SubAgentOptions {
 	sessionId: string;
 	cwd: string;
 	settings: Settings;
+	/** Resolve preferences at dispatch time without altering an already running model request. */
+	getSettings?: () => Settings;
 	tools: Tool[];
 	skills: Skill[];
 	agents: AgentDefinition[];
@@ -139,14 +141,9 @@ export async function runSubAgent(
 	 * Built per run because the tool carries the attempt counter — a fresh one each dispatch, so a
 	 * sub-agent that used up its retries does not hand a spent budget to the next one.
 	 */
-	/*
-	 * The definition's own model, if it asked for one and this machine has it.
-	 *
-	 * Falls back to what the dispatching session is using, which is what happened unconditionally
-	 * before — the field was read by nothing. Falling back rather than failing matters for shared
-	 * definitions: one naming three models none of which are configured here should still run.
-	 */
-	const chosen = resolveModelRef(options.settings, definition.model, { provider, model });
+	// Local preferences override portable definitions; an explicit missing model is an error.
+
+	const chosen = resolveSubAgentModel(options.getSettings?.() ?? options.settings, definition, { provider, model });
 	const runProvider = chosen.provider;
 	const runModel = chosen.model;
 
@@ -244,7 +241,7 @@ export async function runSubAgent(
 				 * worth it; the sub-agents it dispatches are a dozen cheap errands run in parallel,
 				 * and inheriting that level would multiply the decision by however many were sent.
 				 */
-				thinking: options.settings.thinking,
+				thinking: chosen.thinking,
 				retryAttempts: options.settings.retryAttempts,
 				signal: controller.signal,
 				state: subState,

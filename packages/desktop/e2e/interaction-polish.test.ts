@@ -36,8 +36,10 @@ async function shot(name: string): Promise<void> {
 
 test("question navigation is mouse reachable and jumps to an unmounted historical question without a moving first frame", async (t) => {
 	await click('[data-ly-row="qa-long"] > button');
-	await until('document.querySelectorAll(".ly-question-mark").length === 120');
-	await click('.ly-question-mark[aria-label^="跳转到第 1 个问题："]');
+	await until('document.querySelectorAll(".ly-question-mark").length === 15');
+	await click('.ly-question-mark');
+	await app.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Home", windowsVirtualKeyCode: 36 });
+	await app.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Home", windowsVirtualKeyCode: 36 });
 	await until('document.querySelector("[data-question-index=\\"0\\"]")');
 	const samples = await app.evaluate<{ y: number; rows: number }[]>(`(async()=>{const out=[];for(let i=0;i<24;i++){await new Promise(requestAnimationFrame);out.push({y:document.querySelector('[data-question-index="0"]').getBoundingClientRect().top,rows:document.querySelector('.ly-transcript').children.length});}return out;})()`);
 	t.diagnostic(JSON.stringify(samples));
@@ -107,7 +109,7 @@ test("Git uses Index counts, colours added C# syntax, aligns checkout branches a
 	await shot("git-csharp");
 	await click('[data-dock-pane="review"] [data-ly-tip="分支"]');
 	await until(`document.querySelector('[data-view="branches"]')?.textContent.includes('second-checkout')`);
-	const aligned = await app.evaluate<number[]>(`[...document.querySelectorAll('[data-view="branches"] button[data-ly-tip]')].filter(b=>b.dataset.lyTip.includes('project')||b.dataset.lyTip.includes('second-checkout')).map(b=>b.children[b.children.length-2].getBoundingClientRect().right)`);
+	const aligned = await app.evaluate<number[]>(`[...document.querySelectorAll('[data-view="branches"] button[data-ly-tip]')].filter(b=>b.dataset.lyTip.includes('project')||b.dataset.lyTip.includes('second-checkout')).map(b=>b.lastElementChild.getBoundingClientRect().right)`);
 	assert.equal(aligned.length, 2); assert.ok(Math.abs(aligned[0] - aligned[1]) < 1, JSON.stringify(aligned));
 	const at = await app.evaluate<{ x: number; y: number }>(`(()=>{const b=[...document.querySelectorAll('[data-view="branches"] button[data-ly-tip]')].find(b=>b.dataset.lyTip.includes('second-checkout'));const r=b.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
 	await app.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...at }); await frames(45);

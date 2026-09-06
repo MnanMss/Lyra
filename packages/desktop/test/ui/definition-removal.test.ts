@@ -29,8 +29,11 @@ test("delete targets its own row, cancel is inert, and failure keeps the definit
 		await click(button());
 		assert.match(document.body.textContent ?? "", /\/project\/same.md/);
 		await click(modalButton("取消"));
+		await act(async () => { document.querySelector(".ly-dialog-out")?.dispatchEvent(new Event("animationend", { bubbles: true })); });
 		assert.equal(opened, 0); assert.deepEqual(calls, []);
 		await click(button()); await click(modalButton("移入废纸篓"));
+		assert.deepEqual(calls, [], "the action follows the dialog exit");
+		await act(async () => { document.querySelector(".ly-dialog-out")?.dispatchEvent(new Event("animationend", { bubbles: true })); });
 		assert.deepEqual(calls, ["/project/same.md"]);
 		assert.equal(button().disabled, true);
 		await act(async () => { fail(new Error("permission denied")); });

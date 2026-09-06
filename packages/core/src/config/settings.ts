@@ -1,3 +1,4 @@
+import { normalizeSubAgentProfiles, type SubAgentProfile } from "./sub-agent-profiles.ts";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { McpServerConfig } from "../mcp/client.ts";
@@ -344,6 +345,7 @@ export interface Settings {
 	 * at all. Empty entries fall through to the session's own model.
 	 */
 	modelRoles?: Partial<Record<"default" | "fast" | "deep" | "review", string>>;
+	subAgentProfiles?: Record<string, SubAgentProfile>;
 	/**
 	 * Whether finished sessions may be read by a model to build project memory.
 	 *
@@ -416,6 +418,8 @@ export interface Settings {
 		customInstructions?: string;
 		/** Whether to enable persistent local memory extraction. */
 		enableMemory?: boolean;
+		/** Read and record this repository's lessons independently of personal preferences. */
+		enableProjectMemory?: boolean;
 		/** Whether memory extraction considers MCP tools and search conversations. */
 		enableToolAssistedMemory?: boolean;
 		/** Tone/personality preference for agent replies. */
@@ -662,6 +666,7 @@ export function normalizeSettings(parsed: Partial<Settings>): Settings {
 			 * merge as a field the phone deleted.
 			 */
 			...(typeof parsed.memoryExtraction === "boolean" ? { memoryExtraction: parsed.memoryExtraction } : {}),
+			subAgentProfiles: normalizeSubAgentProfiles(parsed.subAgentProfiles),
 			modelRoles:
 				parsed.modelRoles && typeof parsed.modelRoles === "object"
 					? Object.fromEntries(

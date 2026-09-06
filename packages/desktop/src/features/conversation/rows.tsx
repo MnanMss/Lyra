@@ -13,6 +13,7 @@ import { Markdown } from "./Markdown.tsx";
 import { MessageActions } from "./MessageActions.tsx";
 import { ThinkingBlock } from "./ThinkingBlock.tsx";
 import { RuleCard } from "./RuleCard.tsx";
+import { conversationTime } from "./question-navigation.ts";
 import { UserMessage } from "./UserMessage.tsx";
 import { useApp } from "../../store/index.ts";
 import { ChevronDown, RotateCcw, TriangleAlert } from "lucide-react";
@@ -47,6 +48,7 @@ export const MessageRow = memo(function MessageRow({
   continued,
   turnStats,
   viewKey,
+  showTime,
 }: {
   message: Message;
   index: number;
@@ -70,6 +72,7 @@ export const MessageRow = memo(function MessageRow({
   /** Accumulated statistics for the turn this message concludes. */
   turnStats?: TurnStats;
   viewKey?: string;
+  showTime?: boolean;
 }) {
   if (message.role === "user") {
     /*
@@ -106,7 +109,7 @@ export const MessageRow = memo(function MessageRow({
      */
     if (message.ruleMatch) return <RuleCard match={message.ruleMatch} />;
     if (message.synthetic || isNudge(message)) return null;
-    return <UserMessage message={message} index={index} />;
+    return <>{showTime && <div className="ly-conversation-time my-6 text-center text-caption text-ink-faint"><time dateTime={new Date(message.timestamp).toISOString()}>{conversationTime(message.timestamp)}</time></div>}<UserMessage message={message} index={index} /></>;
   }
 
   // Tool results are rendered inside their tool card, not as standalone rows.

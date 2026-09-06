@@ -54,7 +54,7 @@ export async function readSelectedSession(meta: SessionMeta, set: Set, get: Get)
 	if (before.loadingSession && events.length) {
 		let merged: Cache[string] = {
 			meta: snapshot.meta, messages: snapshot.messages, toolRuns: rebuildToolRuns(snapshot.messages),
-			state: { running: snapshot.running, todos: todosFrom(snapshot.messages), compactions: (snapshot.compactions ?? []).map((at) => ({ at, before: 0, after: 0 })),
+			state: { running: snapshot.running, commandRuns: snapshot.commandRuns ?? [], todos: todosFrom(snapshot.messages), compactions: (snapshot.compactions ?? []).map((at) => ({ at, before: 0, after: 0 })),
 				approvals: snapshot.pendingApprovals, stopped: howItStopped(snapshot.messages), retrying: null, capabilities: null, pendingUserMessage: null },
 		};
 		for (const event of events) {
@@ -81,6 +81,7 @@ export async function readSelectedSession(meta: SessionMeta, set: Set, get: Get)
 			current.approvals !== before.approvals ||
 			current.todos !== before.todos ||
 			current.compactions !== before.compactions ||
+			current.commandRuns !== before.commandRuns ||
 			current.meta !== before.meta);
 	const unchanged =
 		cached &&
@@ -104,6 +105,7 @@ export async function readSelectedSession(meta: SessionMeta, set: Set, get: Get)
 		// `aborted` was stopped by hand, however long ago.
 		stopped: advanced ? current.stopped : snapshot.running ? null : howItStopped(messages),
 		running: advanced ? current.running : snapshot.running,
+		commandRuns: advanced ? current.commandRuns : snapshot.commandRuns ?? [],
 		approvals: advanced ? current.approvals : snapshot.pendingApprovals,
 		toolRuns,
 		loadingSession: false,
@@ -116,6 +118,7 @@ export async function readSelectedSession(meta: SessionMeta, set: Set, get: Get)
 					toolRuns,
 					state: {
 						running: advanced ? current.running : snapshot.running,
+						commandRuns: advanced ? current.commandRuns : snapshot.commandRuns ?? [],
 						todos: advanced ? current.todos : todosFrom(messages),
 						compactions: advanced ? current.compactions : (snapshot.compactions ?? []).map((at) => ({ at, before: 0, after: 0 })),
 						approvals: advanced ? current.approvals : snapshot.pendingApprovals,

@@ -197,3 +197,7 @@ test("太新的会话不读", async () => {
 		await rm(fresh, { recursive: true, force: true, maxRetries: 8, retryDelay: 25 });
 	}
 });
+
+test("the project-memory off switch blocks automatic extraction at the runtime boundary", () => {
+	assert.deepEqual(shouldRunPass(settings({ personalization: { enableProjectMemory: false }, memoryExtraction: true }), null), { run: false, reason: "declined" });
+});

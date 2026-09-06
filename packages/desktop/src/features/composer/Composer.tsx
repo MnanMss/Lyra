@@ -1,12 +1,13 @@
 import type { UserContent } from "@lyra/core";
 // Through the browser-safe door: the main barrel reaches the filesystem, and this runs in a page.
-import { expandCommand, parseInvocation, parseSkillMention, rankCommands, resolveCommand, skillNameOf, type SlashCommand } from "@lyra/core/commands-view";
+import { expandCommand, parseInvocation, parseSkillMention, resolveCommand, skillNameOf } from "@lyra/core/commands-view";
 import { Camera, CircleAlert, Folder, GitBranch, MessageSquare, Plus, X } from "lucide-react";
 import { openFromEvent } from "../image/index.ts";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChangeBar } from "../git/index.ts";
 import { CommandMenu } from "./CommandMenu.tsx";
-import type { SkillEntry } from "../../../electron/ipc-types.ts";
+import { useCommands } from "./useCommands.ts";
+import { commandEntries, skillCommandName } from "./command-catalog.ts";
 import { ComposerSend, ComposerShell } from "./ComposerShell.tsx";
 import { SubAgentBar } from "../subagents/index.ts";
 import { ForeignConfigNotice } from "./ForeignConfigNotice.tsx";
@@ -27,7 +28,6 @@ import { useLayout } from "../../app/layout.tsx";
 import { findModel } from "../models/index.ts";
 import { fileKind, isReadableAsText, KIND_LABEL, looksBinary, type FileKind } from "./attachments/file-kind.ts";
 import { FileKindIcon } from "./attachments/FileKindIcon.tsx";
-import { builtinCommandsFor, type CommandAction } from "@lyra/core/commands-builtin";
 import { useApp } from "../../store/index.ts";
 import { sessionThinking } from "../../lib/thinking.ts";
 import { bridge } from "../../services/index.ts";
@@ -138,193 +138,9 @@ export function Composer() {
 	}, [draft]);
 
 
-	/*
-	 * Slash commands.
-	 *
-	 * `dismissed` is what Escape sets: the list closes but the text stays, because someone who
-	 * typed `/` meaning a path should not have to delete it to be left alone. Any further edit
-	 * clears it, so the list comes back the moment the text changes again — a menu that stayed
-	 * shut until the field was emptied would be its own annoyance.
-	 */
-	const [commands, setCommands] = useState<SlashCommand[]>([]);
-	const [skills, setSkills] = useState<SkillEntry[]>([]);
-	const [active, setActive] = useState(0);
-	const [dismissed, setDismissed] = useState(false);
-
-	/**
-	 * What is being typed after a slash, or `null` when nothing is.
-	 *
-	 * The slash has to start a word — beginning of the text, or straight after whitespace — and
-	 * what follows it has to run to the end of what has been typed. That is what separates a
-	 * command being chosen from the slashes that fill ordinary prose:
-	 *
-	 *   `/com`                 → offered
-	 *   `啊手机壳就是的 /com`    → offered; a sentence can end in a command being reached for
-	 *   `src/main.ts`          → not; the slash is inside a word
-	 *   `2026/08/26`           → not, same reason
-	 *   `/compact 参数`         → not; the name is settled and arguments are being typed
-	 *
-	 * An earlier version required the slash to be the very first character. That is the rule for
-	 * *running* a command and it stays the rule below — but it made a poor rule for *offering* one,
-	 * because the list simply never appeared for anyone who had already started typing.
-	 */
-	const term = useMemo(() => {
-		const match = /(?:^|\s)\/([a-zA-Z0-9:_-]*)$/.exec(text);
-		return match ? match[1] : null;
-	}, [text]);
-
-	/**
-	 * The few commands that do something to the app rather than say something to the model.
-	 *
-	 * Kept deliberately short. Every name taken here is a name a user cannot have for their own
-	 * command, so this is limited to the things that could not be written as a prompt at all: they
-	 * act on the session itself.
-	 */
-	/*
-	 * What a skill is called in the menu.
-	 *
-	 * `<plugin>:<skill>` for a bundled one, which is what those manifests advertise and what this
-	 * menu already does for a command in a subdirectory — so `/waza:think` works because it is the
-	 * name, not because of a special case.
-	 */
-	const skillCommandName = (skill: SkillEntry) => (skill.pluginId ? `${skill.pluginId}:${skill.name}` : skill.name);
-
-	/*
-	 * 名单从 core 来，动作在这里。
-	 *
-	 * 这三条以前整个写在这个组件里，于是只有这一个界面知道它们存在——CLI 里没有 `/compact`，
-	 * 设置 › 命令 那一页也列不出它们，而那一页正是回答「有哪些命令可以用」的地方。
-	 *
-	 * 现在 core 拥有词汇表（名字、说明），这里拥有动作。宿主没实现的动作不会出现在名单里，
-	 * 而不是出现了按下去没反应。
-	 */
-	type Builtin = { name: string; description: string; origin: string; run: () => void | Promise<void> };
-	const builtins: Builtin[] = useMemo(() => {
-		const run: Record<CommandAction, () => void | Promise<void>> = {
-			compact: async () => {
-				if (!activeSessionId) return;
-				const result = await bridge.sessions.compact(activeSessionId);
-				if (result.ok) useApp.getState().notify("已把之前的对话压缩成摘要。");
-				else if (result.reason) useApp.getState().notify(result.reason, "warn");
-			},
-			clear: async () => {
-				await useApp.getState().newSession();
-			},
-			"manage-commands": () => {
-				useApp.getState().setSettingsSection("commands");
-				useApp.getState().setView("settings");
-			},
-		};
-		return builtinCommandsFor(["compact", "clear", "manage-commands"]).map((command) => ({
-			name: command.name,
-			description: command.description,
-			origin: "内置",
-			run: run[command.action],
-		}));
-	}, [activeSessionId]);
-
-	/*
-	 * Built-ins first, so a file command cannot quietly take one of their names.
-	 *
-	 * `rankCommands` sorts what survives, and the dedup before it is what makes the precedence
-	 * real: a `compact.md` on disk is still listed by the settings page, it simply does not win
-	 * the name here.
-	 */
-	const matches = useMemo(() => {
-		if (term === null || dismissed) return [];
-		const reserved = new Set(builtins.map((entry) => entry.name));
-		const entries = [
-			...builtins,
-			...commands
-				.filter((command) => !reserved.has(command.name))
-				.map((command) => ({
-					name: command.name,
-					description: command.description,
-					argumentHint: command.argumentHint,
-					origin:
-						command.origin === "claude"
-							? command.scope === "workspace"
-								? "Claude · 项目"
-								: "Claude"
-							: command.scope === "workspace"
-								? "项目"
-								: "个人",
-					run: undefined,
-				})),
-			/*
-			 * Skills, offered by name in the same menu.
-			 *
-			 * A bundle's whole promise is that its skills are callable — waza's manifest advertises
-			 * 「/waza:think」 and the rest — and nothing in the app could call one: the agent picked
-			 * them up on its own judgement, and asking for one by name was not possible. So a plugin
-			 * installed on purpose could sit for a week without running once.
-			 *
-			 * Named `<plugin>:<skill>` when it came from a bundle, which is both what those manifests
-			 * advertise and what this menu already does for a command in a subdirectory.
-			 *
-			 * Ranked alongside commands rather than in a section of their own: from where you are
-			 * standing — typing a slash and a few letters — the difference between "a prompt someone
-			 * wrote down" and "a skill a bundle provides" is not the thing you are choosing by. The
-			 * origin badge says which, for when it matters.
-			 */
-			...skills
-				.filter((skill) => !reserved.has(skillCommandName(skill)))
-				.map((skill) => ({
-					name: skillCommandName(skill),
-					description: skill.description,
-					argumentHint: undefined,
-					origin: skill.pluginId ? `插件 · ${skill.pluginId}` : skill.source === "workspace" ? "技能 · 项目" : "技能",
-					run: undefined,
-				})),
-		];
-		return rankCommands(entries, term).slice(0, 50);
-	}, [builtins, commands, skills, term, dismissed]);
-
-	/*
-	 * Re-read the files whenever the list is about to be needed.
-	 *
-	 * These are markdown files people edit in another window, so a list cached at startup would be
-	 * wrong more often than right. Keyed on "is there a slash at all" rather than on the term, so
-	 * this is one read per time the menu opens rather than one per keystroke.
-	 */
-	const commandMode = term !== null;
-	useEffect(() => {
-		if (!commandMode) return;
-		let alive = true;
-		void bridge.commands.list(workspace?.path ?? "").then((result) => {
-			if (!alive) return;
-			setCommands(result.commands);
-			setSkills(result.skills ?? []);
-		});
-		return () => {
-			alive = false;
-		};
-	}, [commandMode, workspace?.path]);
-
-	// A different set of matches means the old highlight is meaningless.
-	useEffect(() => {
-		setActive(0);
-	}, [term]);
-
-	/**
-	 * Put the chosen name in the field and leave the caret after it, ready for arguments.
-	 *
-	 * Chosen, not run — including for the built-ins, which have nothing to type after them. One
-	 * more keystroke is worth it for a rule with no exceptions: picking from this list never does
-	 * anything on its own, so nothing in it can fire from a stray Enter.
-	 */
-	function pick(command: { name: string }) {
-		/*
-		 * Replace the slash-word being typed, not the whole field.
-		 *
-		 * `term` only matches a slash that starts a word and runs to the end, so the last slash in
-		 * the text is that word's start — anything before it is a sentence somebody wrote and must
-		 * survive being offered a completion.
-		 */
-		const at = text.lastIndexOf("/");
-		setText(`${at > 0 ? text.slice(0, at) : ""}/${command.name} `);
-		setDismissed(false);
-	}
+	const commandCwd = workspace?.path ?? scratchCwd ?? "";
+	const slash = useCommands(text, commandCwd, field, setText);
+	const submitting = useRef(new Map<string, symbol>());
 
 	const modelMenu = usePopover();
 	const effortMenu = usePopover();
@@ -354,6 +170,16 @@ export function Composer() {
 	const permissionMode = settings?.permissionMode ?? "auto";
 
 	async function submit() {
+		if (submitting.current.has(draftKey)) return;
+		const submission = Symbol();
+		submitting.current.set(draftKey, submission);
+		const release = () => { if (submitting.current.get(draftKey) === submission) submitting.current.delete(draftKey); };
+		try { await submitOnce(release); }
+		catch (cause) { useApp.getState().notify(`命令或消息发送失败：${cause instanceof Error ? cause.message : String(cause)}`, "error"); }
+		finally { release(); }
+	}
+
+	async function submitOnce(release: () => void) {
 		const trimmed = text.trim();
 		if (!trimmed && attachments.length === 0) return;
 
@@ -365,7 +191,7 @@ export function Composer() {
 		 * you can audit and one where a step happened off-screen. It also costs nothing to explain
 		 * afterwards — the instructions are right there.
 		 *
-		 * Re-read when the list is empty, for the paste-and-send case where the menu never opened.
+		 * Re-read on dispatch so paste-and-send and edits made outside Lyra use the current definition.
 		 * An unknown name is not an error: it goes out as typed, because `/` is also how people
 		 * write paths and a composer that rejected them would be wrong far more often than right.
 		 */
@@ -384,22 +210,32 @@ export function Composer() {
 		 * Cleared first, because these are not instant — `/compact` is a model call — and a field
 		 * that still held `/compact` while it ran would invite a second press.
 		 */
-		const builtin = invocation ? builtins.find((entry) => entry.name === invocation.name) : undefined;
+		const builtin = invocation ? commandEntries([], []).find((entry) => entry.name === invocation.name) : undefined;
 		if (builtin) {
+			if (attachments.length) { useApp.getState().notify("这条内置命令不接收附件，请先移除附件或单独发送消息。", "warn"); return; }
+			if (builtin.action === "compact" && !activeSessionId) { useApp.getState().notify("当前还没有可压缩的会话。", "warn"); return; }
+			if (builtin.action !== "compact" && invocation?.rest) { useApp.getState().notify("这条命令不接收参数，输入内容已保留。", "warn"); return; }
 			setText("");
-			setAttachments([]);
 			setDraft(draftKey, null);
-			await builtin.run();
+			// The guard covers draft resolution; runtime execution must not block subsequent messages.
+			release();
+			if (builtin.action === "compact" && activeSessionId) {
+				const result = await bridge.sessions.compact(activeSessionId, invocation?.rest);
+				if (!result.ok && result.reason) useApp.getState().notify(result.reason, "warn");
+			} else if (builtin.action === "clear") await useApp.getState().newSession();
+			else if (builtin.action === "manage-commands") {
+				useApp.getState().setSettingsSection("commands");
+				useApp.getState().setView("settings");
+			}
 			return;
 		}
 
 		if (invocation) {
-			const fresh =
-				commands.length > 0 || skills.length > 0
-					? { commands, skills }
-					: await bridge.commands
-							.list(workspace?.path ?? "")
-							.catch(() => ({ commands: [] as typeof commands, skills: [] as SkillEntry[] }));
+			// Resolve against disk at dispatch, including paste-and-send and edits made in another app.
+			const fresh = await bridge.commands.list(commandCwd);
+			// A disk scan must not dispatch an obsolete draft or erase edits made while it was pending.
+			if (draftKeyRef.current !== draftKey || textRef.current !== text || attachmentsRef.current !== attachments) return;
+
 			/*
 			 * 精确命中优先，否则唯一的末段匹配——`/commit` 找到 `git:commit`。
 			 *
@@ -462,6 +298,7 @@ export function Composer() {
 		setText("");
 		setAttachments([]);
 		setDraft(draftKey, null);
+		release();
 		await send(content, deliver ? { deliver } : {});
 	}
 
@@ -616,63 +453,18 @@ export function Composer() {
 				)}
 
 				<div className="relative">
-				<CommandMenu
-					commands={matches}
-					term={term ?? ""}
-					active={active}
-					onPick={pick}
-					onHover={setActive}
-				/>
+				<CommandMenu id={slash.id} commands={slash.matches} term={slash.term} active={slash.active} onPick={slash.pick} onHover={slash.setActive} />
 				<ComposerShell
 					fieldRef={field}
 					value={text}
-					onChange={(next) => {
-						setText(next);
-						// Any edit un-dismisses: Escape hid this list, it did not turn the feature off.
-						setDismissed(false);
-					}}
+					onChange={slash.change}
+					decoration={slash.decoration}
+					onSelect={slash.select}
+					onFocus={slash.focus}
+					onBlur={slash.blur}
+					commandMenu={{ id: slash.id, active: slash.active, open: slash.matches.length > 0 }}
 					onSubmit={() => void submit()}
-					onKeyDown={(event) => {
-						if (matches.length === 0) return;
-						/*
-						 * Never while an IME is composing.
-						 *
-						 * Enter commits a candidate in Chinese, Japanese and Korean input — taking it
-						 * here would make the field unusable for typing the language most of this app
-						 * is written in, and the bug would only appear for the people it appears for.
-						 */
-						if (event.nativeEvent.isComposing) return;
-
-						if (event.key === "ArrowDown") {
-							event.preventDefault();
-							setActive((index) => (index + 1) % matches.length);
-						} else if (event.key === "ArrowUp") {
-							event.preventDefault();
-							setActive((index) => (index - 1 + matches.length) % matches.length);
-						} else if (event.key === "Enter" || event.key === "Tab") {
-							event.preventDefault();
-							const chosen = matches[Math.min(active, matches.length - 1)];
-							/*
-							 * A name that is already complete has nothing left to complete, so Enter runs it.
-							 *
-							 * Picking deliberately does not run anything — see `pick` — and that is right
-							 * while a name is half typed: the list is a way of finishing a word, and firing
-							 * `/clear` because somebody pressed Enter over a highlighted row would be a
-							 * conversation lost to a keystroke. But once `/compact` is typed in full, the
-							 * completion is a no-op: it appends a space and nothing else. Pressing Enter
-							 * then looked like the command had simply been ignored — it had to be pressed
-							 * twice, and nothing on screen said so. That was the whole of 「一点反应都没有」.
-							 *
-							 * Tab still only completes, whatever is typed. Tab is the completion key; it
-							 * has never meant "do it".
-							 */
-							if (event.key === "Enter" && term === chosen.name) void submit();
-							else pick(chosen);
-						} else if (event.key === "Escape") {
-							event.preventDefault();
-							setDismissed(true);
-						}
-					}}
+					onKeyDown={(event) => slash.keyDown(event, () => void submit())}
 					placeholder="随心输入，或输入 / 使用命令"
 					onFiles={(files) => void addFiles(files)}
 					attachments={

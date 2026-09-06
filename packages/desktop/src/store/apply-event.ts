@@ -291,7 +291,9 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
     case "rewound":
       // The agent discarded a tail of history; match it exactly rather than guessing
       // from the messages that arrive next.
-      set({ messages: get().messages.slice(0, event.messageCount) });
+			set({ messages: get().messages.slice(0, event.messageCount),
+				commandRuns: get().commandRuns.filter((run) => run.at <= event.messageCount),
+				compactions: get().compactions.filter((run) => run.at <= event.messageCount) });
       break;
 
     case "title": {
@@ -355,6 +357,10 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
           : {}),
       });
       break;
+
+		case "command_status":
+			set({ running: event.command.status === "running", commandRuns: [...get().commandRuns.filter((run) => run.id !== event.command.id), event.command] });
+			break;
 
     case "compacted":
       /*

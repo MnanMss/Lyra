@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { CommandText } from "./CommandText.tsx";
+import type { CommandDecoration } from "./command-catalog.ts";
 import { OverlayScrollbar } from "../../ui/scroll/OverlayScrollbar.tsx";
 import { FIT_LEVELS, FIT_PROBE, settle, tight } from "./fit.ts";
 import { ROLL_VALUE } from "../../ui/motion/RollingText.tsx";
@@ -30,7 +32,17 @@ export function ComposerShell({
   onFiles,
   onKeyDown,
   fieldRef,
+	decoration,
+	onSelect,
+	onFocus,
+	onBlur,
+	commandMenu,
 }: {
+	decoration?: CommandDecoration;
+	onSelect?: () => void;
+	onFocus?: () => void;
+	onBlur?: () => void;
+	commandMenu?: { id: string; active: number; open: boolean };
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
@@ -63,6 +75,13 @@ export function ComposerShell({
 }) {
   const own = useRef<HTMLTextAreaElement>(null);
   const field = fieldRef ?? own;
+	const mirror = useRef<HTMLDivElement>(null);
+	const [composing, setComposing] = useState(false);
+	const highlighted = !composing ? decoration : undefined;
+	const syncMirror = () => {
+		if (mirror.current && field.current) mirror.current.style.transform = `translateY(${-field.current.scrollTop}px)`;
+	};
+	useLayoutEffect(syncMirror);
 
   /*
    * How much of the toolbar has had to be given up for what is in it to fit.
@@ -174,11 +193,25 @@ export function ComposerShell({
        * with nothing to say so — and no way to see how much of it was above the fold.
        */}
       <div className="ly-scroll-host relative">
+				{highlighted && <CommandText value={value} decoration={highlighted} mirror={mirror} />}
         <textarea
           ref={field}
           value={value}
           disabled={disabled}
           autoFocus={autoFocus}
+					onSelect={onSelect}
+					onFocus={onFocus}
+					onBlur={onBlur}
+					onScroll={syncMirror}
+					onCompositionStart={() => setComposing(true)}
+					onCompositionEnd={() => setComposing(false)}
+					data-highlighted={Boolean(highlighted)}
+					role={commandMenu ? "combobox" : undefined}
+					aria-label="消息"
+					aria-autocomplete={commandMenu ? "list" : undefined}
+					aria-expanded={commandMenu?.open}
+					aria-controls={commandMenu?.open ? commandMenu.id : undefined}
+					aria-activedescendant={commandMenu?.open ? `${commandMenu.id}-${commandMenu.active}` : undefined}
           onChange={(e) => onChange(e.target.value)}
           onPaste={
             onFiles
@@ -204,6 +237,7 @@ export function ComposerShell({
               : undefined
           }
           onKeyDown={(e) => {
+						if (composing || e.nativeEvent.isComposing || e.keyCode === 229) return;
             onKeyDown?.(e);
             if (e.defaultPrevented) return;
             if (
@@ -217,7 +251,7 @@ export function ComposerShell({
           }}
           rows={1}
           placeholder={placeholder}
-          className="block max-h-[min(300px,34vh)] w-full resize-none bg-transparent px-4 pt-3.5 pb-2.5 text-body leading-relaxed text-ink placeholder:text-ink-faint"
+          className="ly-composer-text relative block max-h-[min(300px,34vh)] w-full resize-none bg-transparent placeholder:text-ink-faint"
         />
         <OverlayScrollbar viewport={field} orientation="vertical" />
       </div>

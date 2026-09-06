@@ -10,8 +10,9 @@ import { Scroller } from "../../ui/scroll/Scroller.tsx";
 import { useAnswering } from "./useAnswering.ts";
 import { isNudge, runs, runKey } from "./grouping.ts";
 import { ToolRun as ToolRunGroup, WINDOW_STEP } from "./runs.tsx";
+import { CommandRunRow } from "./CommandRunRow.tsx";
 import { QuestionNav } from "./QuestionNav.tsx";
-import { questionsIn } from "./question-navigation.ts";
+import { questionsIn, timeSeparators } from "./question-navigation.ts";
 import { MessageRow } from "./rows.tsx";
 import { useTranscriptWindow } from "./view-state.ts";
 import { useFollowBottom } from "../../ui/scroll/useFollowBottom.ts";
@@ -34,10 +35,13 @@ export const Conversation = memo(function Conversation() {
   const messages = useApp((s) => s.messages);
   const running = useApp((s) => s.running);
   const compactions = useApp((s) => s.compactions);
+	const commandRuns = useApp((s) => s.commandRuns);
+	const compacting = commandRuns.some((command) => command.status === "running");
   const toolRunCount = useApp((s) => Object.keys(s.toolRuns).length);
   const activeSessionId = useApp((s) => s.activeSessionId);
   const loadingSession = useApp((s) => s.loadingSession);
-  const allRuns = useMemo(() => runs(messages, compactions), [messages, compactions]);
+  const allRuns = useMemo(() => runs(messages, compactions, commandRuns), [messages, compactions, commandRuns]);
+  const separators = useMemo(() => timeSeparators(messages), [messages]);
   const questions = useMemo(() => questionsIn(messages), [messages]);
   const range = useTranscriptWindow(activeSessionId, WINDOW_STEP, allRuns.length);
   const [jump, setJump] = useState<{ sessionId: string | null; index: number; changedWindow: boolean } | null>(null);
@@ -99,7 +103,7 @@ export const Conversation = memo(function Conversation() {
     surfaceId: activeSessionId,
     namespace: "transcript",
     ready: !loadingSession,
-    count: messages.length,
+    count: messages.length + commandRuns.length,
     /*
      * What "something arrived" means here.
      *
@@ -121,12 +125,12 @@ export const Conversation = memo(function Conversation() {
   const pending = useApp((s) => s.pendingUserMessage);
   const { returnToBottom } = follow;
   useLayoutEffect(() => {
-    if (!pending) return;
+    if (!pending && !compacting) return;
     range.latest();
     returnToBottom();
     // The pending object identifies one submission; changing the window is not a new submission.
     // oxlint-disable-next-line exhaustive-deps
-  }, [pending, returnToBottom]);
+  }, [pending, compacting, returnToBottom]);
 
 
   /*
@@ -226,19 +230,14 @@ export const Conversation = memo(function Conversation() {
 
           {visibleRuns.map((run) =>
             /*
-             * Compaction leaves no mark in the transcript.
-             *
-             * There was a rule across the conversation here saying everything above it had been
-             * summarised. True, and about the request rather than about anything being read — so it
-             * spent a permanent line, and a visible seam through the middle of someone's work, on
-             * an implementation detail. It is mentioned once on the running line while the turn is
-             * still going (see `RunningIndicator`) and then it is gone, which is the weight it
-             * deserves.
+						 * Automatic compaction belongs on the running indicator. An explicitly submitted
+						 * command keeps its own result, so the user can verify the action they requested.
              */
-            run.kind === "compaction" ? null : run.kind === "message" ? (
+            run.kind === "compaction" ? null : run.kind === "command" ? <CommandRunRow key={`${activeSessionId}:${runKey(run)}`} command={run.command} /> : run.kind === "message" ? (
               <MessageRow
                 key={`${activeSessionId}:${runKey(run)}`}
                 viewKey={runKey(run)}
+                showTime={separators.has(run.index)}
                 message={run.message}
                 index={run.index}
                 upTo={run.upTo}
@@ -290,9 +289,9 @@ export const Conversation = memo(function Conversation() {
            */}
           {range.end < allRuns.length && <button type="button" onClick={range.later} className="my-3 flex h-7 w-full items-center justify-center rounded-md text-detail text-ink-faint transition-colors hover:bg-card-hover hover:text-ink-muted">显示后面的 {Math.min(WINDOW_STEP, allRuns.length - range.end)} 条</button>}
           {range.end === allRuns.length && <>
-          <div className="ly-reveal" data-open={running && !answering} aria-hidden={!running || answering}>
+          <div className="ly-reveal" data-open={running && !answering && !compacting} aria-hidden={!running || answering || compacting}>
             <div>
-              <div>{running && <RunningIndicator />}</div>
+              <div>{running && !compacting && <RunningIndicator />}</div>
             </div>
           </div>
           {/* Where the running indicator would have been, saying why it is not there. */}

@@ -65,3 +65,25 @@ test("an empty conversation leaves no file behind", async () => {
 	await saveSideChat("s6", []);
 	assert.deepEqual(await loadSideChat("s6"), []);
 });
+
+test("queued snapshots are captured at invocation and reset wins over earlier writes", async () => {
+	const { clearSideChat, loadSideChat, saveSideChat } = await import("../electron/sidechat-store.ts");
+	const messages = [said("saved at invocation")];
+	const save = saveSideChat("snapshot", messages);
+	messages.push(said("not yet committed"));
+	await save;
+	assert.deepEqual(await loadSideChat("snapshot"), [said("saved at invocation")]);
+	const writes = Array.from({ length: 25 }, (_, index) => saveSideChat("ordered", [said(`version ${index}`)]));
+	await Promise.all(writes);
+	assert.deepEqual(await loadSideChat("ordered"), [said("version 24")]);
+	await Promise.all([saveSideChat("ordered", [said("must disappear")]), clearSideChat("ordered")]);
+	assert.deepEqual(await loadSideChat("ordered"), []);
+});
+
+test("disk snapshots reject paths instead of accepting a session id as a filename", async () => {
+	const { loadSideChat, saveSideChat } = await import("../electron/sidechat-store.ts");
+	for (const id of ["../settings", "..\\settings", "C:settings", "\0", ""]) {
+		await assert.rejects(() => loadSideChat(id), /Invalid side-chat session id/);
+		assert.throws(() => saveSideChat(id, [said("not a path")]), /Invalid side-chat session id/);
+	}
+});

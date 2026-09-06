@@ -114,6 +114,7 @@ export function registerSessionsIpc({
 				running: false,
 				pendingApprovals: [],
 				compactions: loaded.compactions,
+				commandRuns: loaded.commandRuns,
 			};
 		},
 	);
@@ -212,7 +213,8 @@ export function registerSessionsIpc({
 	 * Answers with why it declined rather than with a bare false: "too short", "still running" and
 	 * "the summariser is unreachable" all mean different things to whoever just typed `/compact`.
 	 */
-	ipcMain.handle("sessions:compact", async (_event, sessionId: string) => {
+	ipcMain.handle("sessions:compact", async (_event, sessionId: string, instructions?: string) => {
+		if (instructions !== undefined && typeof instructions !== "string") throw new Error("压缩要求必须是文本。");
 		/*
 		 * Bring the session up if it is not already, rather than refusing.
 		 *
@@ -227,7 +229,7 @@ export function registerSessionsIpc({
 		 */
 		const session = await ensureLiveSession(sessionId);
 		if (!session) return { ok: false as const, reason: "找不到这个会话。" };
-		return session.compact();
+		return session.compact(instructions);
 	});
 
 	ipcMain.handle(
@@ -247,6 +249,7 @@ export function registerSessionsIpc({
 					name: a.name,
 					description: a.description,
 					source: a.source,
+				model: a.model,
 					tools: a.tools,
 				})),
 				toolNames: status.toolNames,

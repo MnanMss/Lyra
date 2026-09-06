@@ -104,6 +104,7 @@ export const RPC: Record<string, Handler> = {
 			running: false,
 			pendingApprovals: [],
 			compactions: loaded.compactions,
+			commandRuns: loaded.commandRuns,
 		};
 	},
 	"sessions.open": async (deps, [projectId, sessionId]) => {
@@ -216,6 +217,7 @@ export const RPC: Record<string, Handler> = {
 				name: agent.name,
 				description: agent.description,
 				source: agent.source,
+				model: agent.model,
 				tools: agent.tools,
 			})),
 			toolNames: status.toolNames,

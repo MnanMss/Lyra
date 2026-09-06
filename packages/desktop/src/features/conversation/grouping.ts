@@ -11,7 +11,7 @@
  * what has arrived only ever grows.
  */
 
-import type { AssistantContent, AssistantMessage, Message, UserContent } from "@lyra/core";
+import type { AssistantContent, AssistantMessage, CommandRun, Message, UserContent } from "@lyra/core";
 
 type ToolCallBlock = Extract<AssistantContent, { type: "toolCall" }>;
 
@@ -20,6 +20,7 @@ export type Call = { block: ToolCallBlock; stopReason: AssistantMessage["stopRea
 
 export type Run =
 	| { kind: "compaction" }
+	| { kind: "command"; command: CommandRun }
 	/**
 	 * A message, and how much of it is this row's.
 	 *
@@ -55,6 +56,7 @@ export function isNudge(message: Message | undefined): boolean {
 
 /** A split reply has two identities; neither identity changes when more text arrives. */
 export function runKey(run: Exclude<Run, { kind: "compaction" }>): string {
+	if (run.kind === "command") return `command-${run.command.id}`;
 	if (run.kind === "tools") return `tools-${run.calls[0].block.id}`;
 	return run.key ?? `${run.message.role}-${run.message.timestamp}-${run.index}`;
 }
@@ -336,11 +338,15 @@ export function sameRun(
  * `compactions` are indices into `messages`: the marker goes where the summary was taken, not at
  * the end, because everything above it is a summary as far as the model is concerned.
  */
-export function runs(messages: Message[], compactions: { at: number }[] = []): Run[] {
+export function runs(messages: Message[], compactions?: { at: number }[]): Exclude<Run, { kind: "command" }>[];
+export function runs(messages: Message[], compactions: { at: number }[], commands: CommandRun[]): Run[];
+export function runs(messages: Message[], compactions: { at: number }[] = [], commands: CommandRun[] = []): Run[] {
 	const out: Run[] = [];
 	// Sorted so the marks can be consumed in order as the transcript is walked.
 	const marks = [...compactions].map((c) => c.at).sort((a, b) => a - b);
 	let nextMark = 0;
+	const commandMarks = [...commands].sort((a, b) => a.at - b.at);
+	let nextCommand = 0;
 	/** The reply being made, if one is: the last assistant message, whatever state it is in. */
 	let live = -1;
 	for (let at = messages.length - 1; at >= 0 && live < 0; at--) {
@@ -379,6 +385,10 @@ export function runs(messages: Message[], compactions: { at: number }[] = []): R
 		while (nextMark < marks.length && marks[nextMark] === index) {
 			out.push({ kind: "compaction" });
 			nextMark++;
+		}
+		// Commands are visible boundaries, including between an interrupted tool run and its resume.
+		while (nextCommand < commandMarks.length && commandMarks[nextCommand].at <= index) {
+			out.push({ kind: "command", command: commandMarks[nextCommand++] });
 		}
 
 		// A person speaking starts a new turn; the runtime's own messages continue the one running.
@@ -442,6 +452,7 @@ export function runs(messages: Message[], compactions: { at: number }[] = []): R
 		out.push({ kind: "compaction" });
 		nextMark++;
 	}
+	while (nextCommand < commandMarks.length) out.push({ kind: "command", command: commandMarks[nextCommand++] });
 
 	/*
 	 * Marked before the thinking row is placed, because placing it moves the rows below it.

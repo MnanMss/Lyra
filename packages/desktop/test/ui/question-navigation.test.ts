@@ -11,7 +11,7 @@ test("identical questions have separate targets; synthetic prompts have none", (
 		{ role: "user", content: [{ type: "text", text: "same" }], timestamp: 2 },
 		{ role: "user", synthetic: true, content: [{ type: "text", text: "continue" }], timestamp: 3 },
 		{ role: "user", content: [{ type: "image", data: "", mimeType: "image/png" }], timestamp: 4 },
-	]), [{ index: 0, text: "same" }, { index: 1, text: "same" }, { index: 3, text: "图片消息" }]);
+	]), [{ index: 0, text: "same", answer: "" }, { index: 1, text: "same", answer: "" }, { index: 3, text: "图片消息", answer: "" }]);
 });
 
 test("jumping through 10,000 runs mounts one window and preserves each session's range", async () => {

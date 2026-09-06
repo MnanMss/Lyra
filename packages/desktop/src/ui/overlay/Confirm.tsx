@@ -24,6 +24,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { CircleHelp, TriangleAlert } from "lucide-react";
+import { Scroller } from "../scroll/Scroller.tsx";
 import { Overlay } from "./Overlay.tsx";
 
 /** Narrow enough to read as a question rather than as a form. */
@@ -72,15 +74,14 @@ export function ConfirmBody({
 	onCancel,
 }: ConfirmOptions & { onCancel: () => void }) {
 	return (
-		<div className="p-4">
-			<div className="text-label font-medium text-ink">{title}</div>
-			{detail && <p className="mt-1.5 text-detail leading-relaxed text-ink-muted">{detail}</p>}
-			<div className="mt-4 flex items-center justify-end gap-1.5">
+		<Scroller contentClassName="p-6">
+			<div className="flex items-center gap-2.5 text-body font-semibold text-ink" data-dialog-title>{tone === "danger" ? <TriangleAlert size={20} className="shrink-0 text-danger" /> : <CircleHelp size={20} className="shrink-0 text-accent" />}{title}</div>
+			{detail && <p className="mt-3 text-label leading-relaxed text-ink-muted">{detail}</p>}
+			<div className="mt-6 flex items-center justify-end gap-1.5">
 				<button
 					type="button"
-					autoFocus
 					onClick={onCancel}
-					className="h-[28px] rounded-lg border border-line px-2.5 text-detail text-ink-muted transition-colors duration-[var(--ly-t-quick)] hover:bg-card-hover hover:text-ink"
+					className="ly-dialog-action ly-dialog-action-secondary"
 				>
 					{cancelLabel ?? "取消"}
 				</button>
@@ -93,14 +94,12 @@ export function ConfirmBody({
 					 * 一个把每个问题都画成危险的窗口，等于没有画过危险——真正删东西的那一次，
 					 * 看起来跟这次一模一样。
 					 */
-					className={`h-[28px] rounded-lg px-2.5 text-detail font-medium text-shell transition-opacity duration-[var(--ly-t-quick)] hover:opacity-90 ${
-						tone === "danger" ? "bg-danger" : "bg-ink"
-					}`}
+					className={`ly-dialog-action font-medium ${tone === "danger" ? "ly-dialog-action-danger" : "bg-ink text-shell"}`}
 				>
 					{confirmLabel}
 				</button>
 			</div>
-		</div>
+		</Scroller>
 	);
 }
 
@@ -114,7 +113,7 @@ export function Confirm({ onCancel, ...options }: ConfirmOptions & { onCancel: (
 	return (
 		// Escape and the scrim mean the same thing as the 取消 button, so they get the same handler.
 		<Overlay onClose={onCancel} width={CONFIRM_WIDTH}>
-			<ConfirmBody {...options} onCancel={onCancel} />
+			{(dismiss) => <ConfirmBody {...options} onConfirm={() => dismiss(options.onConfirm)} onCancel={() => dismiss()} />}
 		</Overlay>
 	);
 }

@@ -1,10 +1,10 @@
 import type {
   AgentEvent,
+	CommandRun,
   Message,
   SessionMeta,
   Settings,
   ThinkingLevel,
-  ToolResult,
   UserContent,
 } from "@lyra/core";
 import { type SessionActivity } from "@lyra/core/activity";
@@ -33,6 +33,8 @@ import type {
  */
 import { useSide } from "../features/dock/sideStore.ts";
 import { bridge } from "../services/index.ts";
+import type { ToolRun } from "./tool-run.ts";
+export type { ToolRun } from "./tool-run.ts";
 
 /**
  * `plugins` is the catalogue, not the plugin *settings*.
@@ -72,17 +74,6 @@ export type SettingsSection =
 
 /** The tabs on the 插件 page; the page itself is the `plugins` section. */
 export type ExtensionsTab = "plugins" | "skills" | "rules" | "mcp" | "extensions";
-
-export interface ToolRun {
-  toolCallId: string;
-  toolName: string;
-  summary: string;
-  args: Record<string, unknown>;
-  status: "running" | "done" | "error";
-  result?: ToolResult;
-  startedAt: number;
-  finishedAt?: number;
-}
 
 export interface PendingApproval {
   id: string;
@@ -302,6 +293,7 @@ export interface AppState {
   stopped: TurnStop;
   /** Where history was summarised, by position in the transcript. */
   compactions: { at: number; before: number; after: number }[];
+	commandRuns: CommandRun[];
   notices: { id: string; level: "info" | "warn" | "error"; message: string }[];
   /**
    * A correction the runtime thinks could become a rule, waiting to be answered.
@@ -445,6 +437,7 @@ export const useApp = create<AppState>((set, get) => ({
   retrying: null,
   stopped: null,
   compactions: [],
+	commandRuns: [],
   todos: [],
   notices: [],
   ruleOffer: null,

@@ -48,7 +48,7 @@ pnpm --filter @lyra/desktop exec node --test --experimental-strip-types e2e/tran
 
 CI 的 `windows-ui` 在 push、PR 和手动执行时运行真实 Windows Electron，并纳入 `all-green`。
 它跑 `desktop-compatibility.test.ts`、`transcript-stability.test.ts`、`interaction-polish.test.ts`、
-`session-startup.test.ts` 与 `definition-actions.test.ts`：
+`session-startup.test.ts`、`definition-actions.test.ts`、`command-workflow.test.ts`、`visual-details.test.ts` 与 `agent-profiles-sidechat.test.ts`：
 
 - 100%、125%、150%、200% Chromium 显示缩放，深浅主题和 380px 起的窗口宽度。
 - 从 Window Controls Overlay API 读取系统按钮区域，验证应用按钮没有进入它。
@@ -56,8 +56,11 @@ CI 的 `windows-ui` 在 push、PR 和手动执行时运行真实 Windows Electro
 - 输入框边界、Tab 焦点标记、Windows 快捷键提示、终端标签和新建/关闭入口。
 - 长对话滚动范围、思考行去重、历史展开状态、会话切换首帧和阅读位置。
 - 问题刻度导航、设置路由、渐隐、跨 Tab 保留、Git Index 统计与 C# 高亮。
+- 15 刻度邻域与首尾导航、问答预览、图片气泡与时间分隔、发版弹窗逐帧尺寸、模态焦点/嵌套/窄屏/减少动画，以及项目记忆开关与压缩占比。
+- 子智能体的供应商/模型/思考等级选择、真实请求参数、375px 设置布局；侧聊早期记录和工具尾部检索、主会话压缩、切换、冷恢复与编辑重发。
 - 慢 MCP 初始化前的首条提交、取消、折叠状态、同名隔离及后台完成。
 - 列表删除的悬停渐变、键盘确认、触摸可见性、固定布局，以及命令、技能目录和规则移入系统废纸篓。
+- 斜杠命令的原生编辑、撤销、光标补全、参数装饰、长草稿滚动、菜单渐隐，以及压缩的参数传递、取消、结果与跨会话隔离。
 
 设置 `LYRA_E2E_ARTIFACTS` 可以保存真实应用截图；CI 保留 7 天。测试使用临时项目和合成会话
 日志，经真实应用加载，退出后清理。模型请求只发给测试启动的本地协议服务，不使用用户密钥。
@@ -66,7 +69,7 @@ CI 的 `windows-ui` 在 push、PR 和手动执行时运行真实 Windows Electro
 
 ```bash
 pnpm build
-pnpm --filter @lyra/desktop exec node --test --test-concurrency=1 --experimental-strip-types e2e/desktop-compatibility.test.ts e2e/transcript-stability.test.ts e2e/interaction-polish.test.ts e2e/session-startup.test.ts e2e/definition-actions.test.ts
+pnpm --filter @lyra/desktop exec node --test --test-concurrency=1 --experimental-strip-types e2e/desktop-compatibility.test.ts e2e/transcript-stability.test.ts e2e/interaction-polish.test.ts e2e/session-startup.test.ts e2e/definition-actions.test.ts e2e/command-workflow.test.ts e2e/visual-details.test.ts e2e/agent-profiles-sidechat.test.ts
 ```
 
 macOS 上运行这些测试可验证共享 Chromium 布局，不能证明 Windows 的 DirectWrite、GPU 驱动、

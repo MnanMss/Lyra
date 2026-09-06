@@ -2,7 +2,7 @@
  * State for the side chat and the task queue.
  *
  * Kept apart from the main store because it is a different conversation with a different
- * lifetime: this one lives in memory, dies with the app, and never reaches the session log.
+ * lifetime: it restores from its own snapshots and never reaches the main session log.
  * Folding it into the main store would put two transcripts behind one set of message fields
  * and invite exactly the bug that makes a side-chat reply appear in the main thread.
  */
@@ -10,9 +10,9 @@
 import type { AgentEvent, Message, QueuedTask, UserContent } from "@lyra/core";
 import { create } from "zustand";
 import { useDock } from "./store.ts";
-import { summarizeToolCall } from "../../lib/tool-summary.ts";
-import type { ToolRun } from "../../store/index.ts";
-import { settleTail } from "../../lib/transcript.ts";
+import { reduceSideEvent, rebuildToolRuns, type SideConversation } from "./side-events.ts";
+import type { ToolRun } from "../../store/tool-run.ts";
+
 import { bridge } from "../../services/index.ts";
 
 /**
@@ -44,6 +44,8 @@ interface BrowserPreview {
 }
 
 interface SideState {
+	loading: boolean;
+	error: string | null;
 	/** The session this state belongs to, so a late event from the previous one is discarded. */
 	sessionId: string | null;
 	messages: Message[];
@@ -55,7 +57,7 @@ interface SideState {
 	/** Text waiting to be put back into the composer, and a counter so repeats still register. */
 	draftSeed: { text: string; nonce: number } | null;
 	/** Client-side cache of in-memory side chats per session for seamless switching without flicker. */
-	sessionCache: Record<string, { messages: Message[]; toolRuns: Record<string, ToolRun>; running: boolean; tasks: QueuedTask[] }>;
+	sessionCache: Record<string, SideConversation>;
 
 	/**
 	 * A command the user asked to run, waiting for the terminal to pick it up.
@@ -93,20 +95,24 @@ interface SideState {
 	/** Hand text back to the composer — see the note on the implementation. */
 	seedDraft(text: string): void;
 	clearDraftSeed(): void;
-	applyEvent(sessionId: string, event: AgentEvent): void;
+	applyEvent(sessionId: string, event: AgentEvent & { sideRevision?: number }): void;
 	setTasks(tasks: QueuedTask[]): void;
 }
 
-const EMPTY = {
-	messages: [] as Message[],
-	toolRuns: {} as Record<string, ToolRun>,
+const reads = new Map<string, { events: (AgentEvent & { sideRevision?: number })[] }>();
+
+const EMPTY: SideConversation = {
+	error: null,
+	messages: [],
+	toolRuns: {},
 	running: false,
-	pending: null as Message | null,
-	tasks: [] as QueuedTask[],
+	pending: null,
+	tasks: [],
 };
 
 export const useSide = create<SideState>((set, get) => ({
 	browserTarget: null,
+	loading: false,
 	sessionId: null,
 	sessionCache: {},
 	// Not in `EMPTY`: switching conversations should not throw away half-typed text, and the seed
@@ -126,65 +132,34 @@ export const useSide = create<SideState>((set, get) => ({
 	commandTaken: () => set({ pendingCommand: null }),
 
 	async attach(sessionId) {
-		const currentSessionId = get().sessionId;
-		if (currentSessionId === sessionId) return;
-
-		// Save current session's state into sessionCache before switching
-		if (currentSessionId) {
-			set((s) => ({
-				sessionCache: {
-					...s.sessionCache,
-					[currentSessionId]: {
-						messages: s.messages,
-						toolRuns: s.toolRuns,
-						running: s.running,
-						tasks: s.tasks,
-					},
-				},
-			}));
-		}
-
-		// Restore cached data immediately if available to prevent flicker
-		const cached = sessionId ? get().sessionCache[sessionId] : null;
-		set({
-			sessionId,
-			messages: cached?.messages ?? [],
-			toolRuns: cached?.toolRuns ?? {},
-			running: cached?.running ?? false,
-			pending: null,
-			tasks: cached?.tasks ?? [],
-		});
+		const previous = get();
+		if (previous.sessionId === sessionId) return;
+		if (previous.sessionId) set({ sessionCache: { ...previous.sessionCache, [previous.sessionId]: {
+			messages: previous.messages, toolRuns: previous.toolRuns, running: previous.running,
+			pending: previous.pending, tasks: previous.tasks, error: previous.error,
+		} } });
+		set({ sessionId, ...(sessionId ? get().sessionCache[sessionId] ?? EMPTY : EMPTY), loading: Boolean(sessionId) });
 		if (!sessionId) return;
-
-		const [state, tasks] = await Promise.all([
-			bridge.sideChat.state(sessionId),
-			bridge.tasks.list(sessionId),
-		]);
-		// A second switch while this was in flight wins.
-		if (get().sessionId !== sessionId) return;
-		const nextMessages = state?.messages ?? [];
-		const nextRunning = state?.running ?? false;
-		const nextToolRuns = state ? rebuildToolRuns(state.messages) : {};
-		set((s) => ({
-			messages: nextMessages,
-			running: nextRunning,
-			toolRuns: nextToolRuns,
-			tasks,
-			sessionCache: {
-				...s.sessionCache,
-				[sessionId]: {
-					messages: nextMessages,
-					toolRuns: nextToolRuns,
-					running: nextRunning,
-					tasks,
-				},
-			},
-		}));
+		const read = { events: [] as (AgentEvent & { sideRevision?: number })[] };
+		reads.set(sessionId, read);
+		try {
+			const [snapshot, tasks] = await Promise.all([bridge.sideChat.state(sessionId), bridge.tasks.list(sessionId)]);
+			if (reads.get(sessionId) !== read) return;
+			let next: SideConversation = { ...EMPTY, messages: snapshot?.messages ?? [], running: snapshot?.running ?? false, tasks,
+				toolRuns: snapshot ? rebuildToolRuns(snapshot.messages) : {} };
+			// Replay only events newer than the snapshot, preserving both old history and live deltas.
+			for (const event of read.events) {
+				if (event.sideRevision === undefined || event.sideRevision > (snapshot?.revision ?? 0)) next = reduceSideEvent(next, event);
+			}
+			set((state) => ({ ...(state.sessionId === sessionId ? { ...next, loading: false } : {}), sessionCache: { ...state.sessionCache, [sessionId]: next } }));
+		} catch (error) {
+			if (get().sessionId === sessionId && reads.get(sessionId) === read) set({ loading: false, error: String(error) });
+		} finally { if (reads.get(sessionId) === read) reads.delete(sessionId); }
 	},
 
 	async ask(content) {
 		const sessionId = get().sessionId;
-		if (!sessionId || get().running) return;
+		if (!sessionId || get().running || get().loading) return;
 
 		/*
 		 * Paint it first.
@@ -194,8 +169,9 @@ export const useSide = create<SideState>((set, get) => ({
 		 * its place for that whole time.
 		 */
 		const pending: Message = { role: "user", content, timestamp: Date.now() };
-		set({ messages: [...get().messages, pending], pending, running: true });
-		await bridge.sideChat.ask(sessionId, content);
+		set({ messages: [...get().messages, pending], pending, running: true, error: null });
+		try { await bridge.sideChat.ask(sessionId, content); }
+		catch (error) { get().applyEvent(sessionId, { type: "notice", level: "error", message: String(error) }); get().applyEvent(sessionId, { type: "agent_end", reason: "error", error: String(error) }); }
 	},
 
 	/**
@@ -207,23 +183,28 @@ export const useSide = create<SideState>((set, get) => ({
 	 */
 	async editAndResend(index, content) {
 		const sessionId = get().sessionId;
-		if (!sessionId || get().running) return;
+		if (!sessionId || get().running || get().loading) return;
 		const kept = get().messages.slice(0, index);
 		const pending: Message = { role: "user", content, timestamp: Date.now() };
-		set({ messages: [...kept, pending], pending, running: true });
-		await bridge.sideChat.editAndResend(sessionId, index, content);
+		set({ messages: [...kept, pending], pending, running: true, error: null });
+		try { await bridge.sideChat.editAndResend(sessionId, index, content); }
+		catch (error) { get().applyEvent(sessionId, { type: "notice", level: "error", message: String(error) }); get().applyEvent(sessionId, { type: "agent_end", reason: "error", error: String(error) }); }
 	},
 
 	async abort() {
 		const sessionId = get().sessionId;
-		if (sessionId) await bridge.sideChat.abort(sessionId);
-		set({ running: false });
+		if (!sessionId) return;
+		try { await bridge.sideChat.abort(sessionId); }
+		catch (error) { get().applyEvent(sessionId, { type: "notice", level: "error", message: String(error) }); }
 	},
 
 	async reset() {
 		const sessionId = get().sessionId;
-		set({ ...EMPTY, tasks: get().tasks });
-		if (sessionId) await bridge.sideChat.reset(sessionId);
+		set({ ...EMPTY, loading: false, tasks: get().tasks });
+		if (!sessionId) return;
+		reads.delete(sessionId);
+		try { await bridge.sideChat.reset(sessionId); }
+		catch (error) { get().applyEvent(sessionId, { type: "notice", level: "error", message: String(error) }); }
 	},
 
 	async cancelTask(taskId) {
@@ -271,135 +252,11 @@ export const useSide = create<SideState>((set, get) => ({
 	setTasks: (tasks) => set({ tasks }),
 
 	applyEvent(sessionId, event) {
-		// Events from a session we have since navigated away from would paint into the wrong
-		// conversation.
-		if (sessionId !== get().sessionId) return;
-
-		switch (event.type) {
-			case "agent_start":
-				set({ running: true });
-				break;
-
-			case "message_start": {
-				const messages = get().messages;
-				// The composer already painted this one; swap in the real copy rather than
-				// showing it twice. Matched by reference, so asking the same thing twice is
-				// still two messages.
-				const pending = get().pending;
-				if (event.message.role === "user" && pending && messages.includes(pending)) {
-					set({ messages: messages.map((m) => (m === pending ? event.message : m)), pending: null });
-					break;
-				}
-				set({ messages: [...messages, event.message] });
-				break;
-			}
-
-			case "message_update": {
-				const messages = [...get().messages];
-				const index = messages.length - 1;
-				if (index >= 0 && messages[index].role === "assistant") messages[index] = event.message;
-				else messages.push(event.message);
-				set({ messages });
-				break;
-			}
-
-			case "message_end": {
-				const messages = [...get().messages];
-				const index = findSlot(messages, event.message);
-				if (index >= 0) messages[index] = event.message;
-				else messages.push(event.message);
-				set({ messages });
-				break;
-			}
-
-			case "tool_start":
-				set({
-					toolRuns: {
-						...get().toolRuns,
-						[event.toolCallId]: {
-							toolCallId: event.toolCallId,
-							toolName: event.toolName,
-							summary: event.summary,
-							args: event.args,
-							status: "running",
-							startedAt: Date.now(),
-						},
-					},
-				});
-				break;
-
-			case "tool_end": {
-				const run = get().toolRuns[event.toolCallId];
-				set({
-					toolRuns: {
-						...get().toolRuns,
-						[event.toolCallId]: {
-							...(run ?? {
-								toolCallId: event.toolCallId,
-								toolName: event.toolName,
-								summary: event.toolName,
-								args: {},
-								startedAt: Date.now(),
-							}),
-							status: event.isError ? "error" : "done",
-							result: event.result,
-							finishedAt: Date.now(),
-						},
-					},
-				});
-				break;
-			}
-
-			case "agent_end":
-				// Same reason as the main store: a dropped connection never sends `message_end`,
-				// so the last reply would stay marked as still being written.
-				set({ running: false, pending: null, messages: settleTail(get().messages, event) });
-				break;
-		}
+		// Background events update their cached conversation, never the visible one.
+		const pendingRead = reads.get(sessionId);
+		pendingRead?.events.push(event);
+		const current = sessionId === get().sessionId ? get() : get().sessionCache[sessionId] ?? EMPTY;
+		const next = reduceSideEvent(current, event);
+		set((state) => ({ ...(sessionId === state.sessionId ? next : {}), sessionCache: { ...state.sessionCache, [sessionId]: next } }));
 	},
 }));
-
-/** Match an incoming final message to the slot its streaming version occupies. */
-function findSlot(messages: Message[], incoming: Message): number {
-	if (incoming.role === "toolResult") {
-		return messages.findIndex((m) => m.role === "toolResult" && m.toolCallId === incoming.toolCallId);
-	}
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const candidate = messages[i];
-		if (candidate.role !== incoming.role) continue;
-		if (candidate.role === "assistant" && incoming.role === "assistant") {
-			if (candidate.stopReason === "pending" || candidate.timestamp === incoming.timestamp) return i;
-			return -1;
-		}
-		if (candidate.timestamp === incoming.timestamp) return i;
-	}
-	return -1;
-}
-
-/** Rebuild tool cards when re-attaching to a conversation that ran while the panel was closed. */
-function rebuildToolRuns(messages: Message[]): Record<string, ToolRun> {
-	const runs: Record<string, ToolRun> = {};
-	for (const message of messages) {
-		if (message.role === "assistant") {
-			for (const block of message.content) {
-				if (block.type !== "toolCall") continue;
-				runs[block.id] = {
-					toolCallId: block.id,
-					toolName: block.name,
-					summary: summarizeToolCall(block.name, block.arguments),
-					args: block.arguments,
-					status: "running",
-					startedAt: message.timestamp,
-				};
-			}
-		} else if (message.role === "toolResult") {
-			const run = runs[message.toolCallId];
-			if (run) {
-				run.status = message.isError ? "error" : "done";
-				run.result = { content: message.content, details: message.details, isError: message.isError };
-				run.finishedAt = message.timestamp;
-			}
-		}
-	}
-	return runs;
-}

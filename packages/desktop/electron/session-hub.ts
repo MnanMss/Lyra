@@ -166,6 +166,7 @@ export async function snapshot(session: AgentSession): Promise<SessionSnapshot> 
 	return {
 		meta: session.meta,
 		messages: session.messages,
+		commandRuns: session.log.commandRuns,
 		running: session.running || submitted.has(session.meta.id),
 		pendingApprovals: session.listPendingApprovals().map(({ id, request }) => ({
 			id,
@@ -186,7 +187,7 @@ export async function disposeSession(sessionId: string): Promise<void> {
 	browsers.delete(sessionId);
 	// A side chat reads its session's live message list; without the session it has nothing
 	// to read, so it goes at the same time.
-	sideChats.get(sessionId)?.abort();
+	sideChats.get(sessionId)?.reset();
 	sideChats.delete(sessionId);
 	sessions.delete(sessionId);
 	ready.delete(sessionId);
@@ -216,6 +217,7 @@ async function startStoredSession(projectId: string, sessionId: string): Promise
 		if (!loaded || retiring.has(sessionId)) return null;
 		session = stageSession({ meta: loaded.meta, messages: loaded.messages, running: false, pendingApprovals: [] });
 		session.restore(loaded.messages, loaded.compaction);
+		session.log.commandRuns = loaded.commandRuns ?? [];
 	}
 	try {
 		await ensureSessionWorkspace(session.cwd);

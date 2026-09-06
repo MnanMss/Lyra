@@ -250,6 +250,7 @@ export async function compactIfNeeded(
 	 * 「完整结果留在会话里」才第一次对模型成立——它读不到转录，读得到地址。
 	 */
 	artifacts?: ArtifactSink,
+	manual?: { instructions?: string; signal?: AbortSignal },
 ): Promise<Compaction | null> {
 	/*
 	 * The provider's own count, not our estimate of it.
@@ -331,7 +332,8 @@ export async function compactIfNeeded(
 
 	// Keep recent turns until their budget is spent, then cut — never between an assistant
 	// message and the tool results answering it, which both APIs reject.
-	const keepBudget = model.contextWindow * KEEP_BUDGET;
+	// A manual request retires completed work even when it fits comfortably in a large window.
+	const keepBudget = force ? Math.min(model.contextWindow * KEEP_BUDGET, conversation * KEEP_BUDGET) : model.contextWindow * KEEP_BUDGET;
 	let cut = messages.length;
 	let kept = 0;
 	while (cut > 1) {
@@ -346,7 +348,7 @@ export async function compactIfNeeded(
 	const older = messages.slice(0, cut);
 	const recent = messages.slice(cut);
 
-	let summary = await summarize(older, model, provider, streamFn);
+	let summary = await summarize(older, model, provider, streamFn, force ? manual ?? {} : undefined);
 	if (!summary) {
 		summary = fallbackSummary(older);
 	}
@@ -497,6 +499,7 @@ async function summarize(
 	model: ModelConfig,
 	provider: ProviderConfig,
 	streamFn: typeof streamAssistant,
+	manual?: { instructions?: string; signal?: AbortSignal },
 ): Promise<string | null> {
 	/*
 	 * Which instruction to use depends on whether there is already a summary in there.
@@ -520,13 +523,14 @@ async function summarize(
 				...condense(messages, model.contextWindow * SUMMARY_INPUT),
 				{
 					role: "user",
-					content: [{ type: "text", text: iterative ? UPDATE_SUMMARY : FIRST_SUMMARY }],
+					content: [{ type: "text", text: [iterative ? UPDATE_SUMMARY : FIRST_SUMMARY,
+						manual?.instructions?.trim() ? `User-requested summary focus (preserve the required handover structure and outstanding tasks):\n${manual.instructions.trim()}` : ""].filter(Boolean).join("\n\n") }],
 					timestamp: Date.now(),
 				},
 			],
 			tools: [],
 		},
-		{ thinking: "off", maxTokens: Math.min(8000, model.maxOutputTokens) },
+		{ thinking: "off", maxTokens: Math.min(8000, model.maxOutputTokens), signal: manual?.signal },
 	);
 
 	/*
@@ -545,17 +549,24 @@ async function summarize(
 		do {
 			final = await stream.next();
 		} while (!final.done);
-	} catch {
+	} catch (cause) {
+		// Manual commands report failure; automatic compaction may still salvage an overfull turn.
+		if (manual) throw cause;
 		return null;
 	}
 
 	const message = final.value;
-	if (message.stopReason === "error" || message.stopReason === "aborted") return null;
+	if (manual?.signal?.aborted) throw new Error("压缩已取消。");
+	if (message.stopReason === "error" || message.stopReason === "aborted") {
+		if (manual) throw new Error(message.errorMessage || "摘要生成失败，请检查模型连接后重试。");
+		return null;
+	}
 	const text = message.content
 		.filter((c) => c.type === "text")
 		.map((c) => c.text)
 		.join("\n")
 		.trim();
+	if (manual && !text) throw new Error("模型返回的摘要为空，原上下文保持不变。");
 	return text || null;
 }
 

@@ -12,7 +12,8 @@
  * own judgement to maintain, and the wrong answer is invisible.
  */
 
-import type { ModelConfig, ProviderConfig } from "../types.ts";
+import type { ModelConfig, ProviderConfig, ThinkingLevel } from "../types.ts";
+import { resolveModelThinkingOptions } from "../ai/thinking-options.ts";
 import type { Settings } from "./settings.ts";
 /*
  * 从 `models.ts` 而不是 `settings.ts`。
@@ -22,8 +23,10 @@ import type { Settings } from "./settings.ts";
  * 这也是 `@lyra/core/model-roles` 这个子入口存在的原因：它自己就是浏览器安全的。
  */
 import { resolveModel } from "./models.ts";
+import { normalizeSubAgentProfiles } from "./sub-agent-profiles.ts";
 
 export { availableModels } from "./models.ts";
+export { normalizeSubAgentProfiles, type SubAgentProfile } from "./sub-agent-profiles.ts";
 
 export type ModelRole = "default" | "fast" | "deep" | "review";
 
@@ -62,7 +65,7 @@ export function parseModelRef(ref: string): ParsedModelRef {
 		 * (`kimi-k3:256k` is one this machine has), so only a known thinking level is taken as a
 		 * suffix. Guessing wrong here turns a valid model into one that cannot be found.
 		 */
-		const match = /^(.*):(off|low|medium|high)$/.exec(trimmed);
+		const match = /^(.*):(off|minimal|low|medium|high|xhigh|max|ultra)$/.exec(trimmed);
 		return match ? { id: match[1], thinking: match[2] } : { id: trimmed };
 	}
 	const body = trimmed.slice(1);
@@ -115,4 +118,22 @@ export function roleStatus(settings: Settings): { role: ModelRole; id?: string; 
 		const id = settings.modelRoles?.[role];
 		return { role, id, resolves: id ? resolveModel(settings, id) !== null : false };
 	});
+}
+
+/** Explicit local choices outrank portable definitions, including in recursively spawned runs. */
+export function resolveSubAgentModel(
+	settings: Settings,
+	definition: { name: string; model?: string | string[] },
+	fallback: { provider: ProviderConfig; model: ModelConfig },
+): RoleResolution & { thinking: ThinkingLevel } {
+	const profile = normalizeSubAgentProfiles(settings.subAgentProfiles)[definition.name];
+	const explicit = profile?.modelId ? resolveModel(settings, profile.modelId) : null;
+	if (profile?.modelId && !explicit) throw new Error(`子智能体 ${definition.name} 指定的模型 ${profile.modelId} 不可用，请在设置 → 子智能体中重新选择。`);
+	const chosen = explicit ? { ...explicit, via: profile?.modelId ?? "", thinking: undefined } : resolveModelRef(settings, definition.model, fallback);
+	const levels = resolveModelThinkingOptions(chosen.model);
+	const requested = profile?.thinking ?? chosen.thinking ?? settings.thinking;
+	const supported = levels.find((level) => level.id === requested);
+	if (profile?.thinking && levels.length > 0 && !supported) throw new Error(`子智能体 ${definition.name} 的模型不支持思考等级 ${profile.thinking}，请重新选择。`);
+	const thinking = levels.length === 0 ? "off" : supported?.id ?? levels.find((level) => level.isDefault)?.id ?? levels[0].id;
+	return { ...chosen, thinking };
 }

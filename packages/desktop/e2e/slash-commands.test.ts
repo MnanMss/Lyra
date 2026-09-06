@@ -87,9 +87,12 @@ after(async () => {
 async function type(text: string): Promise<void> {
 	await app.evaluate(`(() => {
 		const field = document.querySelector("main textarea");
+		field.focus();
 		const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
 		setter.call(field, ${JSON.stringify(text)});
 		field.dispatchEvent(new Event("input", { bubbles: true }));
+		field.setSelectionRange(field.value.length, field.value.length);
+		field.dispatchEvent(new Event("select", {bubbles:true}));
 		return true;
 	})()`);
 	await new Promise((r) => setTimeout(r, 350));
@@ -111,9 +114,9 @@ const menu = () => app.evaluate<string[]>(`
 
 const value = () => app.evaluate<string>(`document.querySelector("main textarea")?.value ?? ""`);
 
-/** The line at the foot of the list, which describes whichever row is highlighted. */
+/** The selected row carries its own description for pointer and keyboard users. */
 const detail = () =>
-	app.evaluate<string>(`document.querySelector("[data-ly-command-detail]")?.textContent ?? ""`);
+	app.evaluate<string>(`document.querySelector('[role="option"][aria-selected="true"]')?.textContent ?? ""`);
 
 test("a slash opens the list, and it holds commands from both conventions", async () => {
 	await type("/");
@@ -134,16 +137,10 @@ test("typing filters, and reaches into the middle of a name", async () => {
 	const rows = await menu();
 	assert.equal(rows.length, 1, `only one command contains "diff" (${rows.join(" | ")})`);
 	assert.ok(rows[0].includes("review-diff"));
-	assert.ok(rows[0].includes("<路径>"), "the argument hint rides along with the name");
+	assert.ok(rows[0].includes("审查当前改动"), "the description shares the command row");
 
-	/*
-	 * The description lives at the foot of the list rather than on the row.
-	 *
-	 * A row carrying a name, a hint, a description and a source stops being scannable — and a
-	 * tooltip would not be available to somebody moving through the list on the arrow keys, which
-	 * is when the description is actually wanted.
-	 */
-	assert.match(await detail(), /审查当前改动/, "and the description is below, for whichever row is current");
+
+	assert.match(await detail(), /审查当前改动/, "the selected row carries its own description");
 });
 
 test("the description follows the highlight", async () => {

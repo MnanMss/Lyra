@@ -21,7 +21,7 @@ export async function seedInteractions(home: string, modelPort?: number): Promis
 	await git("branch", "feature/a-long-branch-name-for-hover-scrolling-and-alignment-verification");
 	await git("worktree", "add", "-qb", "qa-checkout", join(home, "second-checkout-with-a-long-name-for-multiline-tooltip-and-text-alignment-verification"));
 	await mkdir(join(home, "sessions", projectId), { recursive: true });
-	const usage = { input: 0, output: 0, total: 0, cost: { input: 0, output: 0, total: 0 } };
+	const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
 	const metas = [];
 	for (const id of ["qa-long", "qa-short"]) {
 		const messages = [];

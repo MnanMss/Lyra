@@ -19,6 +19,7 @@ export interface RefDiff {
 
 export type { BranchList };
 import type {
+	CommandRun,
 	ContextBreakdown,
 	ContextSegmentKey,
 	MemoryFileItem,
@@ -63,6 +64,7 @@ export interface SessionSnapshot {
 	pendingApprovals: { id: string; kind: string; title: string; detail: string }[];
 	/** Message positions where history was summarised, so the mark survives a reload. */
 	compactions?: number[];
+	commandRuns?: CommandRun[];
 }
 
 /**
@@ -70,6 +72,7 @@ export interface SessionSnapshot {
  * and never reaches the session log.
  */
 export interface SideChatSnapshot {
+	revision?: number;
 	messages: import("@lyra/core").Message[];
 	running: boolean;
 }
@@ -114,7 +117,7 @@ export interface AgentCapabilities {
 	plugins: Plugin[];
 	pluginDiagnostics: { path: string; message: string }[];
 	mcp: McpServerStatus[];
-	agents: { name: string; description: string; source: string; tools: string[] | "*" }[];
+	agents: { name: string; description: string; source: string; tools: string[] | "*"; model?: string | string[] }[];
 	toolNames: string[];
 }
 

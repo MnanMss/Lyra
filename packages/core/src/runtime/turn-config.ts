@@ -42,6 +42,8 @@ export interface TurnConfigDeps {
 	provider: ProviderConfig;
 	model: ModelConfig;
 	settings: Settings;
+	/** Resolve preferences at dispatch time without altering an already running model request. */
+	getSettings?: () => Settings;
 	state: Map<string, unknown>;
 	tools: Tool[];
 	skills: Skill[];
@@ -133,6 +135,7 @@ export function buildTurnConfig(
 							sessionId: deps.sessionId,
 							cwd: deps.cwd,
 							settings: deps.settings,
+							getSettings: deps.getSettings,
 							tools: deps.tools,
 							skills: deps.skills,
 							agents: deps.agents,
