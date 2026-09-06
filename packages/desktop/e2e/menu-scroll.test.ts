@@ -54,7 +54,7 @@ test("hover and wheel leave scroll ownership with the pointer; arrows reveal the
 test("menu thumbs stay inside their rounded surfaces in both themes and narrow windows", async (t) => {
 	for (const theme of ["light", "dark"]) for (const width of [1200, 375]) {
 		await app.send("Emulation.setDeviceMetricsOverride", { width, height: 800, deviceScaleFactor: 1, mobile: false });
-		await app.evaluate(`(async()=>{const s=await window.lyra.settings.get();await window.lyra.settings.save({...s,appearance:{...s.appearance,theme:${JSON.stringify(theme)}}})})()`);
+		await app.evaluate(`(async()=>{const s=await window.lyra.settings.get();await window.lyra.settings.save({...s,appearance:{...s.appearance,theme:${theme === "light" ? '"light"' : '"dark"'}}})})()`);
 		await openMenu();
 		for (const top of [0, 100000]) {
 			await app.evaluate(`${view}.scrollTop=${top}`); await frames();
@@ -80,7 +80,7 @@ test("shared model popovers keep clear gutters and their thumb can be dragged to
 	const selector = '[aria-label="选择模型"]';
 	for (const theme of ["light", "dark"]) for (const width of [1200, 375]) {
 		await app.send("Emulation.setDeviceMetricsOverride", { width, height: 800, deviceScaleFactor: 1, mobile: false });
-		await app.evaluate(`(async()=>{const s=await window.lyra.settings.get();await window.lyra.settings.save({...s,appearance:{...s.appearance,theme:${JSON.stringify(theme)}}});[...document.querySelectorAll('button[aria-haspopup="menu"]')].find(b=>(b.dataset.lyTip||'').endsWith('上下文')).click()})()`);
+		await app.evaluate(`(async()=>{const s=await window.lyra.settings.get();await window.lyra.settings.save({...s,appearance:{...s.appearance,theme:${theme === "light" ? '"light"' : '"dark"'}}});[...document.querySelectorAll('button[aria-haspopup="menu"]')].find(b=>(b.dataset.lyTip||'').endsWith('上下文')).click()})()`);
 		await frames();
 		const geometry = await app.evaluate<{x:number;y:number;travel:number;gap:number;right:number;top:number}>(`(()=>{const m=document.querySelector('${selector}'),v=m.querySelector('.ly-scroll-view'),thumb=m.querySelector('.ly-thumb'),r=m.getBoundingClientRect(),b=thumb.getBoundingClientRect(),row=m.querySelector('[data-model]').getBoundingClientRect();return {x:b.left+b.width/2,y:b.top+b.height/2,travel:v.clientHeight-b.height,gap:b.left-row.right,right:r.right-b.right,top:b.top-v.getBoundingClientRect().top}})()`);
 		assert.ok(geometry.gap >= 4 && geometry.right >= 6 && geometry.travel > 0, JSON.stringify(geometry));
