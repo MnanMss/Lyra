@@ -135,3 +135,40 @@ test("background command updates stay singular and rewinding retains only earlie
 	assert.deepEqual(cached.state?.commandRuns?.map((run) => run.id), ["compact-1"]);
 	assert.equal(cached.messages.length, 1);
 });
+
+test("pendingUserMessage matches its own session and does not clear on events from another session", () => {
+	const userMsg: Message = { role: "user", content: [{ type: "text", text: "同样的提问" }], timestamp: 10 };
+	const state = {
+		activity: {},
+		turns: {},
+		sessions: [],
+		activeSessionId: "session-a",
+		messages: [userMsg],
+		toolRuns: {},
+		pendingUserMessage: { sessionId: "session-a", message: userMsg },
+		sessionCache: {},
+	} as Record<string, unknown>;
+
+	// Event coming from session-b with the exact same text
+	applyAgentEvent(
+		"session-b",
+		{ type: "message_start", message: { role: "user", content: [{ type: "text", text: "同样的提问" }], timestamp: 10 } },
+		(partial) => Object.assign(state, typeof partial === "function" ? partial(state as never) : partial),
+		() => state as never,
+	);
+
+	// Should still be pending for session-a
+	assert.ok(state.pendingUserMessage !== null);
+	assert.equal((state.pendingUserMessage as { sessionId: string }).sessionId, "session-a");
+
+	// Now event comes from session-a
+	applyAgentEvent(
+		"session-a",
+		{ type: "message_start", message: { role: "user", content: [{ type: "text", text: "同样的提问" }], timestamp: 10 } },
+		(partial) => Object.assign(state, typeof partial === "function" ? partial(state as never) : partial),
+		() => state as never,
+	);
+
+	// Now pendingUserMessage is successfully cleared
+	assert.equal(state.pendingUserMessage, null);
+});

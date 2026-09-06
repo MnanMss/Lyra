@@ -15,7 +15,7 @@ export function cachedEvent(cached: Cache[string], event: AgentEvent): Cache[str
 	};
 	switch (event.type) {
 		case "message_start": case "message_update": case "message_end": {
-			const next = messageEvent({ messages, pendingUserMessage: state.pendingUserMessage }, event);
+			const next = messageEvent({ messages, pendingUserMessage: state.pendingUserMessage }, event, meta.id);
 			messages = next.messages;
 			state = { ...state, pendingUserMessage: next.pendingUserMessage, retrying: null };
 			break;

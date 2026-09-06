@@ -191,7 +191,7 @@ export interface AppState {
    * The message the composer painted before the agent confirmed it, held by reference so the
    * stored copy can replace it instead of appearing twice.
    */
-  pendingUserMessage: Message | null;
+  pendingUserMessage: { sessionId: string | null; message: Message } | null;
   /**
    * Transcripts already read this run, keyed by session id.
    *
