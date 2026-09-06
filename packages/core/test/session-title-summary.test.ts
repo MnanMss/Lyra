@@ -350,3 +350,76 @@ test("when autoSummarizeTitle is false, long prompt does not trigger summary", a
 		await cleanup();
 	}
 });
+
+test("session initialized via pendingPrompt (desktop new session flow) summarizes title", async () => {
+	const { store, cleanup } = await harness();
+	try {
+		const emittedTitles: string[] = [];
+		let summarizeCalls = 0;
+		let resolveSummary: (value: AssistantMessage) => void;
+		const summaryPromise = new Promise<AssistantMessage>((r) => {
+			resolveSummary = r;
+		});
+
+		const text = "查看lyra的mcp连接设置和管理，例如现在的sqlcl mcp在各个会话是怎么初始化管理的";
+		const fallbackTitle = text.slice(0, 60);
+		// Simulate desktop electron createStoredSession
+		let meta = await store.create(process.cwd(), SESSION_MODEL.id, fallbackTitle);
+		meta = await store.append(meta, {
+			type: "message",
+			message: {
+				role: "user",
+				content: [{ type: "text", text }],
+				timestamp: Date.now(),
+			},
+		});
+		meta = await store.append(meta, {
+			type: "meta",
+			meta: { ...meta, pendingPrompt: true },
+		});
+
+		const session = new AgentSession({
+			cwd: process.cwd(),
+			store,
+			meta,
+			settings: {
+				...DEFAULT_SETTINGS,
+				providers: [PROVIDER],
+				defaultModelId: SESSION_MODEL.id,
+			},
+			emit: (event: AgentEvent) => {
+				if (event.type === "title") emittedTitles.push(event.title);
+			},
+			titleSummaryStream: () => {
+				// oxlint-disable-next-line require-yield
+				return (async function* () {
+					summarizeCalls++;
+					return summaryPromise;
+				})();
+			},
+			streamFn: async () => reply("正在查询 MCP 管理机制"),
+		});
+
+		const loaded = await store.load(meta.projectId, meta.id);
+		assert.ok(loaded);
+		session.restore(loaded.messages);
+
+		// Desktop runs resumePendingPrompt()
+		const pendingRun = session.resumePendingPrompt();
+		await new Promise((r) => setTimeout(r, 50));
+
+		assert.equal(summarizeCalls, 1, "Should trigger summary for long pending prompt");
+
+		// Resolve summary
+		resolveSummary!(reply("MCP 连接设置与会话管理"));
+		await pendingRun;
+		await new Promise((r) => setTimeout(r, 50));
+
+		assert.ok(emittedTitles.includes("MCP 连接设置与会话管理"));
+		assert.equal(session.log.meta.title, "MCP 连接设置与会话管理");
+
+		await session.dispose();
+	} finally {
+		await cleanup();
+	}
+});

@@ -562,6 +562,17 @@ export class AgentSession {
 		const resume = async () => {
 			await this.cancelPendingPrompt();
 			if (this.abortEpoch !== epoch) return;
+			/*
+			 * A fresh session restored with pendingPrompt (e.g. from the desktop new session flow)
+			 * has its first prompt already written to disk before the session object exists. Trigger
+			 * title summarisation here if the user has not explicitly provided a custom title.
+			 */
+			if (!this.log.meta.titleSetByUser) {
+				const userMessages = this.log.messages.filter((m) => m.role === "user");
+				if (userMessages.length === 1) {
+					await this.setTitleFromPrompt(userMessages[0].content, userMessages[0].displayText);
+				}
+			}
 			await this.run();
 			await this.drainPending();
 		};
