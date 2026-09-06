@@ -23,7 +23,14 @@ export interface SessionStorage {
 	load(
 		projectId: string,
 		sessionId: string,
-	): Promise<{ meta: SessionMeta; messages: Message[]; compactions: number[]; commandRuns?: CommandRun[]; compaction: Boundary | null } | null>;
+	): Promise<{
+		meta: SessionMeta;
+		messages: Message[];
+		entries: { seq: number; message: Message }[];
+		compactions: number[];
+		commandRuns?: CommandRun[];
+		compaction: Boundary | null;
+	} | null>;
 	listSessions(): Promise<SessionMeta[]>;
 	rebuildIndex(): Promise<SessionMeta[]>;
 	truncateFrom(

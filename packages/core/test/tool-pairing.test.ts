@@ -17,6 +17,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { toAnthropicMessages } from "../src/ai/anthropic-messages-request.ts";
 import { toResponsesInput } from "../src/ai/openai-responses-request.ts";
+import { sanitizeChatCompletionsHistory, toChatCompletionsMessages } from "../src/ai/openai-chat-completions-request.ts";
 import type { AssistantMessage, Message, ToolResultMessage } from "../src/types.ts";
 import { emptyUsage } from "../src/types.ts";
 
@@ -157,4 +158,189 @@ test("an Anthropic result with no matching call is kept at the end of its run", 
 		results.content.map((block) => (block as { tool_use_id: string }).tool_use_id),
 		["a", "z"],
 	);
+});
+
+test("Chat Completions: prunes pure-thinking assistant without tools and drops subsequent synthetic nudge", () => {
+	const pureThinkingAssistant: AssistantMessage = {
+		role: "assistant",
+		content: [{ type: "thinking", thinking: "Just thinking and no answer..." }],
+		api: "openai-chat-completions",
+		provider: "relay",
+		model: "test",
+		usage: emptyUsage(),
+		stopReason: "stop",
+		timestamp: 10,
+	};
+	const syntheticNudge: Message = {
+		role: "user",
+		content: [{ type: "text", text: "（自动继续）上一条回复是空的。请直接开始执行：说明你要做什么，并调用工具去做。" }],
+		timestamp: 11,
+		synthetic: true,
+	};
+	const nextUser: Message = {
+		role: "user",
+		content: [{ type: "text", text: "真正的用户新消息" }],
+		timestamp: 12,
+	};
+
+	const sanitized = sanitizeChatCompletionsHistory([user, pureThinkingAssistant, syntheticNudge, nextUser]);
+	assert.equal(sanitized.length, 2);
+	assert.deepEqual(sanitized, [user, nextUser]);
+
+	const wire = toChatCompletionsMessages("", [user, pureThinkingAssistant, syntheticNudge, nextUser]);
+	assert.equal(wire.length, 2);
+	assert.equal((wire[0] as { role: string }).role, "user");
+	assert.equal((wire[1] as { role: string }).role, "user");
+});
+
+test("Chat Completions: preserves assistant with tool calls even if text is empty", () => {
+	const toolCallAssistant: AssistantMessage = {
+		role: "assistant",
+		content: [
+			{ type: "thinking", thinking: "Thinking before call..." },
+			call("call-1", "bash"),
+		],
+		api: "openai-chat-completions",
+		provider: "relay",
+		model: "test",
+		usage: emptyUsage(),
+		stopReason: "toolUse",
+		timestamp: 20,
+	};
+	const wire = toChatCompletionsMessages("", [user, toolCallAssistant, answer("call-1", "ok")]);
+	assert.equal(wire.length, 3);
+	assert.equal((wire[1] as { role: string }).role, "assistant");
+	assert.ok((wire[1] as { tool_calls: unknown[] }).tool_calls.length > 0);
+	assert.equal((wire[2] as { role: string }).role, "tool");
+});
+
+test("Chat Completions: fallback protects against standalone unpruned empty assistant", () => {
+	const standaloneEmptyAssistant: AssistantMessage = {
+		role: "assistant",
+		content: [{ type: "thinking", thinking: "pondering..." }],
+		api: "openai-chat-completions",
+		provider: "relay",
+		model: "test",
+		usage: emptyUsage(),
+		stopReason: "stop",
+		timestamp: 30,
+	};
+
+	// Directly testing the serializer loop fallback net
+	const wire = toChatCompletionsMessages("", [standaloneEmptyAssistant]);
+	assert.equal(wire.length, 0); // because it is pruned by sanitizeChatCompletionsHistory
+
+	// If an assistant has whitespace-only text that bypassed basic checks, it gets a non-empty fallback content
+	const whitespaceAssistant: AssistantMessage = {
+		role: "assistant",
+		content: [{ type: "text", text: "   " }],
+		api: "openai-chat-completions",
+		provider: "relay",
+		model: "test",
+		usage: emptyUsage(),
+		stopReason: "stop",
+		timestamp: 31,
+	};
+	const wireWhitespace = toChatCompletionsMessages("", [whitespaceAssistant]);
+	// whitespace-only is also pruned by sanitizeChatCompletionsHistory
+	assert.equal(wireWhitespace.length, 0);
+});
+
+test("Chat Completions: parallel tool results are never duplicated", () => {
+	const toolCallAssistant: AssistantMessage = {
+		role: "assistant",
+		content: [call("call-1", "bash"), call("call-2", "read"), call("call-3", "glob")],
+		api: "openai-chat-completions",
+		provider: "relay",
+		model: "test",
+		usage: emptyUsage(),
+		stopReason: "toolUse",
+		timestamp: 20,
+	};
+	const wire = toChatCompletionsMessages("", [
+		user,
+		toolCallAssistant,
+		answer("call-1", "res1"),
+		answer("call-2", "res2"),
+		answer("call-3", "res3"),
+		user,
+	]) as any[];
+
+	// 应该依次为: user, assistant(with 3 calls), tool(1), tool(2), tool(3), user
+	assert.equal(wire.length, 6);
+	assert.equal(wire[0].role, "user");
+	assert.equal(wire[1].role, "assistant");
+	assert.equal(wire[1].tool_calls.length, 3);
+
+	const toolResults = wire.filter((m) => m.role === "tool");
+	assert.equal(toolResults.length, 3);
+	assert.deepEqual(
+		toolResults.map((m) => m.tool_call_id),
+		["call-1", "call-2", "call-3"],
+	);
+	assert.equal(wire[5].role, "user");
+});
+
+test("Chat Completions: orphan tool result with no prior assistant message still outputs once", () => {
+	const wire = toChatCompletionsMessages("", [answer("orphan-1", "orphan result"), user]) as any[];
+	assert.equal(wire.length, 2);
+	assert.equal(wire[0].role, "tool");
+	assert.equal(wire[0].tool_call_id, "orphan-1");
+	assert.equal(wire[1].role, "user");
+});
+
+test("Chat Completions: usage keeps input and cacheRead disjoint and captures reasoning tokens", async () => {
+	const { openaiChatCompletionsProvider } = await import("../src/ai/openai-chat-completions.ts");
+	const sseData = [
+		`data: ${JSON.stringify({ choices: [{ delta: { content: "Hello" } }] })}\n\n`,
+		`data: ${JSON.stringify({
+			choices: [{ delta: {} }],
+			usage: {
+				prompt_tokens: 1000,
+				completion_tokens: 50,
+				prompt_tokens_details: { cached_tokens: 800 },
+				completion_tokens_details: { reasoning_tokens: 30 },
+			},
+		})}\n\n`,
+		"data: [DONE]\n\n",
+	].join("");
+
+	const mockFetch = async () => new Response(sseData, { status: 200, headers: { "content-type": "text/event-stream" } });
+	const providerConfig = {
+		id: "test",
+		name: "test",
+		baseUrl: "https://example.invalid",
+		api: "openai-chat-completions" as const,
+		apiKey: "test",
+		enabled: true,
+		models: [],
+	};
+	const modelConfig = {
+		modelId: "test-model",
+		contextWindow: 128000,
+		maxOutputTokens: 4096,
+		pricing: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 1.25 },
+	};
+
+	const stream = openaiChatCompletionsProvider.stream(
+		providerConfig,
+		modelConfig,
+		{ systemPrompt: "", messages: [{ role: "user", content: [{ type: "text", text: "hi" }], timestamp: 0 }], tools: [] },
+		{ fetch: mockFetch as any },
+	);
+
+	let finalMessage: AssistantMessage | null = null;
+	for await (const event of stream) {
+		if (event.type === "done") {
+			finalMessage = event.message;
+		}
+	}
+
+	assert.ok(finalMessage);
+	// prompt_tokens (1000) = cacheRead (800) + input (200)
+	assert.equal(finalMessage.usage.cacheRead, 800);
+	assert.equal(finalMessage.usage.input, 200);
+	assert.equal(finalMessage.usage.output, 50);
+	assert.equal(finalMessage.usage.reasoning, 30);
+	assert.equal(finalMessage.usage.total, 1050); // 200 + 50 + 800
 });

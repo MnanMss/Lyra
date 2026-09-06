@@ -55,3 +55,22 @@ test("grepTool extracts quoted pattern from description", async () => {
 	assert.equal(res.isError, undefined);
 	assert.match(res.content[0].text, /grepTool/);
 });
+
+test("globTool falls back to raw description when no pattern labels or wildcards exist", async () => {
+	const res = await globTool.execute({ description: "tool-aliases.test.ts", path: testDir } as any, { cwd: testDir, sessionId: "s", state: new Map() });
+	assert.equal(res.isError, undefined);
+	assert.match(res.content[0].text, /tool-aliases\.test\.ts/);
+});
+
+test("grepTool falls back to raw regex description directly", async () => {
+	const res = await grepTool.execute({ description: "grepTool|globTool|readTool", path: testDir } as any, { cwd: testDir, sessionId: "s", state: new Map() });
+	assert.equal(res.isError, undefined);
+	assert.match(res.content[0].text, /grepTool/);
+});
+
+test("grepTool provides self-healing error message when pattern and description are missing", async () => {
+	const res = await grepTool.execute({ path: testDir } as any, { cwd: testDir, sessionId: "s", state: new Map() });
+	assert.equal(res.isError, true);
+	assert.match(res.content[0].text, /`pattern` is required/);
+	assert.match(res.content[0].text, /e\.g\. \{"pattern": "your_regex"\}/);
+});

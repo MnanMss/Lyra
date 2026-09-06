@@ -28,7 +28,6 @@ export const globTool: Tool<GlobArgs> = {
 	parameters: {
 		type: "object",
 		properties: {
-			description: { type: "string", description: "Optional description of what this find operation is doing." },
 			pattern: { type: "string", description: "Glob pattern, relative to the search root." },
 			query: { type: "string", description: "Alias for pattern." },
 			search: { type: "string", description: "Alias for pattern." },
@@ -64,7 +63,7 @@ export const globTool: Tool<GlobArgs> = {
 		} catch (error) {
 			return errorResult(error instanceof Error ? error.message : String(error));
 		}
-		if (!pattern) return errorResult("`pattern` is required.");
+		if (!pattern) return errorResult("`pattern` is required. Please specify the glob pattern to search for in the `pattern` parameter, e.g. {\"pattern\": \"**/*.ts\"}.");
 
 		const regex = globToRegExp(pattern);
 		const limit = Math.min(args.limit ?? MAX_RESULTS, MAX_RESULTS);
@@ -175,5 +174,6 @@ export function extractPattern(desc: unknown): string {
 	if (quoted?.[1]) return quoted[1].trim();
 	const wildcard = desc.match(/\S*[*?{}][^\s)]*/);
 	if (wildcard?.[0]) return wildcard[0].trim();
-	return "";
+	/* Fallback: if the model passed the pattern directly as description */
+	return desc.trim();
 }

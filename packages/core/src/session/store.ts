@@ -254,7 +254,14 @@ export class SessionStore implements SessionStorage {
 	async load(
 		projectId: string,
 		sessionId: string,
-	): Promise<{ meta: SessionMeta; messages: Message[]; compactions: number[]; commandRuns?: CommandRun[]; compaction: Boundary | null } | null> {
+	): Promise<{
+		meta: SessionMeta;
+		messages: Message[];
+		entries: { seq: number; message: Message }[];
+		compactions: number[];
+		commandRuns?: CommandRun[];
+		compaction: Boundary | null;
+	} | null> {
 		let meta: SessionMeta | null = null;
 		// Kept with their sequence numbers so a truncate record can drop the right tail.
 		let entries: { seq: number; message: Message }[] = [];
@@ -320,7 +327,14 @@ export class SessionStore implements SessionStorage {
 		}
 		// Seed the append queue's view so a reopened session keeps numbering where it left off.
 		this.latestMeta.set(this.keyFor(meta), meta);
-		return { meta, messages, compactions, compaction, commandRuns: [...commandRuns.values()].map((entry) => entry.run) };
+		return {
+			meta,
+			messages,
+			entries,
+			compactions,
+			compaction,
+			commandRuns: [...commandRuns.values()].map((entry) => entry.run),
+		};
 	}
 
 	// -------------------------------------------------------------------------
@@ -415,23 +429,23 @@ export class SessionStore implements SessionStorage {
 		messageIndex: number,
 	): Promise<{ meta: SessionMeta; messages: Message[] } | null> {
 		const loaded = await this.load(projectId, sessionId);
-		if (!loaded || messageIndex < 0 || messageIndex >= loaded.messages.length) return null;
+		if (!loaded || !Number.isInteger(messageIndex) || messageIndex < 0 || messageIndex >= loaded.messages.length) return null;
+
+		/*
+		 * Turn atomicity: never cut inside a tool-call turn.
+		 * If messageIndex points to a toolResult, snap back past the assistant
+		 * turn that triggered it so calls and results are never torn apart.
+		 */
+		let targetIndex = messageIndex;
+		while (targetIndex > 0 && loaded.messages[targetIndex]?.role === "toolResult") {
+			targetIndex -= 1;
+		}
 
 		// The seq to keep is the one just before the record carrying the doomed message.
-		let seen = 0;
-		let cutoff: number | null = null;
-		for await (const record of this.read(projectId, sessionId)) {
-			if (record.type !== "message") continue;
-			if (seen === messageIndex) {
-				cutoff = record.seq - 1;
-				break;
-			}
-			seen += 1;
-		}
-		if (cutoff === null) return null;
+		const cutoff = loaded.entries[targetIndex].seq - 1;
 
 		const meta = await this.append(loaded.meta, { type: "truncate", afterSeq: cutoff });
-		const messages = loaded.messages.slice(0, messageIndex);
+		const messages = loaded.messages.slice(0, targetIndex);
 		// The index tracks message count; a truncate is the one write that lowers it.
 		const corrected = await this.append(meta, { type: "meta", meta: { ...meta, messageCount: messages.length } });
 		return { meta: { ...corrected, messageCount: messages.length }, messages };

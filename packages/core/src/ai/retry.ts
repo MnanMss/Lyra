@@ -51,7 +51,14 @@ export function isRetryableError(error: unknown): boolean {
 	const cause = (error as { cause?: { code?: string } }).cause;
 	if (cause?.code && RETRYABLE_CAUSES.has(cause.code)) return true;
 	// undici reports a bare "fetch failed" with the cause attached; some runtimes lose the cause.
-	return error.message === "fetch failed" || error.message.includes("socket hang up");
+	const msg = error.message.toLowerCase();
+	return (
+		error.message === "fetch failed" ||
+		msg.includes("socket hang up") ||
+		msg.includes("stream_read_error") ||
+		msg.includes("premature close") ||
+		msg.includes("terminated")
+	);
 }
 
 export function isRetryableStatus(status: number): boolean {
