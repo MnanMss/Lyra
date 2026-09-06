@@ -108,26 +108,11 @@ export function turnSlice(set: Set, get: Get) {
    */
   async retryFrom(index: number) {
     const messages = get().messages;
-    const bounded = Math.min(index, messages.length - 1);
-    // If the immediately preceding user message was synthetic (such as "继续"),
-    // retrying from a failed tail should re-attempt that step rather than discarding all previous work.
-    for (let i = bounded; i >= 0; i--) {
+    for (let i = Math.min(index, messages.length - 1); i >= 0; i--) {
       const message = messages[i];
-      if (message.role === "user") {
-        if (message.synthetic) {
-          // Only retry a synthetic message if there are no other assistant messages between it and the failed tail
-          const intermediate = messages.slice(i + 1, bounded + 1);
-          const hasCompletedAssistant = intermediate.some(
-            (m) => m.role === "assistant" && m.stopReason !== "error" && m.stopReason !== "aborted"
-          );
-          if (!hasCompletedAssistant) {
-            await get().editMessage(i, message.content);
-            return;
-          }
-        } else {
-          await get().editMessage(i, message.content);
-          return;
-        }
+      if (message.role === "user" && !message.synthetic) {
+        await get().editMessage(i, message.content);
+        return;
       }
     }
   },
@@ -170,27 +155,12 @@ export function turnSlice(set: Set, get: Get) {
     });
     saveCarried(sessionId, null);
 
-    try {
-      await bridge.agent.editMessage(sessionId, index, content);
-    } catch (error) {
-      // If dispatch failed immediately, do not leave the UI frozen in running state.
-      set({ running: false, pendingUserMessage: null });
-      throw error;
-    }
+    await bridge.agent.editMessage(sessionId, index, content);
   },
 
   async abort() {
     const sessionId = get().activeSessionId;
-    if (!sessionId) return;
-    await bridge.agent.abort(sessionId).catch(() => {});
-    // Safeguard: if the backend never emits an agent_end (e.g. process hung or state desynced),
-    // forcibly restore running state after a bounded grace period so the user is never permanently locked out.
-    setTimeout(() => {
-      const current = get();
-      if (current.activeSessionId === sessionId && current.running) {
-        set({ running: false, retrying: null, pendingUserMessage: null });
-      }
-    }, 2000);
+    if (sessionId) await bridge.agent.abort(sessionId);
   },
 
   async respondToApproval(id: string, decision: ApprovalDecision) {

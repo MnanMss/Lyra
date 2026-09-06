@@ -44,17 +44,17 @@ export function ProjectHead({
 		   reaching for the menu button does not drop it. */
 		<div
 			className="ly-scroll group/project relative rounded-lg transition-colors duration-[var(--ly-t-quick)] hover:bg-card-hover active:bg-elevated"
-			onPointerDown={(event) => {
-				reorder?.startDrag({ kind: "project", id: group.path, title: group.name }, event);
-			}}
 			onPointerMove={(event) => {
-				if (reorder?.dragging?.kind === "project") {
+				if (reorder) {
 					const rect = event.currentTarget.getBoundingClientRect();
 					reorder.registerTarget("project", group.path, rect, event.clientY);
 				}
 			}}
+			onPointerUp={(event) => {
+				reorder?.registerTarget("project", group.path, event.currentTarget.getBoundingClientRect(), event.clientY);
+			}}
 			onPointerLeave={() => {
-				if (reorder?.dragging?.kind === "project") {
+				if (reorder) {
 					reorder.clearTarget(group.path);
 				}
 			}}
@@ -75,6 +75,9 @@ export function ProjectHead({
 			 * one target and the fold never existing.
 			 */}
 			<button
+				onPointerDown={(event) => {
+					reorder?.startDrag({ kind: "project", id: group.path, title: group.name }, event);
+				}}
 				type="button"
 				aria-expanded={!collapsed}
 				onClick={onToggleCollapsed}

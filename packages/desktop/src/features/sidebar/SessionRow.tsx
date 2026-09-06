@@ -139,6 +139,7 @@ export function SessionRow({
 	return (
 		<div
 			{...card.bind}
+			onMouseEnter={(event) => { if (event.buttons === 0) card.bind.onMouseEnter(event); }}
 			data-ly-row={session.id}
 			onContextMenu={(event) => {
 				event.preventDefault();
@@ -151,20 +152,17 @@ export function SessionRow({
 			} ${active ? "bg-card-hover" : "hover:bg-card-hover"} ${
 				isDraggingThisSession ? "opacity-35" : ""
 			}`}
-			onPointerDown={(event) => {
-				reorder?.startDrag(
-					{ kind: "session", id: session.id, title: sessionTitle(session.title), projectPath: session.cwd },
-					event,
-				);
-			}}
 			onPointerMove={(event) => {
-				if (reorder?.dragging?.kind === "session") {
+				if (reorder) {
 					const rect = event.currentTarget.getBoundingClientRect();
 					reorder.registerTarget("session", session.id, rect, event.clientY, session.cwd);
 				}
 			}}
+			onPointerUp={(event) => {
+				reorder?.registerTarget("session", session.id, event.currentTarget.getBoundingClientRect(), event.clientY, session.cwd);
+			}}
 			onPointerLeave={() => {
-				if (reorder?.dragging?.kind === "session") {
+				if (reorder) {
 					reorder.clearTarget(session.id);
 				}
 			}}
@@ -173,6 +171,13 @@ export function SessionRow({
 			{card.anchor && <SessionCard session={session} anchor={card.anchor} project={project} leaving={card.leaving} />}
 			{menu.open && <SessionMenu anchor={menu.anchor} session={session} onClose={menu.close} />}
 			<button
+				onPointerDown={(event) => {
+					card.dismiss();
+					reorder?.startDrag(
+						{ kind: "session", id: session.id, title: sessionTitle(session.title), projectPath: session.cwd },
+						event,
+					);
+				}}
 				type="button"
 				onClick={onOpen}
 				/*
