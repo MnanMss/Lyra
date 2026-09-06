@@ -196,6 +196,20 @@ test("a download that runs to the end leaves the whole file, byte for byte", asy
 	}
 });
 
+test("new update directories and installers are private to the current user", { skip: process.platform === "win32" }, async () => {
+	const server = await serve();
+	const dir = join(await workdir(), "updates", "version");
+	try {
+		const download = downloadInto(dir, server.url);
+		assert.equal((await download.start()).at, "preparing");
+		assert.equal((await stat(dir)).mode & 0o777, 0o700);
+		assert.equal((await stat(join(dir, ".."))).mode & 0o777, 0o700);
+		assert.equal((await stat(join(dir, "Lyra.zip"))).mode & 0o777, 0o600);
+	} finally {
+		await server.close();
+	}
+});
+
 test("pausing keeps what came down, and resuming asks only for the rest", async () => {
 	const server = await serve({ hold: true });
 	const dir = await workdir();
@@ -220,6 +234,59 @@ test("pausing keeps what came down, and resuming asks only for the rest", async 
 
 		assert.equal(server.requests.length, 2, "两次请求：一次原始，一次续传");
 		assert.equal(server.requests[1].range, `bytes=${kept}-`, "第二次请求只要没下完的那段");
+	} finally {
+		await server.close();
+	}
+});
+
+test("pausing from the first progress event keeps the bytes it announced", async () => {
+	const server = await serve({ hold: true });
+	const dir = await workdir();
+	try {
+		const download = downloadInto(dir, server.url);
+		const pause = Promise.withResolvers<void>();
+		let announced = 0;
+		const stop = download.watch((phase) => {
+			if (phase.at !== "downloading" || phase.received === 0 || announced > 0) return;
+			announced = phase.received;
+			// A subscriber can pause before the disk writer has opened or consumed the same chunk.
+			void download.pause().then(pause.resolve, pause.reject);
+		});
+		await Promise.race([download.start(), pause.promise]);
+		stop();
+		assert.ok(announced > 0);
+		assert.deepEqual(download.state, { at: "paused", received: announced, total: BODY.length });
+		assert.deepEqual(await readFile(join(dir, "Lyra.zip.part")), BODY.subarray(0, announced));
+		await download.start();
+		assert.equal(server.requests[1].range, `bytes=${announced}-`);
+		assert.deepEqual(await readFile(join(dir, "Lyra.zip")), BODY);
+	} finally {
+		await server.close();
+	}
+});
+
+test("a resumed download is pausable as soon as its initial progress is announced", async () => {
+	const server = await serve({ hold: true });
+	const dir = await workdir();
+	const kept = BODY.subarray(0, 20_000);
+	try {
+		await writeFile(join(dir, "Lyra.zip.part"), kept);
+		const download = downloadInto(dir, server.url);
+		const pause = Promise.withResolvers<void>();
+		let asked = false;
+		const stop = download.watch((phase) => {
+			if (phase.at !== "downloading" || asked) return;
+			asked = true;
+			void download.pause().then(pause.resolve, pause.reject);
+		});
+		await Promise.race([download.start(), pause.promise]);
+		stop();
+		assert.deepEqual(download.state, { at: "paused", received: kept.length, total: BODY.length });
+		assert.deepEqual(await readFile(join(dir, "Lyra.zip.part")), kept);
+		assert.equal(server.requests.length, 0);
+		await download.start();
+		assert.equal(server.requests[0].range, `bytes=${kept.length}-`);
+		assert.deepEqual(await readFile(join(dir, "Lyra.zip")), BODY);
 	} finally {
 		await server.close();
 	}

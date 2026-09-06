@@ -41,7 +41,7 @@ const registry = () => createRegistry({ home: join(home, ".lyra"), userHome: hom
 test("跨层都留，各带自己的 depth", async () => {
 	const result = await registry().load<ContextFile>("context-file", { cwd: join(root, "repo", "packages", "api") });
 	const byDepth = result.items.map((f) => `${f.depth}:${f.name}`).sort();
-	assert.deepEqual(byDepth, ["0:packages/api/AGENTS.md", "2:AGENTS.md"], JSON.stringify(byDepth));
+	assert.deepEqual(byDepth, [`0:${join("packages", "api", "AGENTS.md")}`, "2:AGENTS.md"], JSON.stringify(byDepth));
 });
 
 test("同一层的第二份是「被遮蔽」，不是静默消失", async () => {

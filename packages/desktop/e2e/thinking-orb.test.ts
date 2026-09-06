@@ -221,26 +221,65 @@ test("a running turn draws an orb, and it is really drawing", async () => {
 	assert.ok(ink.painted > 20, `it has painted something rather than staying blank (${ink.painted} px)`);
 });
 
-test("the animation is moving, not a single painted frame", async () => {
+async function withReducedMotion(reduced: boolean, run: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>) {
+	const targets: { type: string; url: string; webSocketDebuggerUrl?: string }[] = await fetch("http://127.0.0.1:9455/json/list").then((response) => response.json());
+	const target = targets.find((entry) => entry.type === "page" && entry.url.endsWith("/index.html"));
+	assert.ok(target?.webSocketDebuggerUrl);
+	const socket = new WebSocket(target.webSocketDebuggerUrl);
+	try {
+		await new Promise<void>((resolve, reject) => {
+			socket.addEventListener("open", () => resolve(), { once: true });
+			socket.addEventListener("error", () => reject(new Error("motion emulation connection failed")), { once: true });
+		});
+		// The library reads the OS media query; keep its debugger session alive during pixel sampling.
+		let id = 0;
+		const send = (method: string, params: Record<string, unknown>) => new Promise<unknown>((resolve, reject) => {
+			const request = ++id;
+			const listener = (event: MessageEvent) => {
+				const message: { id?: number; error?: { message: string }; result?: { exceptionDetails?: { text: string; exception?: { description?: string } }; result?: { value?: unknown } } } = JSON.parse(String(event.data));
+				if (message.id !== request) return;
+				socket.removeEventListener("message", listener);
+				if (message.error) reject(new Error(message.error.message));
+				else if (message.result?.exceptionDetails) reject(new Error(message.result.exceptionDetails.exception?.description ?? message.result.exceptionDetails.text));
+				else resolve(message.result?.result?.value);
+			};
+			socket.addEventListener("message", listener);
+			socket.send(JSON.stringify({ id: request, method, params }));
+		});
+		await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: reduced ? "reduce" : "no-preference" }] });
+		// Attaching another debugger clears Chromium's emulation, so read through this socket too.
+		const evaluate = (expression: string) => send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
+		assert.equal(await evaluate(`matchMedia('(prefers-reduced-motion: reduce)').matches`), reduced);
+		await run(evaluate);
+	} finally {
+		socket.close();
+	}
+}
+
+test("the animation moves normally and paints a static frame with reduced motion", async (t) => {
 	/*
 	 * Two reads a few frames apart. A canvas that mounted, painted once and then stopped looks
 	 * exactly like a working one in a screenshot — this is the difference, and it is the failure
 	 * mode a `requestAnimationFrame` loop that never starts actually has.
 	 */
-	const snap = () =>
-		app.evaluate<string>(`(() => {
+	const snapshot = `(() => {
 			const canvas = document.querySelector("main [data-ly-running] canvas");
 			const ctx = canvas.getContext("2d");
 			const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
 			let hash = 0;
 			for (let i = 0; i < data.length; i += 17) hash = (hash * 31 + data[i]) >>> 0;
 			return String(hash);
-		})()`);
+		})()`;
 
-	const before = await snap();
-	await new Promise((r) => setTimeout(r, 500));
-	const after = await snap();
-	assert.notEqual(after, before, "the pixels changed between two reads half a second apart");
+	for (const reduced of [false, true]) await withReducedMotion(reduced, async (evaluate) => {
+		await evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
+		const before = await evaluate(snapshot);
+		await new Promise((r) => setTimeout(r, 500));
+		const after = await evaluate(snapshot);
+		t.diagnostic(JSON.stringify({ reduced, before, after }));
+		if (reduced) assert.equal(after, before, "reduced motion keeps a static representative frame");
+		else assert.notEqual(after, before, "the pixels changed between two reads half a second apart");
+	});
 });
 
 test("the ink suits the theme it is drawn on", async () => {
