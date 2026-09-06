@@ -86,6 +86,22 @@ test("an extension sees the events it subscribed to", async () => {
 	await host.dispose();
 });
 
+test("an extension entry is a filesystem path even when its directory contains URL characters", async () => {
+	const dir = await extension(
+		"entry # percent %",
+		{ name: "url-path", events: ["tool_call"], intercepts: true },
+		`export default { tool_call: () => ({ block: { reason: "loaded the exact file" } }) };`,
+	);
+	const host = new ExtensionHost();
+	try {
+		assert.equal(await host.load(dir), true);
+		assert.deepEqual(await host.intercept("tool_call", {}), { block: "loaded the exact file" });
+		assert.deepEqual(host.diagnostics, []);
+	} finally {
+		await host.dispose();
+	}
+});
+
 test("an extension does not see events it did not subscribe to", async () => {
 	const dir = await extension("narrow", { events: ["turn_start"] }, `export default { tool_call: () => ({ block: { reason: "不该被调到" } }) };`);
 	const host = new ExtensionHost();
