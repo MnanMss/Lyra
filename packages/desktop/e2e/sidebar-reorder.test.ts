@@ -48,6 +48,37 @@ async function move(at: { x: number; y: number }, dragging = false) {
 async function waitFor(expression: string): Promise<void> {
 	await app.evaluate(`new Promise((resolve,reject)=>{const deadline=performance.now()+5000;const check=()=>{if(${expression})resolve();else if(performance.now()<deadline)requestAnimationFrame(check);else reject(new Error('condition timed out'));};check();})`);
 }
+async function reload(): Promise<void> {
+	const previous = await app.send<{ frameTree: { frame: { loaderId: string } } }>("Page.getFrameTree");
+	const { targetInfo } = await app.send<{ targetInfo: { targetId: string } }>("Target.getTargetInfo");
+	const response = await fetch("http://127.0.0.1:9615/json/list");
+	const targets: { id: string; webSocketDebuggerUrl?: string }[] = await response.json();
+	const target = targets.find((entry) => entry.id === targetInfo.targetId)?.webSocketDebuggerUrl;
+	if (!target) throw new Error("Reload target missing");
+	const socket = new WebSocket(target);
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		await new Promise<void>((resolve, reject) => {
+			let navigated = false;
+			timer = setTimeout(() => reject(new Error("Reload did not finish loading a new document")), 5000);
+			socket.addEventListener("open", () => socket.send(JSON.stringify({ id: 1, method: "Page.enable" })));
+			socket.addEventListener("error", () => reject(new Error("Reload debugger connection failed")));
+			socket.addEventListener("close", () => reject(new Error("Reload debugger connection closed")));
+			socket.addEventListener("message", (event: MessageEvent<string>) => {
+				const message: { id?: number; method?: string; error?: { message: string }; params?: { frame?: { parentId?: string; loaderId: string } } } = JSON.parse(event.data);
+				if (message.error) { reject(new Error(message.error.message)); return; }
+				// Page.reload acknowledges the request while the previous DOM can still match.
+				if (message.id === 1) socket.send(JSON.stringify({ id: 2, method: "Page.reload" }));
+				// Only the new document's loader can satisfy the reload completion signal.
+				if (message.method === "Page.frameNavigated" && message.params?.frame && !message.params.frame.parentId && message.params.frame.loaderId !== previous.frameTree.frame.loaderId) navigated = true;
+				if (navigated && message.method === "Page.loadEventFired") resolve();
+			});
+		});
+	} finally {
+		clearTimeout(timer);
+		socket.close();
+	}
+}
 async function begin() {
 	const start = await point("source"); const finish = await point("target", 0.8);
 	await move(start);
@@ -89,8 +120,10 @@ test("real mouse drag preserves other rows, suppresses navigation, and renders i
 	const order = await app.evaluate<Record<string, string[]>>(`window.lyra.settings.get().then(s=>s.sessionOrder)`);
 	const stored = order[projectPath];
 	assert.deepEqual(stored, ["qa-short", "qa-long", "qa-third"]);
-	await app.send("Page.reload");
-	await waitFor(`document.querySelector('[data-ly-row]')?.dataset.lyRow === 'qa-short'`);
+	const originalDocument = await app.evaluate<number>("performance.timeOrigin");
+	await reload();
+	await waitFor(`[...document.querySelectorAll('[data-ly-row]')].filter(e=>e.checkVisibility({visibilityProperty:true})).length === 3 && document.querySelectorAll('[class~="group/project"] > button[aria-expanded]').length === 2`);
+	assert.notEqual(await app.evaluate<number>("performance.timeOrigin"), originalDocument);
 	assert.deepEqual(await rows(), stored);
 });
 
