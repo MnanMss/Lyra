@@ -421,6 +421,8 @@ export interface LyraApi {
 		 * transfer list before the event returns.
 		 */
 		pathForDrop(file: File): string;
+		/** Open native dialog to pick files or directories. */
+		pick(options?: { directory?: boolean; multiple?: boolean }): Promise<string[]>;
 	};
 	/**
 	 * The system clipboard, for text.
