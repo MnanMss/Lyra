@@ -16,8 +16,9 @@ let list: () => Promise<SessionMeta[]>;
 let onTray: Parameters<LyraApi["onTrayCommand"]>[0] | undefined;
 function deferredList() {
 	let resolve!: (sessions: SessionMeta[]) => void;
-	const promise = new Promise<SessionMeta[]>((done) => { resolve = done; });
-	return { promise, resolve };
+	let reject!: (cause: Error) => void;
+	const promise = new Promise<SessionMeta[]>((done, fail) => { resolve = done; reject = fail; });
+	return { promise, resolve, reject };
 }
 beforeEach(() => {
 	list = async () => [meta("a"), meta("b")];
@@ -107,3 +108,71 @@ test("collapsed sidebar distinguishes waiting, failed and done without animating
 		assert.equal(view.host.querySelector("span.bg-accent"), null);
 	} finally { await view.unmount(); }
 });
+
+for (const olderFirst of [true, false]) {
+	test(`the latest cold notification wins when ${olderFirst ? "older" : "newer"} lookup resolves first`, async () => {
+		useApp.setState({ sessions: [] });
+		const older = deferredList(), newer = deferredList();
+		let reads = 0;
+		list = () => reads++ === 0 ? older.promise : newer.promise;
+		const openingOlder = useApp.getState().openSessionById("older");
+		const openingNewer = useApp.getState().openSessionById("newer");
+		if (olderFirst) {
+			older.resolve([meta("older"), meta("newer")]);
+			assert.equal(await openingOlder, false);
+			newer.resolve([meta("older"), meta("newer")]);
+		} else {
+			newer.resolve([meta("older"), meta("newer")]);
+			assert.equal(await openingNewer, true);
+			older.resolve([meta("older"), meta("newer")]);
+		}
+		assert.equal(await openingOlder, false);
+		assert.equal(await openingNewer, true);
+		assert.equal(useApp.getState().activeSessionId, "newer");
+	});
+}
+
+test("a failed older lookup stays quiet while the latest notification is still loading", async () => {
+	useApp.setState({ sessions: [] });
+	const older = deferredList(), newer = deferredList();
+	let reads = 0;
+	list = () => reads++ === 0 ? older.promise : newer.promise;
+	const openingOlder = useApp.getState().openSessionById("older");
+	const openingNewer = useApp.getState().openSessionById("newer");
+	older.reject(new Error("old lookup failed"));
+	assert.equal(await openingOlder, false);
+	assert.equal(useApp.getState().notices.length, 0);
+	newer.resolve([meta("newer")]);
+	assert.equal(await openingNewer, true);
+	assert.equal(useApp.getState().activeSessionId, "newer");
+});
+
+test("a failed latest lookup does not let an older notification navigate afterward", async () => {
+	useApp.setState({ sessions: [] });
+	const older = deferredList(), newer = deferredList();
+	let reads = 0;
+	list = () => reads++ === 0 ? older.promise : newer.promise;
+	const openingOlder = useApp.getState().openSessionById("older");
+	const openingNewer = useApp.getState().openSessionById("newer");
+	newer.reject(new Error("latest lookup failed"));
+	assert.equal(await openingNewer, false);
+	older.resolve([meta("older")]);
+	assert.equal(await openingOlder, false);
+	assert.equal(useApp.getState().activeSessionId, "a");
+	assert.equal(useApp.getState().notices.length, 1);
+	assert.match(useApp.getState().notices[0].message, /latest lookup failed/);
+});
+
+for (const failed of [false, true]) {
+	test(`a new blank session supersedes a cold notification ${failed ? "failure" : "result"}`, async () => {
+		const read = deferredList(); list = () => read.promise;
+		const opening = useApp.getState().openSessionById("unloaded");
+		useApp.setState({ workspace: { path: "/test/project", name: "test", isGitRepo: false, branch: null } });
+		await useApp.getState().newSession();
+		if (failed) read.reject(new Error("late lookup failed"));
+		else read.resolve([meta("unloaded")]);
+		assert.equal(await opening, false);
+		assert.equal(useApp.getState().activeSessionId, null);
+		assert.equal(useApp.getState().notices.length, 0);
+	});
+}

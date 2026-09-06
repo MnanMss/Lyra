@@ -118,7 +118,9 @@ export function sessionSlice(set: Set, get: Get) {
 
 
 	async openSessionById(id: string) {
-		const epoch = get().selectionEpoch;
+		// A cold lookup is already a navigation choice, before its metadata arrives.
+		const epoch = get().selectionEpoch + 1;
+		set({ selectionEpoch: epoch });
 		let target = get().sessions.find((session) => session.id === id);
 		if (!target) {
 			try {
@@ -128,6 +130,7 @@ export function sessionSlice(set: Set, get: Get) {
 				target = get().sessions.find((session) => session.id === id) ?? sessions.find((session) => session.id === id);
 				if (target && !get().sessions.some((session) => session.id === id)) set({ sessions: [...get().sessions, target] });
 			} catch (cause) {
+				if (get().selectionEpoch !== epoch) return false;
 				get().notify(`无法打开会话：${cause instanceof Error ? cause.message : String(cause)}`, "error");
 				return false;
 			}
