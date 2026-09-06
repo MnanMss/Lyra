@@ -58,7 +58,7 @@ export function cleanTitleSummary(raw: string): string {
 
 /**
  * Request a concise title summary from the model.
- * Returns null on timeout, network error, empty reply, or model failure.
+ * Returns null only when no terminal message reported usage; cancellation still discards the title.
  */
 export async function summarizeTitle(options: SummarizeTitleOptions): Promise<{ title: string | null; usage: Usage } | null> {
 	const trimmed = options.text.trim();
@@ -91,6 +91,7 @@ export async function summarizeTitle(options: SummarizeTitleOptions): Promise<{ 
 	);
 
 	let final: Awaited<ReturnType<typeof stream.next>>;
+	let reportedUsage: Usage | undefined;
 	let listener: ReturnType<typeof addAbortListener> | undefined;
 	const aborted = new Promise<never>((_resolve, reject) => {
 		if (options.signal) listener = addAbortListener(options.signal, () => reject(options.signal?.reason));
@@ -98,16 +99,16 @@ export async function summarizeTitle(options: SummarizeTitleOptions): Promise<{ 
 	try {
 		do {
 			final = await Promise.race([stream.next(), aborted]);
+			if (!final.done && (final.value.type === "done" || final.value.type === "error")) reportedUsage = final.value.message.usage;
 		} while (!final.done);
 	} catch {
-		return null;
+		return reportedUsage ? { title: null, usage: reportedUsage } : null;
 	} finally {
 		listener?.[Symbol.dispose]();
 	}
 
 	const reply = final.value;
-	if (options.signal?.aborted) return null;
-	if (reply.stopReason === "error" || reply.stopReason === "aborted") return { title: null, usage: reply.usage };
+	if (options.signal?.aborted || reply.stopReason === "error" || reply.stopReason === "aborted") return { title: null, usage: reply.usage };
 
 	const collected = reply.content
 		.filter((block): block is { type: "text"; text: string } => block.type === "text")

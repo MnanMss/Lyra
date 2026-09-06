@@ -25,6 +25,101 @@ async function fixture(t: TestContext, options: Partial<Pick<AgentSessionOptions
 	return { root, store, session };
 }
 
+function completingStream(result: Promise<AssistantMessage>, onFinal: () => void): NonNullable<AgentSessionOptions["titleSummaryStream"]> {
+	return () => {
+		const iterator = (async function* () { yield { type: "text_start", index: 0 } as const; return result; })();
+		const next = iterator.next.bind(iterator);
+		iterator.next = (...args) => next(...args).then((value) => {
+			// Settle the result first, then cancel before its awaiting consumer resumes.
+			if (value.done) queueMicrotask(onFinal);
+			return value;
+		});
+		return iterator;
+	};
+}
+
+const billed = { ...emptyUsage(), input: 80, output: 5, reasoning: 0, total: 85, cost: { input: 0.02, output: 0.01, cacheRead: 0, cacheWrite: 0, total: 0.03 } };
+
+test("cancelling after the final result settles retains reported usage", async () => {
+	const controller = new AbortController();
+	const result = await summarizeTitle({ text: prompt, provider, model, signal: controller.signal,
+		stream: completingStream(Promise.resolve({ ...reply("Automatic"), usage: billed }), () => controller.abort()) });
+	assert.equal(controller.signal.aborted, true);
+	assert.deepEqual(result, { title: null, usage: billed });
+});
+
+test("cancelling after a done event retains usage even without the generator return", async () => {
+	const controller = new AbortController();
+	const result = await summarizeTitle({ text: prompt, provider, model, signal: controller.signal, stream: async function* () {
+		const message = { ...reply("Automatic"), usage: billed };
+		yield { type: "done", message };
+		controller.abort();
+		return message;
+	} });
+	assert.deepEqual(result, { title: null, usage: billed });
+});
+
+test("rename racing with a returned title keeps its cost and the manual name", async (t) => {
+	const result = Promise.withResolvers<AssistantMessage>();
+	const renamed = Promise.withResolvers<void>();
+	const { store, session } = await fixture(t, { titleSummaryStream: completingStream(result.promise, () => {
+		void session.rename("Manual").then(renamed.resolve, renamed.reject);
+	}) });
+	await session.prompt([{ type: "text", text: prompt }]);
+	result.resolve({ ...reply("Automatic"), usage: billed });
+	await renamed.promise;
+	assert.deepEqual(session.meta.usage, billed);
+	assert.equal(session.meta.title, "Manual");
+	assert.deepEqual((await store.load(session.meta.projectId, session.meta.id))?.meta.usage, billed);
+});
+
+test("dispose waits for cancelled title usage to finish writing before deletion", async (t) => {
+	const root = await mkdtemp(join(tmpdir(), "ly-title-usage-"));
+	const result = Promise.withResolvers<AssistantMessage>();
+	const usageStarted = Promise.withResolvers<void>();
+	const allowUsage = Promise.withResolvers<void>();
+	const disposing = Promise.withResolvers<void>();
+	let started = false;
+	let disposed = false;
+	class PausedStore extends SessionStore {
+		override async append(meta: SessionMeta, record: SessionRecordInput) {
+			if (record.type === "usage") { started = true; usageStarted.resolve(); await allowUsage.promise; }
+			return super.append(meta, record);
+		}
+	}
+	const store = new PausedStore(join(root, "sessions"));
+	const session = new AgentSession({ cwd: root, store, meta: await store.create(root, model.id), settings, emit: () => {}, streamFn: async () => reply("Done"),
+		titleSummaryStream: completingStream(result.promise, () => {
+			void session.dispose().then(() => { disposed = true; disposing.resolve(); }, disposing.reject);
+		}) });
+	t.after(async () => { allowUsage.resolve(); await session.dispose(); await rm(root, { recursive: true, force: true }); });
+	await session.prompt([{ type: "text", text: prompt }]);
+	result.resolve({ ...reply("Automatic"), usage: billed });
+	await Promise.race([usageStarted.promise, disposing.promise]);
+	assert.equal(started, true);
+	assert.equal(disposed, false);
+	allowUsage.resolve();
+	await disposing.promise;
+	assert.deepEqual(session.meta.usage, billed);
+	assert.notEqual(session.meta.title, "Automatic");
+	await store.delete(session.meta.projectId, session.meta.id);
+	assert.equal(await store.load(session.meta.projectId, session.meta.id), null);
+});
+
+test("dispose before any reported usage does not invent costs or revive the deleted log", async (t) => {
+	const result = Promise.withResolvers<AssistantMessage>();
+	const lateFinal = Promise.withResolvers<void>();
+	const { store, session } = await fixture(t, { titleSummaryStream: completingStream(result.promise, lateFinal.resolve) });
+	await session.prompt([{ type: "text", text: prompt }]);
+	const before = structuredClone(session.meta.usage);
+	await session.dispose();
+	await store.delete(session.meta.projectId, session.meta.id);
+	result.resolve({ ...reply("Too late"), usage: billed });
+	await lateFinal.promise;
+	assert.deepEqual(session.meta.usage, before);
+	assert.equal(await store.load(session.meta.projectId, session.meta.id), null);
+});
+
 test("title fallback preserves ordinary user prose and uses structured display text", async (t) => {
 	const { session } = await fixture(t, { settings: { ...settings, autoSummarizeTitle: false } });
 	const text = "使用已有技能优化页面。先检查菜单的滚动问题。";

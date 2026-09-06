@@ -918,7 +918,8 @@ export class AgentSession {
 					stream,
 					signal,
 				});
-				if (!summary || !current()) return;
+				if (!summary) return;
+				// Cancellation invalidates the title, not usage already reported by the provider.
 				await this.log.append({ type: "usage", source: "title-summary", providerId: chosen.provider.id, modelId: chosen.model.modelId, usage: summary.usage });
 				if (!summary.title || !current()) return;
 				await this.log.append({ type: "title", title: summary.title, source: "auto" });
