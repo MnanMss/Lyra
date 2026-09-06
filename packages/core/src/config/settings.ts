@@ -1,3 +1,4 @@
+import { withCatalogDefaults } from "../model-catalog.ts";
 import { normalizeSubAgentProfiles, type SubAgentProfile } from "./sub-agent-profiles.ts";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -14,6 +15,24 @@ export type PermissionMode =
 	| "auto"
 	/** Never ask. */
 	| "full";
+
+/** The language used by Lyra's own interface. */
+export type UiLocale =
+	| "system"
+	| "zh-CN"
+	| "zh-TW"
+	| "en"
+	| "fr"
+	| "ru"
+	| "ko"
+	| "ja";
+
+export const UI_LOCALES = ["system", "zh-CN", "zh-TW", "en", "fr", "ru", "ko", "ja"] as const satisfies readonly UiLocale[];
+
+function normalizeUiLocale(value: unknown): UiLocale {
+	if (typeof value !== "string") return "system";
+	return UI_LOCALES.find((locale) => locale === value) ?? "system";
+}
 
 export interface ProjectEntry {
 	id: string;
@@ -180,6 +199,8 @@ export interface ScheduledTask {
 }
 
 export interface ScreenshotSettings {
+	/** Disabling capture also releases its global shortcut. */
+	enabled?: boolean;
 	/** Global shortcut to trigger screen capture. e.g. "CommandOrControl+Shift+S" or "Alt+A". */
 	shortcut?: string;
 	/** Directory where screenshots are saved. If empty, saves to ~/Desktop or scratch directory. */
@@ -195,6 +216,7 @@ export interface ScreenshotSettings {
 }
 
 export const DEFAULT_SCREENSHOT_SETTINGS: ScreenshotSettings = {
+	enabled: true,
 	shortcut: "Alt+A",
 	saveLocation: "",
 	showInComposer: false,
@@ -226,6 +248,8 @@ export interface Settings {
 	 * is the shape of an attack rather than a configuration anybody intends.
 	 */
 	allowedHosts?: string[];
+	/** Lyra's interface language. `system` follows the operating system without storing a guess. */
+	uiLocale: UiLocale;
 	version: 1;
 	providers: ProviderConfig[];
 	mcpServers: McpServerConfig[];
@@ -410,10 +434,17 @@ export interface Settings {
 		showBottomPanel: boolean;
 	};
 	screenshot?: ScreenshotSettings;
+	browser?: {
+		defaultZoom?: number;
+		openLinks?: "system" | "builtin";
+		bookmarks?: { url: string; title: string }[];
+	};
 	/**
 	 * Personalization & custom instructions settings across all sessions.
 	 */
 	personalization?: {
+		/** Empty uses the active provider label in the sidebar footer. */
+		sidebarMotto?: string;
 		/** Custom instructions injected into system prompt for all sessions. */
 		customInstructions?: string;
 		/** Whether to enable persistent local memory extraction. */
@@ -486,6 +517,7 @@ export function migrateRegistries(urls: string[]): string[] {
 
 export const DEFAULT_SETTINGS: Settings = {
 	version: 1,
+	uiLocale: "system",
 	providers: [],
 	mcpServers: [],
 	projects: [],
@@ -637,6 +669,7 @@ export function normalizeSettings(parsed: Partial<Settings>): Settings {
 		return {
 			...DEFAULT_SETTINGS,
 			...parsed,
+			uiLocale: normalizeUiLocale(parsed.uiLocale),
 			sync: { ...DEFAULT_SETTINGS.sync, ...parsed.sync },
 			editor: { ...DEFAULT_SETTINGS.editor, ...parsed.editor },
 			screenshot: { ...DEFAULT_SCREENSHOT_SETTINGS, ...parsed.screenshot },
@@ -692,7 +725,7 @@ export function normalizeSettings(parsed: Partial<Settings>): Settings {
 			 */
 			pluginRegistries: migrateRegistries(parsed.pluginRegistries ?? [DEFAULT_PLUGIN_REGISTRY]),
 			skillRegistries: migrateRegistries(parsed.skillRegistries ?? [DEFAULT_SKILL_REGISTRY]),
-			providers: parsed.providers ?? [],
+			providers: (parsed.providers ?? []).map((provider) => ({ ...provider, models: provider.models.map((model) => withCatalogDefaults(provider, model)) })),
 			mcpServers: parsed.mcpServers ?? [],
 			projects: parsed.projects ?? [],
 			alwaysAllow: parsed.alwaysAllow ?? [],

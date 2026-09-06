@@ -1,3 +1,4 @@
+import { Input } from "../../ui/inputs/NativeField.tsx";
 import type { McpServerConfig } from "@lyra/core";
 import { Cable } from "lucide-react";
 import { RowDeleteButton } from "../../ui/primitives/RowDeleteButton.tsx";
@@ -141,7 +142,7 @@ export function McpSettings({ filter = "" }: { filter?: string }) {
 							<Card key={server.id}>
 								<div data-row-actions className="flex items-center gap-2.5 border-b border-line-soft px-4 py-3">
 									<PluginIcon name={server.name} kind="mcp" size={22} />
-									<input
+									<Input
 										value={server.name}
 										onChange={(e) => update(server.id, { name: e.target.value })}
 										className="min-w-0 flex-1 bg-transparent text-body text-ink focus:outline-none"

@@ -81,7 +81,7 @@ interface SideState {
 	openUrl(url: string): void;
 
 	/** Point at a session and pull whatever conversation it already has. */
-	attach(sessionId: string | null): Promise<void>;
+	attach(sessionId: string | null, force?: boolean): Promise<void>;
 	ask(content: UserContent[]): Promise<void>;
 	abort(): Promise<void>;
 	reset(): Promise<void>;
@@ -131,9 +131,9 @@ export const useSide = create<SideState>((set, get) => ({
 	},
 	commandTaken: () => set({ pendingCommand: null }),
 
-	async attach(sessionId) {
+	async attach(sessionId, force = false) {
 		const previous = get();
-		if (previous.sessionId === sessionId) return;
+		if (previous.sessionId === sessionId && !force) return;
 		if (previous.sessionId) set({ sessionCache: { ...previous.sessionCache, [previous.sessionId]: {
 			messages: previous.messages, toolRuns: previous.toolRuns, running: previous.running,
 			pending: previous.pending, tasks: previous.tasks, error: previous.error,

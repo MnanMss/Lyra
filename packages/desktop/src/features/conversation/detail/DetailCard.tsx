@@ -43,6 +43,7 @@ export function DetailCard({
 	label,
 	summary,
 	trailing,
+	enter = true,
 	children,
 }: {
 	open: boolean;
@@ -52,10 +53,12 @@ export function DetailCard({
 	summary: React.ReactNode;
 	/** Duration, sequence number, status dot — whatever belongs at the end of the row. */
 	trailing?: React.ReactNode;
+	/** Recycled viewport rows are already present in the list and must not replay an entrance. */
+	enter?: boolean;
 	children: React.ReactNode;
 }) {
 	return (
-		<div className={`ly-enter mb-1 ${open ? "relative z-20" : ""}`}>
+		<div className={`${enter ? "ly-enter" : ""} mb-1 ${open ? "relative z-20" : ""}`}>
 			<div className={open ? "ly-pin sticky top-0 z-10" : ""}>
 				<button
 					type="button"

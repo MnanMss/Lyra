@@ -15,15 +15,27 @@
  * you can read top to bottom rather than a rule spread across the handlers.
  */
 
-import { renderRuleFile, type AgentSession, type CorrectionSuggestion, type SessionStorage, type Settings } from "@lyra/core";
+import {
+	renderRuleFile,
+	forkSession,
+	readTrajectory,
+	type AgentSession,
+	type ApprovalDecision,
+	type CorrectionSuggestion,
+	type SessionStorage,
+	type Settings,
+	type ThinkingLevel,
+} from "@lyra/core";
 import type { LyraApi } from "./ipc-types.ts";
 import { initialPrompt, promptContent, promptOptions } from "./prompt-input.ts";
-import { settingsFromPhone } from "./phone-settings.ts";
+import { settingsForPhone, settingsFromPhone } from "./phone-settings.ts";
 import {
 	all,
 	bool,
 	content,
 	index,
+	nullableStr,
+	oneOf,
 	optionalStr,
 	path,
 	record,
@@ -53,10 +65,25 @@ export interface RpcDeps {
 	activate(projectId: string, sessionId: string): Promise<AgentSession | null>;
 	create: LyraApi["sessions"]["create"];
 	prompt: LyraApi["agent"]["prompt"];
+	editMessage: LyraApi["agent"]["editMessage"];
 	abort(sessionId: string): Promise<void>;
 	dispose(sessionId: string): Promise<void>;
 	snapshot(session: AgentSession): Promise<unknown>;
 	touch(sessionId: string): void;
+	sideChatState: LyraApi["sideChat"]["state"];
+	sideChatAsk: LyraApi["sideChat"]["ask"];
+	sideChatEditAndResend: LyraApi["sideChat"]["editAndResend"];
+	sideChatAbort: LyraApi["sideChat"]["abort"];
+	sideChatReset: LyraApi["sideChat"]["reset"];
+	tasksList: LyraApi["tasks"]["list"];
+	tasksCancel: LyraApi["tasks"]["cancel"];
+	tasksDismiss: LyraApi["tasks"]["dismiss"];
+	tasksResume: LyraApi["tasks"]["resume"];
+	commandsList: LyraApi["commands"]["list"];
+	filesList: LyraApi["files"]["list"];
+	filesRead: LyraApi["files"]["read"];
+	scratchRoots: LyraApi["git"]["scratchRoots"];
+	generalScratch: LyraApi["git"]["generalScratch"];
 }
 
 /**
@@ -84,7 +111,7 @@ const s = (value: unknown): string => (typeof value === "string" ? value : "");
  */
 export const RPC: Record<string, Handler> = {
 	// -- Reading the shell -----------------------------------------------------
-	"settings.get": async (deps) => deps.settings(),
+	"settings.get": async (deps) => settingsForPhone(deps.settings()),
 	"sessions.list": async (deps) => deps.store().listSessions(),
 	"workspace.info": async (deps, [path]) => deps.workspaceInfo(s(path)),
 
@@ -111,6 +138,10 @@ export const RPC: Record<string, Handler> = {
 		const session = await deps.activate(s(projectId), s(sessionId));
 		return session ? deps.snapshot(session) : null;
 	},
+	"sessions.trajectory": async (deps, [projectId, sessionId]) =>
+		readTrajectory(deps.store(), s(projectId), s(sessionId), deps.live(s(sessionId))?.running ?? false),
+	"sessions.fork": async (deps, [projectId, sessionId, seq]) =>
+		forkSession(deps.store(), s(projectId), s(sessionId), Number(seq)),
 	"sessions.create": async (deps, [cwd, modelId, initial]) =>
 		deps.create(s(cwd), s(modelId), initialPrompt(initial)),
 
@@ -122,7 +153,7 @@ export const RPC: Record<string, Handler> = {
 		return null;
 	},
 	"agent.approve": async (deps, [sessionId, requestId, decision]) => {
-		deps.live(s(sessionId))?.resolveApproval(s(requestId), decision as never);
+		deps.live(s(sessionId))?.resolveApproval(s(requestId), approvalDecision(decision));
 		return null;
 	},
 	"agent.setModel": async (deps, [sessionId, modelId]) => {
@@ -132,14 +163,20 @@ export const RPC: Record<string, Handler> = {
 	},
 	"agent.setThinking": async (deps, [sessionId, thinking]) => {
 		const session = await live(deps, s(sessionId));
-		await session?.setThinking(thinking as never);
+		await session?.setThinking(thinkingLevel(thinking));
 		return null;
 	},
-	"agent.editMessage": async (deps, [sessionId, index, content]) => {
+	"agent.editMessage": async (deps, [sessionId, index, content]) =>
+		deps.editMessage(s(sessionId), Number(index), promptContent(content)),
+
+	"sessions.compact": async (deps, [sessionId, instructions]) => {
 		const session = await live(deps, s(sessionId));
-		if (!session) return null;
-		await session.editAndResend(Number(index), content as never);
-		return null;
+		if (!session) return { ok: false, reason: "找不到这个会话。" };
+		return session.compact(typeof instructions === "string" ? instructions : undefined);
+	},
+	"sessions.contextBreakdown": async (deps, [sessionId]) => {
+		const session = await live(deps, s(sessionId));
+		return session ? session.contextBreakdown() : null;
 	},
 
 	// -- Managing the list -----------------------------------------------------
@@ -183,7 +220,7 @@ export const RPC: Record<string, Handler> = {
 	 */
 	"settings.save": async (deps, [next]) => {
 		await deps.saveSettings(settingsFromPhone(deps.settings(), next));
-		return deps.settings();
+		return settingsForPhone(deps.settings());
 	},
 
 	// -- Things the renderer asks for and can live without ---------------------
@@ -192,9 +229,27 @@ export const RPC: Record<string, Handler> = {
 	 * allowlist rejection would surface as an error where the honest answer is "not here".
 	 * Scratch directories are a desktop concept: they are folders on that machine.
 	 */
-	"git.scratchRoots": async () => [],
-	"git.generalScratch": async () => null,
+	"git.scratchRoots": async (deps) => deps.scratchRoots(),
+	"git.generalScratch": async (deps) => deps.generalScratch(),
 	"subAgents.list": async (deps, [sessionId]) => deps.live(s(sessionId))?.subAgents.list() ?? [],
+	"subAgents.detail": async (deps, [sessionId, id]) => deps.live(s(sessionId))?.subAgents.detail(s(id)) ?? null,
+	"subAgents.steer": async (deps, [sessionId, id, message]) => deps.live(s(sessionId))?.steerSubAgent(s(id), s(message)) ?? false,
+	"subAgents.abort": async (deps, [sessionId, id]) => deps.live(s(sessionId))?.abortSubAgent(s(id)) ?? false,
+	"subAgents.dismiss": async (deps, [sessionId, id]) => deps.live(s(sessionId))?.dismissSubAgent(s(id)) ?? "unknown",
+	"subAgents.dismissFinished": async (deps, [sessionId]) => deps.live(s(sessionId))?.dismissFinishedSubAgents() ?? 0,
+	"sideChat.state": async (deps, [sessionId]) => deps.sideChatState(s(sessionId)),
+	"sideChat.ask": async (deps, [sessionId, content_]) => deps.sideChatAsk(s(sessionId), promptContent(content_)),
+	"sideChat.editAndResend": async (deps, [sessionId, messageIndex, content_]) =>
+		deps.sideChatEditAndResend(s(sessionId), Number(messageIndex), promptContent(content_)),
+	"sideChat.abort": async (deps, [sessionId]) => deps.sideChatAbort(s(sessionId)),
+	"sideChat.reset": async (deps, [sessionId]) => deps.sideChatReset(s(sessionId)),
+	"tasks.list": async (deps, [sessionId]) => deps.tasksList(s(sessionId)),
+	"tasks.cancel": async (deps, [sessionId, taskId]) => deps.tasksCancel(s(sessionId), s(taskId)),
+	"tasks.dismiss": async (deps, [sessionId, taskId]) => deps.tasksDismiss(s(sessionId), s(taskId)),
+	"tasks.resume": async (deps, [sessionId, taskId]) => deps.tasksResume(s(sessionId), s(taskId)),
+	"commands.list": async (deps, [cwd]) => deps.commandsList(typeof cwd === "string" ? cwd : ""),
+	"files.list": async (deps, [dir]) => deps.filesList(s(dir)),
+	"files.read": async (deps, [path_]) => deps.filesRead(s(path_)),
 	/*
 	 * The same shape the desktop reports, read off the live session.
 	 *
@@ -292,9 +347,12 @@ const ARGS: Record<string, (args: unknown[]) => ArgsError | null> = {
 	"git.scratchRoots": () => null,
 
 	"workspace.info": ([path_]) => fail(path(path_, "path")),
+	"sessions.fork": ([projectId, sessionId, seq]) => fail(all(str(projectId, "projectId"), str(sessionId, "sessionId"), index(seq, "seq"))),
 	"sessions.create": ([cwd, modelId]) => fail(all(path(cwd, "cwd"), optionalStr(modelId, "modelId"))),
 	"sessions.open": ([projectId, sessionId]) => fail(all(str(projectId, "projectId"), str(sessionId, "sessionId"))),
 	"sessions.transcript": ([projectId, sessionId]) =>
+		fail(all(str(projectId, "projectId"), str(sessionId, "sessionId"))),
+	"sessions.trajectory": ([projectId, sessionId]) =>
 		fail(all(str(projectId, "projectId"), str(sessionId, "sessionId"))),
 	"sessions.remove": ([projectId, sessionId]) => fail(all(str(projectId, "projectId"), str(sessionId, "sessionId"))),
 	"sessions.capabilities": ([sessionId]) => fail(str(sessionId, "sessionId")),
@@ -302,6 +360,9 @@ const ARGS: Record<string, (args: unknown[]) => ArgsError | null> = {
 		fail(all(str(projectId, "projectId"), str(sessionId, "sessionId"), bool(archived, "archived"))),
 	"sessions.rename": ([projectId, sessionId, title]) =>
 		fail(all(str(projectId, "projectId"), str(sessionId, "sessionId"), text(title, "title"))),
+	"sessions.compact": ([sessionId, instructions]) =>
+		fail(all(str(sessionId, "sessionId"), optionalStr(instructions, "instructions", 20_000))),
+	"sessions.contextBreakdown": ([sessionId]) => fail(str(sessionId, "sessionId")),
 
 	"agent.prompt": ([sessionId, content_, options]) =>
 		fail(all(str(sessionId, "sessionId"), content(content_, "content"), optionalRecord(options, "options"))),
@@ -309,9 +370,9 @@ const ARGS: Record<string, (args: unknown[]) => ArgsError | null> = {
 		fail(all(str(sessionId, "sessionId"), index(messageIndex, "messageIndex"), content(content_, "content"))),
 	"agent.abort": ([sessionId]) => fail(str(sessionId, "sessionId")),
 	"agent.approve": ([sessionId, requestId, decision]) =>
-		fail(all(str(sessionId, "sessionId"), str(requestId, "requestId"), record(decision, "decision"))),
+		fail(all(str(sessionId, "sessionId"), str(requestId, "requestId"), oneOf(decision, "decision", ["once", "always", "reject"]))),
 	"agent.setModel": ([sessionId, modelId]) => fail(all(str(sessionId, "sessionId"), str(modelId, "modelId"))),
-	"agent.setThinking": ([sessionId, thinking]) => fail(all(str(sessionId, "sessionId"), record(thinking, "thinking"))),
+	"agent.setThinking": ([sessionId, thinking]) => fail(all(str(sessionId, "sessionId"), nullableStr(thinking, "thinking"))),
 
 	/*
 	 * `settings.save` takes the whole settings object, and `phone-settings.ts` is what decides
@@ -320,6 +381,25 @@ const ARGS: Record<string, (args: unknown[]) => ArgsError | null> = {
 	 */
 	"settings.save": ([next]) => fail(record(next, "settings")),
 	"subAgents.list": ([sessionId]) => fail(str(sessionId, "sessionId")),
+	"subAgents.detail": ([sessionId, id]) => fail(all(str(sessionId, "sessionId"), str(id, "id"))),
+	"subAgents.steer": ([sessionId, id, message]) =>
+		fail(all(str(sessionId, "sessionId"), str(id, "id"), text(message, "message"))),
+	"subAgents.abort": ([sessionId, id]) => fail(all(str(sessionId, "sessionId"), str(id, "id"))),
+	"subAgents.dismiss": ([sessionId, id]) => fail(all(str(sessionId, "sessionId"), str(id, "id"))),
+	"subAgents.dismissFinished": ([sessionId]) => fail(str(sessionId, "sessionId")),
+	"sideChat.state": ([sessionId]) => fail(str(sessionId, "sessionId")),
+	"sideChat.ask": ([sessionId, content_]) => fail(all(str(sessionId, "sessionId"), content(content_, "content"))),
+	"sideChat.editAndResend": ([sessionId, messageIndex, content_]) =>
+		fail(all(str(sessionId, "sessionId"), index(messageIndex, "messageIndex"), content(content_, "content"))),
+	"sideChat.abort": ([sessionId]) => fail(str(sessionId, "sessionId")),
+	"sideChat.reset": ([sessionId]) => fail(str(sessionId, "sessionId")),
+	"tasks.list": ([sessionId]) => fail(str(sessionId, "sessionId")),
+	"tasks.cancel": ([sessionId, taskId]) => fail(all(str(sessionId, "sessionId"), str(taskId, "taskId"))),
+	"tasks.dismiss": ([sessionId, taskId]) => fail(all(str(sessionId, "sessionId"), str(taskId, "taskId"))),
+	"tasks.resume": ([sessionId, taskId]) => fail(all(str(sessionId, "sessionId"), str(taskId, "taskId"))),
+	"commands.list": ([cwd]) => fail(text(cwd, "cwd")),
+	"files.list": ([dir]) => fail(path(dir, "dir")),
+	"files.read": ([path_]) => fail(path(path_, "path")),
 
 	/*
 	 * The rule's own text is checked as `text`, not `str`: it is prose with a frontmatter block on
@@ -330,6 +410,17 @@ const ARGS: Record<string, (args: unknown[]) => ArgsError | null> = {
 		fail(all(str(sessionId, "sessionId"), str(scope, "scope"), str(name, "name"), text(content_, "content"))),
 	"rules.decline": ([sessionId]) => fail(str(sessionId, "sessionId")),
 };
+
+function approvalDecision(value: unknown): ApprovalDecision {
+	if (value === "once" || value === "always" || value === "reject") return value;
+	throw new Error("invalid approval decision");
+}
+
+function thinkingLevel(value: unknown): ThinkingLevel | null {
+	if (value === null) return null;
+	if (typeof value === "string") return value;
+	throw new Error("invalid thinking level");
+}
 
 /** `undefined` is fine, anything else has to be an object. */
 function optionalRecord(value: unknown, name: string) {

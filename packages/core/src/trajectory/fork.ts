@@ -1,3 +1,4 @@
+import type { SessionStorage } from "../session/storage.ts";
 /**
  * Starting a new conversation from a point in an old one.
  *
@@ -10,7 +11,7 @@
  * happened by then", and it lives in `replay.ts`.
  */
 
-import type { SessionMeta, SessionStore } from "../session/store.ts";
+import type { SessionMeta } from "../session/store.ts";
 import { messagesUpTo } from "./replay.ts";
 
 export interface ForkResult {
@@ -26,14 +27,14 @@ export interface ForkResult {
  * continuation of the same work rather than a different piece of work.
  */
 export async function forkSession(
-	store: SessionStore,
+	store: SessionStorage,
 	projectId: string,
 	sessionId: string,
 	seq: number,
 	title?: string,
 ): Promise<ForkResult | null> {
 	const source = (await store.listSessions()).find((candidate) => candidate.id === sessionId);
-	if (!source) return null;
+	if (!source || source.projectId !== projectId) return null;
 
 	const messages = await messagesUpTo(store, projectId, sessionId, seq);
 	let meta = await store.create(source.cwd, source.modelId, title ?? `${source.title}（分叉）`);

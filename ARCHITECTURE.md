@@ -25,14 +25,16 @@ Lyra 是一个 agent 运行时加两个前端。`packages/core` 平台无关，�
 ```
 渲染进程（一份代码）
    ├─ Electron 窗口 ──► preload ──► IPC ──► 主进程
-   └─ 手机 WebView ──► bridge.ts（网络版 window.lyra）──► /api/rpc ──► sync-rpc 白名单
+   └─ 手机 WebView ──► bridge.ts（网络版 window.lyra）──► WebSocket RPC ──► sync-rpc 白名单
 ```
 
 界面只认识 `window.lyra` 一个东西。桌面端用 preload 实现它，手机端用 HTTP 加一个 WebSocket
 实现它，界面察觉不到差别——所以两端不会各说各的。手机能调哪些方法由
 `electron/sync-rpc.ts` 的白名单决定，那份名单同时是安全边界和产品决策，一个文件从头读到尾。
 
-见 [ADR-0001](docs/adr/0001-mobile-hosts-the-desktop-renderer.md)。
+见 [ADR-0001](docs/adr/0001-mobile-hosts-the-desktop-renderer.md) 与
+[移动端宿主、同步与能力边界](docs/architecture/mobile-sync.md)。界面语言的来源、三层宿主边界与
+不翻译的内容见 [界面国际化](docs/architecture/i18n.md)。
 
 ## 渲染进程的九个目录
 
@@ -89,6 +91,8 @@ CI 里都是必过项：
 | 加一个 IPC | `packages/contract/src/methods.ts` 登记（含手机能不能用及为什么）→ `electron/ipc/<域>.ts` 注册 → `electron/preload.ts` 暴露；契约的测试会检查三处一致 |
 | 加一个内置工具 | `core/src/tools/`，经 `useToolRegistry` 那条缝 |
 | 加一个右侧面板 | `src/panels/registry.ts` 注册一条记录 |
+| 维护模型价格、能力和中转别名 | `core/src/model-catalog.ts` 与 `scripts/update-model-catalog.mjs`；`pnpm catalog:update` 更新离线数据 |
+| 默认子智能体定义 | `core/src/agents-builtin.ts`；运行时与设置页共用，浏览器从 `@lyra/core/agents-builtin` 导入 |
 | 改设计 token | `src/styles.css` 的 `@theme` 段 |
 | 加一个基础组件 | `src/ui/<组>/`，配一条 `test/ui/` 的测试 |
 | 加一个功能 | `src/features/<域>/`；跨域只经对方的 index |

@@ -19,7 +19,7 @@ import { openLabel, useOpenTarget } from "./open-targets.ts";
 import { useApp } from "../../store/index.ts";
 import { useOpenFile } from "../../store/openFile.ts";
 import { fileKind } from "./FileViewer.tsx";
-import { bridge } from "../../services/index.ts";
+import { available, bridge } from "../../services/index.ts";
 
 /** How long 「已保存」 stays up: long enough to be read, gone before it is furniture. */
 const SAVED_NOTICE_MS = 1600;
@@ -46,7 +46,7 @@ export function FileActions() {
 
 	const kind = fileKind(name ?? path, contents);
 	const dirty = draft !== undefined && draft !== contents.text;
-	const readOnly = contents.truncated;
+	const readOnly = contents.truncated || contents.readOnly === true;
 	const editable = kind === "markdown" || kind === "json" || kind === "text";
 
 	const save = async () => {
@@ -85,14 +85,14 @@ export function FileActions() {
 				</Mark>
 			)}
 			{readOnly && (
-				<span data-ly-tip="文件过大，只读" className="shrink-0 px-1 text-caption text-ink-faint">
+				<span data-ly-tip={contents.readOnly ? "上下文文件，只读" : "文件过大，只读"} className="shrink-0 px-1 text-caption text-ink-faint">
 					只读
 				</span>
 			)}
 
 			{kind === "markdown" && (
 				<Mark
-					tip={showSource ? "预览" : "编辑源码"}
+					tip={showSource ? "预览" : readOnly ? "查看源码" : "编辑源码"}
 					active={showSource}
 					onClick={() => useOpenFile.getState().setShowSource(!showSource)}
 				>
@@ -117,9 +117,11 @@ export function FileActions() {
 			 * path in a named app was already there with no caller. This is the one place a file is
 			 * on screen with a path in hand, so it is where it belongs.
 			 */}
-			<Mark tip={openLabel(openTarget)} onClick={() => void bridge.system.openIn(openTarget.id, path)}>
-				<ExternalLink size={12} strokeWidth={1.9} />
-			</Mark>
+			{available("system", "openIn") && (
+				<Mark tip={openLabel(openTarget)} onClick={() => void bridge.system.openIn(openTarget.id, path)}>
+					<ExternalLink size={12} strokeWidth={1.9} />
+				</Mark>
+			)}
 		</>
 	);
 }

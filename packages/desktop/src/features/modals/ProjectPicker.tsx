@@ -3,6 +3,7 @@ import { useState } from "react";
 import { MENU_MAX_HEIGHT, MenuBody, MenuItem, MenuSearch, Popover, type Anchor } from "../../ui/overlay/Popover.tsx";
 import { useLayout } from "../../app/layout.tsx";
 import { useApp } from "../../store/index.ts";
+import { useI18n } from "../../i18n/index.ts";
 
 /**
  * Project switcher, anchored to whatever opened it.
@@ -12,6 +13,7 @@ import { useApp } from "../../store/index.ts";
  * the control next to the thing it scopes — the turn you are about to send.
  */
 export function ProjectPicker({ anchor, onClose }: { anchor: Anchor; onClose: () => void }) {
+	const { t } = useI18n();
 	const settings = useApp((s) => s.settings);
 	const workspace = useApp((s) => s.workspace);
 	const openWorkspace = useApp((s) => s.openWorkspace);
@@ -39,17 +41,17 @@ export function ProjectPicker({ anchor, onClose }: { anchor: Anchor; onClose: ()
 			align="start"
 			width="wide"
 			maxHeight={MENU_MAX_HEIGHT}
-			label="切换项目"
-			header={<MenuSearch value={query} onChange={setQuery} placeholder="搜索项目" />}
+			label={t("project.switch")}
+			header={<MenuSearch value={query} onChange={setQuery} placeholder={t("project.search")} />}
 			// The two ways out of the list stay put while it scrolls: neither is about a project
 			// you are looking at, and both are what you reach for when none of them is the one.
 			footer={
 				<MenuBody>
 					<MenuItem icon={<Plus size={13} strokeWidth={1.9} />} onClick={() => choose(() => void pickWorkspace())}>
-						新建项目
+						{t("project.new")}
 					</MenuItem>
 					<MenuItem icon={<X size={13} strokeWidth={1.9} />} onClick={() => choose(clearWorkspace)}>
-						不在项目中工作
+						{t("project.without")}
 					</MenuItem>
 				</MenuBody>
 			}
@@ -72,7 +74,7 @@ export function ProjectPicker({ anchor, onClose }: { anchor: Anchor; onClose: ()
 					</MenuItem>
 				))}
 
-				{projects.length === 0 && <p className="px-2.5 py-5 text-center text-detail text-ink-faint">还没有项目</p>}
+				{projects.length === 0 && <p className="px-2.5 py-5 text-center text-detail text-ink-faint">{t("project.none")}</p>}
 			</MenuBody>
 		</Popover>
 	);

@@ -1,9 +1,34 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createElement as h } from "react";
+import { createElement as h, createRef } from "react";
+import { QuestionNav } from "../../src/features/conversation/QuestionNav.tsx";
 import { questionsIn } from "../../src/features/conversation/question-navigation.ts";
 import { useTranscriptWindow } from "../../src/features/conversation/view-state.ts";
-import { mount, click } from "../helpers/mount.ts";
+import { mount, click, fire, press } from "../helpers/mount.ts";
+
+test("click preserves the hovered rail targets, closes preview, and keyboard navigation reaches both ends", async () => {
+	const questions = Array.from({ length: 120 }, (_, index) => ({ index, text: `Question ${index}`, answer: "**Formatted**\n\n### Heading\n\n- `code`" }));
+	let selected = -1;
+	const view = await mount(h(QuestionNav, { questions, viewport: createRef<HTMLDivElement>(), onSelect: (index) => { selected = index; } }));
+	try {
+		const button = view.all<HTMLButtonElement>(".ly-question-mark")[0];
+		await fire(button, new MouseEvent("mouseover", { bubbles: true }));
+		const geometry = () => view.all<HTMLElement>(".ly-question-mark").map((el) => el.dataset.position);
+		const before = geometry();
+		assert.equal(view.find('[role="tooltip"] strong').textContent, "Formatted");
+		assert.equal(view.find('[role="tooltip"] h3').textContent, "Heading");
+		await click(button);
+		assert.equal(selected, Number(button.dataset.position));
+		assert.deepEqual(geometry(), before);
+		assert.equal(view.find('[role="tooltip"]').getAttribute("aria-hidden"), "true");
+		await press(button, "Home");
+		assert.equal(selected, 0);
+		assert.equal(view.all(".ly-question-mark").length, 15);
+		await press(view.find('[data-position="0"]'), "End");
+		assert.equal(selected, 119);
+		assert.ok(view.find('[data-position="119"]'));
+	} finally { await view.unmount(); }
+});
 
 test("identical questions have separate targets; synthetic prompts have none", () => {
 	assert.deepEqual(questionsIn([

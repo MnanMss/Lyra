@@ -15,6 +15,7 @@
  * is fixed here on purpose — a size prop would be an invitation for them to drift again.
  */
 
+import { Textarea } from "../../../ui/inputs/NativeField.tsx";
 import { useEffect, useRef } from "react";
 import { OverlayScrollbar } from "../../../ui/scroll/OverlayScrollbar.tsx";
 
@@ -52,7 +53,7 @@ export function MessageEditor({
 	return (
 		<div className="ly-composer w-full rounded-[18px] border border-line-soft bg-transparent px-4 pt-3.5 pb-2.5">
 			<div className="ly-scroll-host relative">
-				<textarea
+				<Textarea
 					ref={box}
 					autoFocus
 					value={value}

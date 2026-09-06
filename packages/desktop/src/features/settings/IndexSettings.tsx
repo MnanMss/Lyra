@@ -1,3 +1,4 @@
+import { Input } from "../../ui/inputs/NativeField.tsx";
 import { Database, RefreshCw, Search } from "lucide-react";
 import { Scroller } from "../../ui/scroll/Scroller.tsx";
 import { useCallback, useEffect, useState } from "react";
@@ -120,7 +121,7 @@ export function IndexSettings() {
 									strokeWidth={1.9}
 									className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-ink-faint"
 								/>
-								<input
+								<Input
 									value={query}
 									onChange={(e) => setQuery(e.target.value)}
 									placeholder="输入符号名，例如 runAgent"

@@ -39,7 +39,8 @@ export function ScrollText({ text, className = "" }: { text: string; className?:
 		 * oscillates by a pixel would re-render on every observer callback forever.
 		 */
 		const measure = () => {
-			const part = Math.round(inner.getBoundingClientRect().width);
+			// Overflow compares layout sizes, not the transient scale of a moving dock pane.
+			const part = inner.offsetWidth;
 			const next = Math.max(0, part - outer.clientWidth);
 			setWidth((prev) => (Math.abs(part - prev) > 1 ? part : prev));
 			setOverflow((prev) => (Math.abs(next - prev) > 1 ? next : prev));

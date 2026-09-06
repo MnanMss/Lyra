@@ -33,6 +33,7 @@ import { SyncSettings } from "./SyncSettings.tsx";
 import { UsageSettings } from "./UsageSettings.tsx";
 import { WorktreesSettings } from "./WorktreesSettings.tsx";
 import { bridge, onPhone } from "../../services/index.ts";
+import { useI18n } from "../../i18n/index.ts";
 
 /**
  * Sections that fill the window and scroll their own panes.
@@ -44,6 +45,7 @@ const SELF_SCROLLING = new Set<SettingsSection>(["models", "plugins"]);
 
 
 export function SettingsShell() {
+	const { t } = useI18n();
 	const workspaceKey = useApp((state) => state.workspace?.path ?? "");
 	const wanted = useApp((s) => s.settingsSection);
 	const setSection = useApp((s) => s.setSettingsSection);
@@ -83,7 +85,7 @@ export function SettingsShell() {
 		 * nav is tinted and the thing you are working in is the plain page.
 		 */
 		<div className="ly-shell relative flex h-full">
-			<NavPane width={sidebarWidth} label="设置导航">
+			<NavPane width={sidebarWidth} label={t("app.settingsNavigation")}>
 				{/* Same as the workspace sidebar: separated by its tint, not by a rule. */}
 				<nav className="ly-sidebar-fill flex h-full w-full flex-col">
 					<div className="shrink-0" style={{ height: WINDOW_HEADER_HEIGHT }} />
@@ -105,7 +107,7 @@ export function SettingsShell() {
 							}`}
 						>
 							<ArrowLeft size={15} strokeWidth={1.8} className="shrink-0" />
-							返回工作区
+							{t("app.backWorkspace")}
 						</button>
 					</div>
 
@@ -115,7 +117,7 @@ export function SettingsShell() {
 							// Spaced for the same reason as the session list: adjacent filled rows
 							// would otherwise merge into one block on hover.
 							<div key={group.label} className="flex flex-col gap-[2px]">
-								<div className="px-2 pt-4 pb-1 text-detail text-ink-faint">{group.label}</div>
+								<div className="px-2 pt-4 pb-1 text-detail text-ink-faint">{t(group.labelKey)}</div>
 								{group.items.map((item) => (
 									<button
 										key={item.id}
@@ -134,7 +136,7 @@ export function SettingsShell() {
 										}`}
 									>
 										<item.icon size={15} strokeWidth={1.8} className="shrink-0" />
-										{item.label}
+										{t(item.labelKey)}
 									</button>
 								))}
 							</div>
@@ -153,7 +155,7 @@ export function SettingsShell() {
 							className="flex h-[36px] w-full items-center justify-center gap-2 rounded-lg border border-dashed border-line text-label text-ink-muted transition-colors duration-[var(--ly-t-quick)] hover:bg-card-hover hover:text-ink active:bg-elevated"
 						>
 							<Rocket size={14} strokeWidth={1.8} />
-							引导
+							{t("app.guide")}
 						</button>
 					</div>
 				</nav>
@@ -189,7 +191,7 @@ export function SettingsShell() {
 					 * the section list — or, in a compact window, out of the drawer.
 					 */}
 					<ToolbarButton
-						label={navOpen ? "隐藏设置导航 ⌘B" : "显示设置导航 ⌘B"}
+						label={navOpen ? t("app.hideSettingsNavigation", { shortcut: "⌘B" }) : t("app.showSettingsNavigation", { shortcut: "⌘B" })}
 						onClick={toggleNav}
 						active={compact && navOpen}
 					>

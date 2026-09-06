@@ -45,7 +45,7 @@ async function panes(): Promise<Record<string, Rect>> {
 	return app.evaluate(`(() => {
 		const out = {};
 		for (const el of document.querySelectorAll("[data-dock-pane]")) {
-			if (el.offsetParent === null) continue;
+			if (!el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
 			const b = el.getBoundingClientRect();
 			out[el.dataset.dockPane] = {
 				left: b.left, top: b.top, width: b.width, height: b.height, right: b.right, bottom: b.bottom,
@@ -134,7 +134,8 @@ async function openPane(label: string): Promise<void> {
 async function resetDock(): Promise<void> {
 	await app.evaluate(`(async () => {
 		for (let guard = 0; guard < 12; guard++) {
-			const close = document.querySelector('[data-dock-header]:not([data-dock-header="conversation"]) button[aria-label^="关闭"]');
+			// A closed browser keeps its page mounted; only controls visible to the user can close panes.
+			const close = [...document.querySelectorAll('[data-dock-header]:not([data-dock-header="conversation"]) button[aria-label^="关闭"]')].find(el => el.checkVisibility({ opacityProperty: true, visibilityProperty: true }));
 			if (!close) break;
 			close.click();
 			await new Promise((r) => setTimeout(r, 120));
@@ -576,7 +577,7 @@ test("a narrow window shows one pane and a picker, and widening restores the lay
 	 *
 	 * 所以要断言的是「两个都还在」，而不是「有两个 chip」。
 	 */
-	const mounted = await app.evaluate<number>(`document.querySelectorAll("[data-dock-pane]").length`);
+	const mounted = await app.evaluate<number>(`document.querySelectorAll('[data-dock-pane="conversation"],[data-dock-pane="tasks"]').length`);
 	assert.equal(mounted, 2, "两个面板都还挂在 DOM 上，只是藏了一个");
 
 	await setViewport(1400, 900);

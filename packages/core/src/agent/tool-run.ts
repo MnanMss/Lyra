@@ -34,6 +34,7 @@ export async function runTools(
 	const forceSequential = toolCalls.some((call) => byName.get(call.name)?.executionMode === "sequential");
 
 	const execute = async (call: ToolCall): Promise<ToolResultMessage> => {
+		const startedAt = Date.now();
 		const tool = byName.get(call.name);
 		await emit({
 			type: "tool_start",
@@ -52,7 +53,10 @@ export async function runTools(
 			isError: result.isError === true,
 		});
 
+		const finishedAt = Date.now();
 		const message: ToolResultMessage = {
+			startedAt,
+			durationMs: finishedAt - startedAt,
 			role: "toolResult",
 			toolCallId: call.id,
 			toolName: call.name,
@@ -61,7 +65,7 @@ export async function runTools(
 			isError: result.isError === true,
 			/* An error is always worth keeping, whatever else the tool said about itself. */
 			uneventful: result.isError !== true && result.uneventful === true,
-			timestamp: Date.now(),
+			timestamp: finishedAt,
 		};
 		await emit({ type: "message_start", message });
 		await emit({ type: "message_end", message });
@@ -87,10 +91,14 @@ export async function runTools(
  */
 function cancelled(signal: AbortSignal | undefined): Promise<ToolResult> {
 	if (!signal) return new Promise<ToolResult>(() => {});
-	if (signal.aborted) return Promise.resolve(errorResult("Tool execution was cancelled."));
+	if (signal.aborted) return Promise.resolve(cancelledResult());
 	return new Promise<ToolResult>((resolve) => {
-		signal.addEventListener("abort", () => resolve(errorResult("Tool execution was cancelled.")), { once: true });
+		signal.addEventListener("abort", () => resolve(cancelledResult()), { once: true });
 	});
+}
+
+function cancelledResult(): ToolResult {
+	return { ...errorResult("Tool execution was cancelled."), details: { cancelled: true } };
 }
 
 async function executeOne(
@@ -166,7 +174,7 @@ async function executeOne(
 		 */
 		result = await Promise.race([runTool({ tool, args: call.arguments, ctx }), cancelled(config.signal)]);
 	} catch (error) {
-		if (config.signal?.aborted) return errorResult("Tool execution was cancelled.");
+		if (config.signal?.aborted) return cancelledResult();
 		return errorResult(error instanceof Error ? error.message : String(error));
 	}
 
@@ -204,16 +212,20 @@ export async function failTruncatedCalls(
 ): Promise<ToolResultMessage[]> {
 	const results: ToolResultMessage[] = [];
 	for (const call of toolCalls) {
+		const startedAt = Date.now();
 		const result = errorResult(`"${call.name}" was not executed: ${reason}. Re-issue the call.`);
 		await emit({ type: "tool_start", toolCallId: call.id, toolName: call.name, args: call.arguments, summary: call.name });
 		await emit({ type: "tool_end", toolCallId: call.id, toolName: call.name, result, isError: true });
+		const finishedAt = Date.now();
 		const message: ToolResultMessage = {
+			startedAt,
+			durationMs: finishedAt - startedAt,
 			role: "toolResult",
 			toolCallId: call.id,
 			toolName: call.name,
 			content: result.content,
 			isError: true,
-			timestamp: Date.now(),
+			timestamp: finishedAt,
 		};
 		await emit({ type: "message_start", message });
 		await emit({ type: "message_end", message });

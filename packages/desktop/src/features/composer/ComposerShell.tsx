@@ -1,3 +1,4 @@
+import { Textarea } from "../../ui/inputs/NativeField.tsx";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { CommandText } from "./CommandText.tsx";
@@ -5,6 +6,7 @@ import type { CommandDecoration } from "./command-catalog.ts";
 import { OverlayScrollbar } from "../../ui/scroll/OverlayScrollbar.tsx";
 import { FIT_LEVELS, FIT_PROBE, settle, tight } from "./fit.ts";
 import { ROLL_VALUE } from "../../ui/motion/RollingText.tsx";
+import { useI18n } from "../../i18n/index.ts";
 
 /**
  * The surface you type into, wherever you are typing.
@@ -73,6 +75,7 @@ export function ComposerShell({
    */
   fieldRef?: React.RefObject<HTMLTextAreaElement | null>;
 }) {
+	const { t } = useI18n();
   const own = useRef<HTMLTextAreaElement>(null);
   const field = fieldRef ?? own;
 	const mirror = useRef<HTMLDivElement>(null);
@@ -194,7 +197,7 @@ export function ComposerShell({
        */}
       <div className="ly-scroll-host relative">
 				{highlighted && <CommandText value={value} decoration={highlighted} mirror={mirror} />}
-        <textarea
+        <Textarea
           ref={field}
           value={value}
           disabled={disabled}
@@ -207,7 +210,7 @@ export function ComposerShell({
 					onCompositionEnd={() => setComposing(false)}
 					data-highlighted={Boolean(highlighted)}
 					role={commandMenu ? "combobox" : undefined}
-					aria-label="消息"
+					aria-label={t("composer.message")}
 					aria-autocomplete={commandMenu ? "list" : undefined}
 					aria-expanded={commandMenu?.open}
 					aria-controls={commandMenu?.open ? commandMenu.id : undefined}
@@ -287,7 +290,7 @@ export function ComposerSend({
   disabled,
   onSend,
   onStop,
-  tip = "发送",
+	tip,
 }: {
   running: boolean;
   disabled?: boolean;
@@ -296,14 +299,16 @@ export function ComposerSend({
   /** Tooltip and accessible name while idle. Stop is always 停止. */
   tip?: string;
 }) {
+	const { t } = useI18n();
+	const sendTip = tip ?? t("composer.send");
   if (running) {
     return (
       <button
         type="button"
-        data-ly-tip="停止"
-        aria-label="停止"
+		data-ly-tip={t("composer.stop")}
+		aria-label={t("composer.stop")}
         onClick={onStop}
-        className="ly-pop flex h-[27px] w-[27px] shrink-0 items-center justify-center rounded-full bg-ink text-shell transition-all duration-[var(--ly-t-quick)] hover:opacity-85"
+		className="ly-composer-control ly-pop flex h-[27px] w-[27px] shrink-0 items-center justify-center rounded-full bg-ink text-shell transition-all duration-[var(--ly-t-quick)] hover:opacity-85"
       >
         <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden>
           <rect width="11" height="11" rx="1.5" fill="currentColor" />
@@ -314,11 +319,11 @@ export function ComposerSend({
   return (
     <button
       type="button"
-      data-ly-tip={tip}
-      aria-label={tip}
+	data-ly-tip={sendTip}
+	aria-label={sendTip}
       disabled={disabled}
       onClick={onSend}
-      className="flex h-[27px] w-[27px] shrink-0 items-center justify-center rounded-full bg-elevated text-ink transition-all duration-[var(--ly-t-quick)] enabled:hover:bg-ink enabled:hover:text-shell enabled: disabled:opacity-45"
+	  className="ly-composer-control flex h-[27px] w-[27px] shrink-0 items-center justify-center rounded-full bg-elevated text-ink transition-all duration-[var(--ly-t-quick)] enabled:hover:bg-ink enabled:hover:text-shell enabled: disabled:opacity-45"
     >
       <svg
         width="15"

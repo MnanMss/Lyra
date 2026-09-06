@@ -1,4 +1,5 @@
 import { normalizeSubAgentProfiles } from "@lyra/core/model-roles";
+import { withCatalogDefaults } from "@lyra/core/model-catalog";
 /**
  * The app's settings, in one place that owns them.
  *
@@ -75,7 +76,11 @@ export function onSettingsChanged(listener: Listener): () => void {
  * **改任何一项**都会失败——改主题、换模型、开个开关，全都一样，而屏幕上只有那个控件默默弹回去。
  */
 export async function applySettings(next: Settings): Promise<Settings> {
-	next = { ...next, subAgentProfiles: normalizeSubAgentProfiles(next.subAgentProfiles) };
+	next = {
+		...next,
+		subAgentProfiles: normalizeSubAgentProfiles(next.subAgentProfiles),
+		providers: next.providers.map((provider) => ({ ...provider, models: provider.models.map((model) => withCatalogDefaults(provider, model)) })),
+	};
 	await persist(next);
 	current = next;
 	for (const listener of listeners) {

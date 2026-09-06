@@ -111,6 +111,20 @@ type DeepPartial<T> = {
 };
 
 const extras: DeepPartial<LyraApi> = {
+	sessions: {
+		onChanged: (handler) => {
+			const listener = (_event: Electron.IpcRendererEvent, change: Parameters<typeof handler>[0]) => handler(change);
+			ipcRenderer.on("sessions:changed", listener);
+			return () => ipcRenderer.removeListener("sessions:changed", listener);
+		},
+	},
+	browser: {
+		onChanged: (handler) => {
+			const listener = (_event: Electron.IpcRendererEvent, state: Parameters<typeof handler>[0]) => handler(state);
+			ipcRenderer.on("browser:changed", listener);
+			return () => ipcRenderer.removeListener("browser:changed", listener);
+		},
+	},
 	platform: process.platform,
 	settings: {
 		onChanged: (handler) => {

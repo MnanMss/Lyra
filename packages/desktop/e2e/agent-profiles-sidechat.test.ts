@@ -124,8 +124,8 @@ test("provider and effort controls persist, align, and adapt to narrow settings"
 	await click('[data-ly-row="qa-long"]');
 	await click('button:has(svg.lucide-settings)'); await label("子智能体", "nav button");
 	await until(`document.querySelector('[data-agent-profile="explore"]')`);
-	await click('[aria-label="explore 模型"]'); await label("第二供应商 · 同名模型", '[role="menuitem"]');
-	await until(`document.querySelector('[aria-label="explore 模型"]').textContent.includes('第二供应商')`);
+	await click('[aria-label="explore 模型"]'); await click('[data-model="secondary/model"] [role="menuitem"]');
+	await until(`document.querySelector('[aria-label="explore 模型"]').dataset.lyTip.includes('第二供应商')`);
 	await click('[aria-label="explore 思考等级"]');
 	await app.evaluate(`(()=>{const e=[...document.querySelectorAll('[role="menuitem"]')].find(e=>e.textContent.startsWith('极致'));if(!e)throw new Error('No ultra');e.setAttribute('data-effort-ultra','');})()`);
 	await click('[data-effort-ultra]');

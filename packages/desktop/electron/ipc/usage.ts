@@ -12,6 +12,7 @@
  */
 
 import { ipcMain } from "electron";
+import { settings } from "../app-settings.ts";
 import { scanUsage, type UsageScan } from "../usage-scan.ts";
 
 let inFlight: Promise<UsageScan> | null = null;
@@ -19,7 +20,7 @@ let inFlight: Promise<UsageScan> | null = null;
 export function registerUsageIpc(): void {
 	ipcMain.handle("usage:scan", async () => {
 		if (!inFlight) {
-			inFlight = scanUsage().finally(() => {
+			inFlight = scanUsage(undefined, settings().providers).finally(() => {
 				inFlight = null;
 			});
 		}

@@ -6,11 +6,12 @@
  * a list of things to remember to update.
  */
 
-import { ipcMain, dialog, shell } from "electron";
+import { app, ipcMain, dialog, shell } from "electron";
 import type { Settings } from "@lyra/core";
 import type { WorkspaceInfo } from "../ipc-types.ts";
 import { applySettings, settings } from "../app-settings.ts";
 import { getWindow } from "../window.ts";
+import { nativeTranslator } from "../i18n.ts";
 
 export interface WorkspaceIpcDeps {
 	/** Reading a directory as a project: its name, whether it is a repo, which repos are inside. */
@@ -27,7 +28,7 @@ export function registerWorkspaceIpc({ workspaceInfo }: WorkspaceIpcDeps): void 
 		if (!window) return null;
 		const result = await dialog.showOpenDialog(window, {
 			properties: ["openDirectory", "createDirectory"],
-			title: "选择项目目录",
+			title: nativeTranslator(settings().uiLocale, app.getLocale())("dialog.projectDirectory"),
 		});
 		if (result.canceled || result.filePaths.length === 0) return null;
 		return workspaceInfo(result.filePaths[0]);

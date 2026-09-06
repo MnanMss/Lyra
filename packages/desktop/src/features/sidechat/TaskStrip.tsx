@@ -127,7 +127,7 @@ function TaskRow({ task }: { task: QueuedTask }) {
 			 * behind, and the buttons would stay out after the pointer had gone — see
 			 * `e2e/hover-controls-probe.ts`.
 			 */}
-			<div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-[var(--ly-t-quick)] group-hover/task:opacity-100 group-has-[:focus-visible]/task:opacity-100">
+			<div data-ly-hover-reveal className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-[var(--ly-t-quick)] group-hover/task:opacity-100 group-has-[:focus-visible]/task:opacity-100">
 				{task.status === "queued" && (
 					<>
 						<button

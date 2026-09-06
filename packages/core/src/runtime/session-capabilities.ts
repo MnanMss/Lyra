@@ -24,6 +24,7 @@ import { OfferBudget } from "../rules/from-correction.ts";
 import { StreamRuleMonitor } from "../rules/stream.ts";
 import { EMPTY_RULE_SET, type RuleSet } from "../rules/types.ts";
 import { SKILLS_KEY } from "../skills/tool.ts";
+import { backgroundJobs } from "../tools/background-jobs.ts";
 import { invalidateIndex } from "../tools/index.ts";
 import { TOOL_NAMES_KEY } from "../tools/reroute.ts";
 import { RULES_KEY } from "../tools/rule.ts";
@@ -201,6 +202,7 @@ export class SessionCapabilities {
 	}
 
 	async dispose(): Promise<void> {
+		backgroundJobs(this.state).dispose();
 		await this.mcp.closeAll();
 		await this.extensions.dispose().catch(() => {});
 		/*

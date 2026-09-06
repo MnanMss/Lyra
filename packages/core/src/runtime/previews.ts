@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -119,6 +120,7 @@ const SESSION_DIRS = [previewsHome, scratchHome];
 
 /** Everything a conversation wrote outside the project, gone with the conversation. */
 export async function removeSessionArtifacts(home: string, sessionId: string): Promise<void> {
+	await rm(join(home, "changes", createHash("sha256").update(sessionId).digest("hex")), { recursive: true, force: true });
 	await Promise.all(
 		SESSION_DIRS.map((where) => rm(join(where(home), sessionId), { recursive: true, force: true }).catch(() => {})),
 	);
@@ -131,7 +133,7 @@ export async function pruneSessionArtifacts(
 	maxAgeMs?: number,
 	now?: number,
 ): Promise<number> {
-	let removed = 0;
+	let removed = await pruneUnder(join(home, "changes"), new Set([...liveSessionIds].map((id) => createHash("sha256").update(id).digest("hex"))), maxAgeMs, now);
 	for (const where of SESSION_DIRS) removed += await pruneUnder(where(home), liveSessionIds, maxAgeMs, now);
 	return removed;
 }

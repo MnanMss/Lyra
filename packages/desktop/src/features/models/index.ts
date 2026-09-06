@@ -10,4 +10,5 @@
 export { EffortMenu, effortLabel } from "./EffortMenu.tsx";
 export { ModelIcon } from "./ModelIcon.tsx";
 export { ModelMenu, formatWindow } from "./ModelMenu.tsx";
+export { ModelSelect } from "./ModelSelect.tsx";
 export { findModel } from "./models.ts";

@@ -33,11 +33,15 @@ function install(
 	/** What the page sent down the socket, parsed. RPC goes this way now, not as a POST. */
 	const calls: { url: string; body: unknown }[] = [];
 	const sockets: string[] = [];
+	const posted: string[] = [];
+	const timers = new Map<number, { callback: () => void; delay: number }>();
+	let nextTimer = 0;
 
 	// The sockets the script opened, kept so a test can drive the live one.
 	const opened: {
 		onopen: (() => void) | null;
 		onmessage: ((event: { data: string }) => void) | null;
+		onclose: (() => void) | null;
 	}[] = [];
 	const scope = {
 		document: { documentElement: { setAttribute() {} }, addEventListener() {} },
@@ -59,26 +63,34 @@ function install(
 				calls.push({ url: sockets[sockets.length - 1], body });
 				// Answer an RPC the way the desktop would, so the promise settles.
 				if (body.type === "rpc") {
-					const answer = reply(body as { method?: string }) as object;
-					queueMicrotask(() =>
-						this.onmessage?.({ data: JSON.stringify({ type: "rpc_result", id: body.id, ...answer }) }),
-					);
+					const answer = reply(body as { method?: string });
+					if (answer !== undefined) {
+						queueMicrotask(() =>
+							this.onmessage?.({ data: JSON.stringify({ type: "rpc_result", id: body.id, ...(answer as object) }) }),
+						);
+					}
 				}
 			}
 			close() {}
 		},
 		// Kept only so the script has one if it ever reaches for it; RPC no longer goes this way.
 		fetch: async () => ({ ok: true, json: async () => ({ ok: true, value: null }) }),
-		setTimeout: () => 0,
+		setTimeout: (callback: () => void, delay: number) => {
+			const id = ++nextTimer;
+			timers.set(id, { callback, delay });
+			return id;
+		},
+		clearTimeout: (id: number) => void timers.delete(id),
 		navigator: { clipboard: { writeText() {} } },
 	} as Record<string, unknown>;
 
 	const window: Record<string, unknown> = scope;
 	scope.window = window;
+	window.ReactNativeWebView = { postMessage: (message: string) => posted.push(message) };
 
 	// Evaluated with `window` and the browser globals in scope, which is what a WebView provides.
-	const run = new Function("window", "document", "WebSocket", "fetch", "setTimeout", "navigator", bridgeScript(connection));
-	run(window, scope.document, scope.WebSocket, scope.fetch, scope.setTimeout, scope.navigator);
+	const run = new Function("window", "document", "WebSocket", "fetch", "setTimeout", "clearTimeout", "navigator", bridgeScript(connection));
+	run(window, scope.document, scope.WebSocket, scope.fetch, scope.setTimeout, scope.clearTimeout, scope.navigator);
 
 	/*
 	 * The socket finishing its handshake, which the script waits for before sending anything.
@@ -91,14 +103,57 @@ function install(
 
 	return {
 		lyra: window.lyra as Record<string, never>,
+		probe() { (window.__lyraProbe as () => void)(); },
 		calls,
 		sockets,
+		posted,
+		opened,
+		runTimer(delay: number) {
+			const entry = [...timers.entries()].find(([, timer]) => timer.delay === delay);
+			if (!entry) return false;
+			timers.delete(entry[0]);
+			entry[1].callback();
+			return true;
+		},
+		receiveNative(id: string, ok: boolean, value: unknown) {
+			(window.__lyraNativeResult as (id: string, ok: boolean, value: unknown) => void)(id, ok, value);
+		},
 		/** Deliver a message as the desktop's sync server would, down the most recent socket. */
 		receive(message: unknown) {
 			opened.at(-1)?.onmessage?.({ data: JSON.stringify(message) });
 		},
 	};
 }
+
+test("a foreground probe retires a silent socket and reconnects only once", () => {
+	const page = install();
+	page.probe();
+	assert.ok(page.calls.some((call) => JSON.stringify(call.body).includes('"type":"ping"')));
+	assert.equal(page.runTimer(5000), true, "a ping must have a deadline");
+	assert.equal(page.runTimer(500), true, "a silent socket schedules recovery");
+	assert.equal(page.sockets.length, 2);
+	page.opened[1].onopen?.();
+	page.opened[0].onclose?.();
+	assert.equal(page.runTimer(500), false, "the old close cannot retire the replacement socket");
+});
+
+test("pong cancels the foreground deadline and repeated probes share one deadline", () => {
+	const page = install();
+	page.probe();
+	page.probe();
+	page.receive({ type: "pong" });
+	assert.equal(page.runTimer(5000), false);
+	assert.equal(page.sockets.length, 1);
+});
+
+test("probing during reconnect cancels the scheduled duplicate connection", () => {
+	const page = install();
+	page.opened[0].onclose?.();
+	page.probe();
+	page.opened[1].onopen?.();
+	page.runTimer(500);
+	assert.equal(page.sockets.length, 2);
+});
 
 test("the script parses and installs an object", () => {
 	const { lyra } = install();
@@ -137,6 +192,36 @@ test("a call becomes one frame on the socket, with the method and args intact", 
 	assert.deepEqual(rpc[0].args, ["p1", "s1"]);
 	assert.equal(typeof rpc[0].id, "string", "要带一个 id，答复靠它对上");
 	assert.equal(answer, "答案");
+});
+
+test("file browsing uses read-only RPC frames and never exposes a write call", async () => {
+	const answers = new Map<string, unknown>([
+		["files.list", [{ name: "src", path: "/project/src", isDirectory: true, size: 0 }]],
+		["files.read", { text: "const answer = 42;", readOnly: true, truncated: false, bytes: 18 }],
+	]);
+	const page = install(LAN, (body) => ({ ok: true, value: answers.get(body.method ?? "") ?? null }));
+	const lyra = page.lyra as unknown as {
+		files: {
+			list(path: string): Promise<unknown>;
+			read(path: string): Promise<unknown>;
+			write(path: string, text: string): Promise<unknown>;
+		};
+	};
+
+	assert.deepEqual(await lyra.files.list("/project"), answers.get("files.list"));
+	assert.deepEqual(await lyra.files.read("/project/src/index.ts"), answers.get("files.read"));
+
+	const frames = page.calls.map((call) => call.body as { type?: string; method?: string; args?: unknown[] });
+	assert.deepEqual(
+		frames.map(({ type, method, args }) => ({ type, method, args })),
+		[
+			{ type: "rpc", method: "files.list", args: ["/project"] },
+			{ type: "rpc", method: "files.read", args: ["/project/src/index.ts"] },
+		],
+	);
+
+	assert.equal(await lyra.files.write("/project/src/index.ts", "changed"), null);
+	assert.equal(page.calls.length, 2, "手机文件写入不能越过原生 bridge");
 });
 
 test("two calls in flight at once do not answer each other", async () => {
@@ -230,6 +315,31 @@ test("subscribing to agent events hands back a working unsubscribe", () => {
 	assert.equal(typeof off, "function");
 	off();
 	assert.equal(seen, 0);
+});
+
+test("clipboard and external links cross the native bridge", async () => {
+	const page = install();
+	const lyra = page.lyra as unknown as {
+		clipboard: { writeText(text: string): Promise<unknown>; readText(): Promise<unknown> };
+		system: { openExternal(url: string): Promise<unknown> };
+	};
+
+	const writing = lyra.clipboard.writeText("复制内容");
+	const first = JSON.parse(page.posted.at(-1) ?? "{}") as { type?: string; id?: string; method?: string; value?: string };
+	assert.deepEqual({ type: first.type, method: first.method, value: first.value }, {
+		type: "native_request",
+		method: "clipboardWrite",
+		value: "复制内容",
+	});
+	page.receiveNative(first.id ?? "", true, null);
+	await writing;
+
+	const opening = lyra.system.openExternal("https://example.com");
+	const second = JSON.parse(page.posted.at(-1) ?? "{}") as { id?: string; method?: string; value?: string };
+	assert.equal(second.method, "openExternal");
+	assert.equal(second.value, "https://example.com");
+	page.receiveNative(second.id ?? "", true, null);
+	await opening;
 });
 
 test("a refused method reads as nothing, not as an error", async () => {
@@ -464,6 +574,15 @@ test("an agent event still reaches its own subscribers", () => {
 	assert.deepEqual(seen, [{ sessionId: "s1", event: { type: "text", text: "嗨" } }]);
 });
 
+test("a side chat event reaches only the side chat subscribers", () => {
+	const page = install();
+	const lyra = page.lyra as unknown as { sideChat: { onEvent(fn: (e: unknown) => void): () => void } };
+	const seen: unknown[] = [];
+	lyra.sideChat.onEvent((event) => seen.push(event));
+	page.receive({ type: "side_chat_event", sessionId: "s1", event: { type: "text_delta", delta: "嗨" } });
+	assert.deepEqual(seen, [{ sessionId: "s1", event: { type: "text_delta", delta: "嗨" } }]);
+});
+
 test("a message of a kind this version does not know is ignored", () => {
 	// The desktop may be newer than the phone; an unknown type is not a reason to throw inside a
 	// socket handler, where nothing would catch it.
@@ -519,6 +638,38 @@ test("calls wait for the far end to arrive", () => {
 
 	page.receive({ type: "ready" });
 	assert.deepEqual(kinds(), ["hello", "rpc"], "对端到了，压着的调用就发出去");
+});
+
+test("a timed-out queued mutation is never replayed after reconnect", async () => {
+	const page = install(RELAY, () => undefined);
+	const lyra = page.lyra as unknown as { sessions: { rename(a: string, b: string, c: string): Promise<unknown> } };
+	const renaming = lyra.sessions.rename("p1", "s1", "不会迟到的标题");
+	assert.equal(page.runTimer(20_000), true);
+	await assert.rejects(renaming, /没有响应/);
+
+	page.receive({ type: "ready" });
+	assert.deepEqual(page.calls.map((call) => (call.body as { type?: string }).type), ["hello"]);
+});
+
+test("peer-left rejects inflight work and later mutations fail instead of waiting invisibly", async () => {
+	const page = install(RELAY, () => undefined);
+	page.receive({ type: "ready" });
+	const lyra = page.lyra as unknown as { agent: { abort(id: string): Promise<unknown> } };
+	const inflight = lyra.agent.abort("s1");
+	page.receive({ type: "peer-left" });
+	await assert.rejects(inflight, /连接已断开/);
+	await assert.rejects(() => lyra.agent.abort("s1"), /连接已断开/);
+	assert.equal(page.calls.filter((call) => (call.body as { type?: string }).type === "rpc").length, 1);
+});
+
+test("socket close rejects inflight calls immediately and reconnects", async () => {
+	const page = install(LAN, () => undefined);
+	const lyra = page.lyra as unknown as { sessions: { list(): Promise<unknown> } };
+	const inflight = lyra.sessions.list();
+	page.opened.at(-1)?.onclose?.();
+	await assert.rejects(inflight, /连接已断开/);
+	assert.equal(page.runTimer(500), true);
+	assert.equal(page.sockets.length, 2);
 });
 
 test("a direct connection does not wait for anything", () => {

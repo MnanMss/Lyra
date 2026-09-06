@@ -2,11 +2,15 @@ import * as Clipboard from "expo-clipboard";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { pingDesktop, pingRelay } from "../src/connection";
 import { parsePairingCode } from "../src/pairing";
 import { useMobile } from "../src/store";
+import { mobileTranslator } from "../src/i18n";
 
 export default function PairScreen() {
+	const t = mobileTranslator();
+	const insets = useSafeAreaInsets();
 	const router = useRouter();
 	const connection = useMobile((s) => s.connection);
 	const pair = useMobile((s) => s.pair);
@@ -33,7 +37,7 @@ export default function PairScreen() {
 		// about what a code means — including the relay and tls shapes the fields cannot show.
 		const parsed = parsePairingCode(text);
 		if (!parsed.ok) {
-			setMessage({ tone: "error", text: `剪贴板里没有配对链接（${parsed.reason}）` });
+			setMessage({ tone: "error", text: t("pair.clipboardMissing", { reason: parsed.reason }) });
 			return;
 		}
 		setHost(parsed.connection.host);
@@ -43,7 +47,7 @@ export default function PairScreen() {
 		setRelay(Boolean(parsed.connection.relay));
 		setMessage({
 			tone: "ok",
-			text: parsed.connection.relay ? "已从剪贴板读取配对信息（经中转）" : "已从剪贴板读取配对信息",
+			text: parsed.connection.relay ? t("pair.pastedRelay") : t("pair.pasted"),
 		});
 	}
 
@@ -53,7 +57,7 @@ export default function PairScreen() {
 		try {
 			const parsedPort = Number(port);
 			if (!host.trim() || !Number.isFinite(parsedPort) || !token.trim()) {
-				setMessage({ tone: "error", text: "请填写完整的地址、端口和令牌" });
+				setMessage({ tone: "error", text: t("pair.required") });
 				return;
 			}
 
@@ -69,15 +73,15 @@ export default function PairScreen() {
 				setMessage({
 					tone: "error",
 					text: relay
-						? `连不上中转 ${host}:${port}，请确认地址无误、服务在运行。`
-						: `无法连接到 ${host}:${port}，请确认电脑和手机在同一网络，且同步服务已启用。`,
+						? t("pair.relayFailed", { address: `${host}:${port}` })
+						: t("pair.directFailed", { address: `${host}:${port}` }),
 				});
 				return;
 			}
 
 			const ok = await pair({ host: host.trim(), port: parsedPort, token: token.trim(), tls, relay });
 			if (ok) router.replace("/desk");
-			else setMessage({ tone: "error", text: "令牌不正确，请在桌面端重新复制。" });
+			else setMessage({ tone: "error", text: t("pair.tokenWrong") });
 		} finally {
 			setBusy(false);
 		}
@@ -85,9 +89,9 @@ export default function PairScreen() {
 
 	return (
 		<KeyboardAvoidingView className="flex-1 bg-shell" behavior={Platform.OS === "ios" ? "padding" : undefined}>
-			<ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 48 }}>
+			<ScrollView contentContainerStyle={{ paddingTop: 20, paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right, paddingBottom: 48 + insets.bottom }}>
 				<Text className="text-[13.5px] leading-6 text-ink-muted">
-					在桌面端打开「设置 → 移动端同步」并启用服务，那里会出现一张二维码。
+					{t("pair.intro")}
 				</Text>
 
 				{/*
@@ -100,19 +104,19 @@ export default function PairScreen() {
 					onPress={() => router.push("/scan")}
 					className="mt-4 flex-row items-center justify-center gap-2 rounded-xl bg-ink py-3.5 active:opacity-85"
 				>
-					<Text className="text-[15px] font-medium text-shell">扫码连接</Text>
+					<Text className="text-[15px] font-medium text-shell">{t("pair.scan")}</Text>
 				</Pressable>
 
 				<Pressable
 					onPress={() => void pastePairingUrl()}
 					className="mt-2.5 items-center rounded-xl border border-dashed border-line py-3 active:bg-card-hover"
 				>
-					<Text className="text-[13px] text-ink-muted">或从剪贴板粘贴配对链接</Text>
+					<Text className="text-[13px] text-ink-muted">{t("pair.paste")}</Text>
 				</Pressable>
 
-				<Text className="mt-5 text-[12px] text-ink-faint">扫不了的话，手动填下面三项也一样。</Text>
+				<Text className="mt-5 text-[12px] text-ink-faint">{t("pair.manual")}</Text>
 
-				<Field label="局域网地址">
+				<Field label={t("pair.address")}>
 					<TextInput
 						value={host}
 						onChangeText={setHost}
@@ -125,7 +129,7 @@ export default function PairScreen() {
 					/>
 				</Field>
 
-				<Field label="端口">
+				<Field label={t("pair.port")}>
 					<TextInput
 						value={port}
 						onChangeText={setPort}
@@ -136,11 +140,11 @@ export default function PairScreen() {
 					/>
 				</Field>
 
-				<Field label="配对令牌">
+				<Field label={t("pair.token")}>
 					<TextInput
 						value={token}
 						onChangeText={setToken}
-						placeholder="桌面端生成的令牌"
+						placeholder={t("pair.tokenPlaceholder")}
 						placeholderTextColor="#6e6e6e"
 						autoCapitalize="none"
 						autoCorrect={false}
@@ -165,7 +169,7 @@ export default function PairScreen() {
 					onPress={() => void testAndSave()}
 					className="mt-6 h-12 items-center justify-center rounded-xl bg-ink active:opacity-85 disabled:opacity-50"
 				>
-					{busy ? <ActivityIndicator color="#171717" /> : <Text className="text-[15px] font-medium text-shell">连接</Text>}
+					{busy ? <ActivityIndicator color="#171717" /> : <Text className="text-[15px] font-medium text-shell">{t("pair.connect")}</Text>}
 				</Pressable>
 
 				{connection && (
@@ -176,7 +180,7 @@ export default function PairScreen() {
 						}}
 						className="mt-3 h-12 items-center justify-center rounded-xl border border-line active:bg-card-hover"
 					>
-						<Text className="text-[14px] text-danger">断开连接</Text>
+						<Text className="text-[14px] text-danger">{t("pair.disconnect")}</Text>
 					</Pressable>
 				)}
 			</ScrollView>

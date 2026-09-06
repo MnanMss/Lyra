@@ -1,10 +1,11 @@
-import type { PermissionMode } from "@lyra/core";
-import { FolderOpen } from "lucide-react";
+import type { PermissionMode, UiLocale } from "@lyra/core";
+import { FolderOpen, Languages } from "lucide-react";
 import { useEffect, useState } from "react";
 import { matchTarget, useOpenTargets } from "../files/index.ts";
 import { useApp } from "../../store/index.ts";
 import { bridge } from "../../services/index.ts";
 import { ProjectLayerCard } from "./ProjectOverrideNotice.tsx";
+import { LOCALE_OPTIONS, useI18n } from "../../i18n/index.ts";
 import {
   Card,
   InlineSelect,
@@ -15,6 +16,7 @@ import {
 } from "./controls.tsx";
 
 export function GeneralSettings() {
+	const { resolvedLocale, t } = useI18n();
   const settings = useApp((s) => s.settings);
   const saveSettings = useApp((s) => s.saveSettings);
   const [platform, setPlatform] = useState("darwin");
@@ -48,15 +50,43 @@ export function GeneralSettings() {
   const patch = (next: Partial<typeof settings>) =>
     void saveSettings({ ...settings, ...next });
   const setMode = (permissionMode: PermissionMode) => patch({ permissionMode });
+	const resolvedName = LOCALE_OPTIONS.find((option) => option.value === resolvedLocale);
 
   return (
     <div className="pt-8">
       <h1 className="pb-7 text-display leading-tight font-semibold tracking-tight text-ink">
-        常规
+		{t("settings.general")}
       </h1>
 
       <ProjectLayerCard />
-      <SectionTitle>权限</SectionTitle>
+		<Card className="mb-9">
+			<Row
+				title={
+					<span className="flex items-center gap-2">
+						<Languages size={15} strokeWidth={1.8} className="text-ink-muted" />
+						{t("language.title")}
+					</span>
+				}
+				detail={t("language.detail")}
+				control={
+					<InlineSelect
+						value={settings.uiLocale}
+						onChange={(uiLocale: UiLocale) => patch({ uiLocale })}
+						ariaLabel={t("language.title")}
+						options={LOCALE_OPTIONS.map((option) => ({
+							value: option.value,
+							label: t(option.label),
+							detail: option.value === "system" && resolvedName
+								? `${t("language.systemDetected")} · ${t(resolvedName.label)}`
+								: undefined,
+							icon: <LocaleMark value={option.value} mark={option.mark} />,
+						}))}
+					/>
+				}
+			/>
+		</Card>
+
+		<SectionTitle>{t("general.permissions")}</SectionTitle>
       <Card className="mb-9">
         {/*
          * A statement, not a switch.
@@ -67,15 +97,15 @@ export function GeneralSettings() {
          * invites the one click that proves it does nothing.
          */}
         <Row
-          title="默认权限"
-          detail="Lyra 始终可以读取和编辑当前工作区内的文件。需要时它会请求额外的访问权限。"
+			title={t("general.defaultPermission")}
+			detail={t("general.defaultPermissionDetail")}
           control={
-            <span className="text-label text-ink-faint">始终开启</span>
+			<span className="text-label text-ink-faint">{t("general.alwaysEnabled")}</span>
           }
         />
         <Row
-          title="自动审核"
-          detail="只读命令（git status、ls、grep 等）自动放行，写入和未知命令仍会请求批准。"
+			title={t("general.autoReview")}
+			detail={t("general.autoReviewDetail")}
           control={
             <Toggle
               checked={mode !== "ask"}
@@ -84,8 +114,8 @@ export function GeneralSettings() {
           }
         />
         <Row
-          title="完整访问权限"
-          detail="开启后 Lyra 无需批准即可修改文件、执行命令并访问网络。这会显著提高数据丢失或意外行为的风险。"
+			title={t("general.fullAccess")}
+			detail={t("general.fullAccessDetail")}
           control={
             <Toggle
               checked={mode === "full"}
@@ -95,11 +125,11 @@ export function GeneralSettings() {
         />
       </Card>
 
-      <SectionTitle>常规</SectionTitle>
+		<SectionTitle>{t("general.section")}</SectionTitle>
       <Card className="mb-9">
         <Row
-          title="默认文件打开目标"
-          detail="点击文件路径时用哪个应用打开"
+			title={t("general.fileTarget")}
+			detail={t("general.fileTargetDetail")}
           control={
             <InlineSelect
               // The stored value may predate the ids, or name an application this machine does
@@ -132,40 +162,40 @@ export function GeneralSettings() {
           }
         />
         <Row
-          title="默认推理强度"
-          detail="新会话使用的思考预算。每个会话都可以在输入框右侧单独调整，互不影响"
+			title={t("general.thinking")}
+			detail={t("general.thinkingDetail")}
           control={
             <Segmented
               value={settings.thinking}
               onChange={(thinking) => patch({ thinking })}
               options={[
-                { value: "off", label: "关" },
-                { value: "low", label: "低" },
-                { value: "medium", label: "中" },
-                { value: "high", label: "高" },
+				{ value: "off", label: t("thinking.off") },
+				{ value: "low", label: t("thinking.low") },
+				{ value: "medium", label: t("thinking.medium") },
+				{ value: "high", label: t("thinking.high") },
               ]}
             />
           }
         />
         <Row
-          title="请求重试次数"
-          detail="模型请求因网络中断失败时的重试次数（含首次）。中继或代理不稳时值得调高；设为 1 则失败立即报错。已经开始输出的回答不会重试。"
+			title={t("general.retry")}
+			detail={t("general.retryDetail")}
           control={
             <Segmented
               value={String(settings.retryAttempts)}
               onChange={(value) => patch({ retryAttempts: Number(value) })}
               options={[
-                { value: "1", label: "不重试" },
-                { value: "2", label: "2 次" },
-                { value: "3", label: "3 次" },
-                { value: "5", label: "5 次" },
+				{ value: "1", label: t("retry.none") },
+				{ value: "2", label: t("retry.count", { count: 2 }) },
+				{ value: "3", label: t("retry.count", { count: 3 }) },
+				{ value: "5", label: t("retry.count", { count: 5 }) },
               ]}
             />
           }
         />
         <Row
-          title="底部面板"
-          detail="在会话底部显示用量与状态信息"
+			title={t("general.bottomPanel")}
+			detail={t("general.bottomPanelDetail")}
           control={
             <Toggle
               checked={settings.editor.showBottomPanel}
@@ -176,8 +206,8 @@ export function GeneralSettings() {
           }
         />
         <Row
-          title="平台"
-          detail="当前运行环境"
+			title={t("general.platform")}
+			detail={t("general.platformDetail")}
           control={
             <span className="text-label text-ink-faint">{platform}</span>
           }
@@ -194,4 +224,19 @@ export function GeneralSettings() {
        */}
     </div>
   );
+}
+
+function LocaleMark({ value, mark }: { value: UiLocale; mark: string }) {
+	if (value === "system") {
+		return (
+			<span className="flex h-[22px] w-[24px] shrink-0 items-center justify-center rounded-md bg-elevated text-ink-muted">
+				<Languages size={13} strokeWidth={1.9} />
+			</span>
+		);
+	}
+	return (
+		<span className="flex h-[22px] min-w-[24px] shrink-0 items-center justify-center rounded-md bg-elevated px-1 text-[9px] font-semibold tracking-tight text-ink-muted">
+			{mark}
+		</span>
+	);
 }

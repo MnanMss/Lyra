@@ -244,7 +244,9 @@ export function DockView({
 	 * same list rather than a duplicated one.
 	 */
 	const order = useRef<PaneKind[]>([]);
-	const present = boxes.map((box) => box.kind);
+	// Fullscreen changes visibility, never ownership. Filtering by `boxes` here unmounted the
+	// transcript, terminal and thousands of task rows, then rebuilt them on every restore.
+	const present = laid.map((box) => box.kind);
 	/*
 	 * A carried pane is *not in the tree* — it has been lifted out, and the panes staying put have
 	 * closed over the space it left. It is still mounted, obviously: it is the thing in your hand.
@@ -253,7 +255,7 @@ export function DockView({
 	 */
 	const live = carried && !present.includes(carried.kind) ? [...present, carried.kind] : present;
 	order.current = [
-		...order.current.filter((kind) => live.includes(kind)),
+		...order.current.filter((kind) => live.includes(kind) || kind === "browser"),
 		...live.filter((kind) => !order.current.includes(kind)),
 	];
 
@@ -368,12 +370,12 @@ export function DockView({
 					const placed = boxes.find((box) => box.kind === kind);
 					// Outside a full screen, or closed altogether. Kept mounted either way — hidden
 					// below — unless it is genuinely gone from the tree.
-					if (!placed && carried?.kind !== kind && !present.includes(kind)) return null;
+					if (!placed && carried?.kind !== kind && !present.includes(kind) && kind !== "browser") return null;
 					const { label, icon } = describe(kind);
 					// Collapsed and maximised are the same geometry — the whole dock — which is why
 					// neither needs a second component or a second code path. A carried pane's box is
 					// ignored entirely; it is positioned against the window, not against the dock.
-					const box = compact ? WHOLE : (focusBox(kind) ?? placed ?? WHOLE);
+					const box = compact ? WHOLE : (focusBox(kind) ?? laid.find((box) => box.kind === kind) ?? WHOLE);
 					return (
 						<DockPane
 							key={kind}

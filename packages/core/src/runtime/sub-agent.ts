@@ -197,6 +197,9 @@ export async function runSubAgent(
 		description: input.description,
 		prompt: input.prompt,
 		tools: allowed.map((tool) => tool.name),
+		parentId: options.dispatch?.id,
+		provider: runProvider.id,
+		model: runModel.modelId,
 	});
 
 	// Build a complete, standalone system prompt for sub-agents
@@ -224,6 +227,11 @@ export async function runSubAgent(
 
 	let result: Awaited<ReturnType<typeof runTurn>>;
 	try {
+		await options.emit({ type: "subagent_event", id, event: {
+			type: "context", systemPrompt: subAgentPrompt, tools: allowed.map(tool => tool.name),
+			skills: options.skills.map(skill => skill.name),
+			schemas: allowed.map(tool => ({ name: tool.name, description: tool.description, parameters: tool.parameters })),
+		} });
 		result = await runTurn(
 			{
 				sessionId: id,
@@ -290,6 +298,7 @@ export async function runSubAgent(
 				 */
 				sandboxMode: sandboxModeFor(options.settings.permissionMode),
 				allowedHosts: options.settings.allowedHosts,
+				scratchDir: join(lyraHome(), "scratch", options.sessionId),
 				beforeToolCall: makeBeforeToolCall(options.settings.hooks, options.cwd, controller.signal),
 				afterToolCall: makeAfterToolCall(options.settings.hooks, options.cwd, controller.signal),
 				/*
@@ -329,7 +338,10 @@ export async function runSubAgent(
 					compactWith(messages, model, runProvider, options.summaryStream, textTokens(subAgentPrompt) + toolTokens(allowed)),
 				maxTurns: 60,
 			},
-			(event) => {
+			async (event) => {
+				if (event.type === "tool_start" || event.type === "request" || event.type === "retry" || event.type === "agent_end" || event.type === "turn_start" || event.type === "compacted") {
+					await options.emit({ type: "subagent_event", id, event });
+				}
 				// Record activity in registry for live sub-agent status line without toast spamming
 				if (event.type === "tool_start") {
 					steps.push(event.summary);
@@ -340,11 +352,11 @@ export async function runSubAgent(
 				 *
 				 * `message_end` rather than `message_start`: a message still streaming has nothing
 				 * worth showing yet. These carry the sub-agent's own id and go nowhere near the
-				 * session log — the parent's transcript is unchanged by watching one of these.
+				 * parent model transcript — durable events keep them available after reopening.
 				 */
 				if (event.type === "message_end") {
 					registry?.record(id, event.message);
-					void options.emit({ type: "subagent_message", id, message: event.message });
+					await options.emit({ type: "subagent_message", id, message: event.message });
 				}
 			},
 		);
@@ -356,7 +368,7 @@ export async function runSubAgent(
 		 * the model finds out. This only makes sure the record agrees with what happened.
 		 */
 		registry?.finish(id, { status: "failed", error: error instanceof Error ? error.message : String(error) });
-		await options.emit({ type: "subagent_done", id, steps, answer: "" });
+		await options.emit({ type: "subagent_done", id, steps, answer: "", status: "failed", error: error instanceof Error ? error.message : String(error) });
 		throw error;
 	} finally {
 		options.signal?.removeEventListener("abort", stopWithParent);
@@ -403,6 +415,6 @@ export async function runSubAgent(
 			? { status: "aborted" }
 			: { status: "done", answer, output: yielded?.value, warnings: yielded?.warnings },
 	);
-	await options.emit({ type: "subagent_done", id, steps, answer });
+	await options.emit({ type: "subagent_done", id, steps, answer, status: controller.signal.aborted ? "aborted" : "done" });
 	return { text: answer, output: yielded?.value, warnings: yielded?.warnings };
 }

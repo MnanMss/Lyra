@@ -69,6 +69,16 @@ export interface Usage {
 		cacheRead: number;
 		cacheWrite: number;
 		total: number;
+		/** How these dollar values were obtained. Absent on logs written before this field existed. */
+		source?: "manual" | "catalog" | "provider" | "mixed";
+		catalogVersion?: string;
+		/** The selected rates are stored so later catalogue updates cannot rewrite history. */
+		rates?: {
+			input: number;
+			output: number;
+			cacheRead: number;
+			cacheWrite: number;
+		};
 	};
 }
 
@@ -84,6 +94,20 @@ export function emptyUsage(): Usage {
 }
 
 export function addUsage(a: Usage, b: Usage): Usage {
+	const source = !a.cost.source
+		? b.cost.source
+		: !b.cost.source
+			? a.cost.source
+			: a.cost.source === b.cost.source
+				? a.cost.source
+				: "mixed";
+	const sameRates =
+		a.cost.rates !== undefined &&
+		b.cost.rates !== undefined &&
+		a.cost.rates.input === b.cost.rates.input &&
+		a.cost.rates.output === b.cost.rates.output &&
+		a.cost.rates.cacheRead === b.cost.rates.cacheRead &&
+		a.cost.rates.cacheWrite === b.cost.rates.cacheWrite;
 	return {
 		input: a.input + b.input,
 		output: a.output + b.output,
@@ -97,6 +121,10 @@ export function addUsage(a: Usage, b: Usage): Usage {
 			cacheRead: a.cost.cacheRead + b.cost.cacheRead,
 			cacheWrite: a.cost.cacheWrite + b.cost.cacheWrite,
 			total: a.cost.total + b.cost.total,
+			source,
+			catalogVersion:
+				a.cost.catalogVersion === b.cost.catalogVersion ? a.cost.catalogVersion : undefined,
+			rates: sameRates ? a.cost.rates : undefined,
 		},
 	};
 }
@@ -169,6 +197,9 @@ export interface AssistantMessage {
 }
 
 export interface ToolResultMessage {
+	/** Actual execution boundary; absent in historical messages. */
+	startedAt?: number;
+	durationMs?: number;
 	role: "toolResult";
 	toolCallId: string;
 	toolName: string;

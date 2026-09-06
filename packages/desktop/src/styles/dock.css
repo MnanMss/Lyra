@@ -3,7 +3,8 @@
  *
  * Every pane in the window except the navigation, arranged by a tree of splits. The panes are
  * positioned absolutely from percentages the tree computes, which is what makes a rearrangement
- * animate: four numbers change and CSS interpolates them, with nothing recreated.
+ * animate: PaneSurface snapshots their visual positions before the layout changes and composites
+ * the movement afterwards. Width and height are never interpolated through the contents.
  *
  * The panes share one surface and are divided by their splitters' hairlines rather than each
  * being a floating card. With one panel a card read as something placed beside the conversation;
@@ -82,12 +83,20 @@
 
 .ly-dock-pane {
   opacity: 1;
-  transition:
-    left var(--ly-t-base) var(--ly-e-out),
-    top var(--ly-t-base) var(--ly-e-out),
-    width var(--ly-t-base) var(--ly-e-out),
-    height var(--ly-t-base) var(--ly-e-out),
-    opacity var(--ly-t-quick) var(--ly-e-soft);
+  transform-origin: top left;
+  transition: opacity var(--ly-t-quick) var(--ly-e-soft);
+}
+
+/* Opacity is composited, unlike visibility's inherited restyle and display's layout teardown.
+ * Inert also excludes all descendants from hit testing, keyboard focus and accessibility. */
+.ly-dock-pane[inert] {
+  opacity: 0;
+  transition: none;
+}
+
+/* A retained pane returns fully drawn. This is a visibility change, not a new entrance. */
+.ly-dock-pane[data-dock-retained] {
+  transition: none;
 }
 
 /*
@@ -114,7 +123,7 @@
  * the fade instantly and — unlike a name — leaves nothing to re-trigger when it is lifted.
  */
 @starting-style {
-  .ly-dock-pane {
+  .ly-dock-pane:not([data-dock-retained]) {
     opacity: 0;
   }
 }

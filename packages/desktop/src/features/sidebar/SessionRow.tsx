@@ -192,7 +192,7 @@ export function SessionRow({
 			{/* Shown on hover, and on keyboard focus anywhere in the row — which is the same condition
 			    the button above reserves its space on. Two conditions that differ by a millimetre is
 			    what left a gap with nothing in it; see the note there. */}
-			<span className="pointer-events-none absolute inset-y-0 right-0 flex items-center rounded-r-lg pr-1.5 opacity-0 transition-opacity duration-[var(--ly-t-quick)] group-hover/session:opacity-100 group-has-[:focus-visible]/session:opacity-100">
+			<span data-ly-hover-reveal className="pointer-events-none absolute inset-y-0 right-0 flex items-center rounded-r-lg pr-1.5 opacity-0 transition-opacity duration-[var(--ly-t-quick)] group-hover/session:opacity-100 group-has-[:focus-visible]/session:opacity-100">
 				{onRestore && (
 					<button
 						type="button"

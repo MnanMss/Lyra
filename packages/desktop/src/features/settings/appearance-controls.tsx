@@ -6,6 +6,7 @@
  * it has to keep working when the accent colour is one the user just typed.
  */
 
+import { Input } from "../../ui/inputs/NativeField.tsx";
 import { useEffect, useState } from "react";
 import { NumberField } from "./pickers.tsx";
 import { contrastingInk, parseHex } from "./theme.ts";
@@ -29,7 +30,7 @@ export function ColorRow({ label, value, onChange }: { label: string; value: str
 				style={{ background: valid ? draft : "transparent", color: valid ? contrastingInk(draft) : undefined }}
 			>
 				<span className="h-3.5 w-3.5 rounded-full border border-current opacity-60" />
-				<input
+				<Input
 					value={draft}
 					onChange={(e) => {
 						setDraft(e.target.value);

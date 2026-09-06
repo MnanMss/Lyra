@@ -19,7 +19,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { PHONE_WRITABLE, settingsFromPhone } from "../electron/phone-settings.ts";
+import { PHONE_WRITABLE, settingsForPhone, settingsFromPhone } from "../electron/phone-settings.ts";
 import { DEFAULT_SETTINGS, type Settings } from "@lyra/core";
 
 /** What the desktop currently has: complete, and carrying things a phone must not touch. */
@@ -37,6 +37,11 @@ test("a theme change goes through", () => {
 	// The ordinary case, and the reason any of this is writable at all.
 	const saved = settingsFromPhone(current, { appearance: { ...current.appearance, theme: "light" } });
 	assert.equal(saved.appearance.theme, "light");
+});
+
+test("the interface language stays in sync with the shared phone renderer", () => {
+	const saved = settingsFromPhone(current, { uiLocale: "fr" });
+	assert.equal(saved.uiLocale, "fr");
 });
 
 test("a command list sent by a phone is ignored", () => {
@@ -171,4 +176,43 @@ test("a full appearance is taken as sent", () => {
 	const wanted = { ...current.appearance, theme: "light" as const, uiFontSize: 15 };
 	const saved = settingsFromPhone(current, { appearance: wanted });
 	assert.deepEqual(saved.appearance, wanted);
+});
+
+test("settings sent to a phone retain model metadata but redact credentials", () => {
+	const visible = settingsForPhone({
+		...current,
+		searchApiKeys: { tavily: "tvly-secret", brave: "brave-secret" },
+		providers: [{
+			id: "p1",
+			name: "供应商",
+			baseUrl: "https://models.example.com",
+			api: "openai-responses",
+			apiKey: "sk-非常机密",
+			enabled: true,
+			headers: { authorization: "private", "x-tenant": "internal" },
+			models: [{
+				id: "p1/m1",
+				providerId: "p1",
+				modelId: "m1",
+				name: "Model One",
+				contextWindow: 128_000,
+				maxOutputTokens: 16_000,
+				supportsThinking: true,
+				supportsImages: true,
+				supportsTools: true,
+				thinkingOptions: [{ id: "deep", label: "深入", detail: "更多计算" }],
+			}],
+		}],
+	});
+
+	assert.equal(visible.providers[0].apiKey, "");
+	assert.equal(visible.providers[0].headers, undefined);
+	assert.equal(visible.providers[0].models[0].thinkingOptions?.[0].id, "deep");
+	assert.deepEqual(visible.searchApiKeys, {});
+	assert.deepEqual(visible.mcpServers, []);
+	assert.deepEqual(visible.hooks, []);
+	assert.deepEqual(visible.scheduledTasks, []);
+	assert.equal(visible.sync.token, null);
+	assert.equal(visible.sync.publicUrl, undefined);
+	assert.equal(visible.sync.relayUrl, undefined);
 });

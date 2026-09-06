@@ -7,6 +7,7 @@
  * by accident.
  */
 
+import { Input } from "../inputs/NativeField.tsx";
 import { Search, X } from "lucide-react";
 import { createContext, useContext } from "react";
 
@@ -167,7 +168,7 @@ export function MenuSearch({
 	return (
 		<div className="flex h-9 items-center gap-2 px-3">
 			<Search size={13} strokeWidth={1.9} className="shrink-0 text-ink-faint" />
-			<input
+			<Input
 				autoFocus={autoFocus}
 				value={value}
 				onChange={(event) => onChange(event.target.value)}

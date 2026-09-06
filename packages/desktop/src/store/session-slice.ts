@@ -1,3 +1,4 @@
+import { applySessionChange } from "./session-changes.ts";
 /**
  * Choosing, opening and removing conversations.
  *
@@ -278,61 +279,22 @@ export function sessionSlice(set: Set, get: Get) {
   },
 
   async deleteSession(meta: SessionMeta) {
-    set({
-      sessionCache: without(get().sessionCache, meta.id),
-      drafts: without(get().drafts, meta.id),
-    });
-    await bridge.sessions.remove(meta.projectId, meta.id);
-    const sessions = await bridge.sessions.list();
-    set({ sessions });
-    if (get().activeSessionId === meta.id) {
-      set({
-				selectionEpoch: get().selectionEpoch + 1,
-        activeSessionId: null,
-        meta: null,
-        messages: [],
-        toolRuns: {},
-        approvals: [],
-        loadingSession: false,
-        pendingUserMessage: null,
-      });
-      useSubAgents.getState().clear();
-    }
+		try {
+			await bridge.sessions.remove(meta.projectId, meta.id);
+			applySessionChange({ id: meta.id, projectId: meta.projectId, meta: null }, set, get);
+		} catch (cause) {
+			get().notify(`删除失败：${cause instanceof Error ? cause.message : String(cause)}`, "error");
+		}
   },
 
   async setSessionArchived(meta: SessionMeta, archived: boolean) {
-    if (archived) {
-      set({
-        sessionCache: without(get().sessionCache, meta.id),
-        drafts: without(get().drafts, meta.id),
-      });
-    }
-    // Optimistic: the row should leave the sidebar on the click, not on the round trip.
-    set({
-      sessions: get().sessions.map((s) =>
-        s.id === meta.id ? { ...s, archived } : s,
-      ),
-    });
-    if (archived && get().activeSessionId === meta.id) {
-      set({
-				selectionEpoch: get().selectionEpoch + 1,
-        activeSessionId: null,
-        meta: null,
-        messages: [],
-        toolRuns: {},
-        approvals: [],
-        loadingSession: false,
-        pendingUserMessage: null,
-      });
-      useSubAgents.getState().clear();
-    }
-    set({
-      sessions: await bridge.sessions.setArchived(
-        meta.projectId,
-        meta.id,
-        archived,
-      ),
-    });
+		try {
+			const sessions = await bridge.sessions.setArchived(meta.projectId, meta.id, archived);
+			const saved = sessions.find((session) => session.id === meta.id);
+			applySessionChange({ id: meta.id, projectId: meta.projectId, meta: saved ?? null }, set, get);
+		} catch (cause) {
+			get().notify(`归档操作失败：${cause instanceof Error ? cause.message : String(cause)}`, "error");
+		}
   },
 
   async deleteArchivedSessions() {

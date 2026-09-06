@@ -10,6 +10,7 @@
  * least willing to believe the answer.
  */
 
+import { Input } from "../../ui/inputs/NativeField.tsx";
 import type { ApiFormat, ModelConfig, ProviderConfig } from "@lyra/core";
 import { Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -147,7 +148,7 @@ function ProviderHeading({
 	return (
 		<div className="flex items-center gap-2.5 pb-6">
 			{renaming ? (
-				<input
+				<Input
 					autoFocus
 					value={name}
 					onChange={(e) => setName(e.target.value)}

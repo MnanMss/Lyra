@@ -1,4 +1,4 @@
-import { Check, ChevronRight, Star } from "lucide-react";
+import { Box, Check, ChevronRight, Star } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ModelIcon } from "./ModelIcon.tsx";
 import { RollingText } from "../../ui/motion/RollingText.tsx";
@@ -68,7 +68,14 @@ interface Section {
 	foldable: boolean;
 }
 
-export function ModelMenu({ anchor, onClose }: { anchor: Anchor; onClose: () => void }) {
+export interface ModelSelection {
+	value: string;
+	onChange: (modelId: string) => void;
+	inheritLabel: string;
+	inheritDetail?: string;
+}
+
+export function ModelMenu({ anchor, onClose, selection }: { anchor: Anchor; onClose: () => void; selection?: ModelSelection }) {
 	const settings = useApp((s) => s.settings);
 	const meta = useApp((s) => s.meta);
 	const messages = useApp((s) => s.messages);
@@ -79,9 +86,10 @@ export function ModelMenu({ anchor, onClose }: { anchor: Anchor; onClose: () => 
 	const setView = useApp((s) => s.setView);
 	const setSection = useApp((s) => s.setSettingsSection);
 	const [query, setQuery] = useState("");
+	const [error, setError] = useState("");
 	const [collapsed, setCollapsed] = useState<string[]>(storedCollapsed);
 
-	const current = meta?.modelId ?? settings?.defaultModelId ?? null;
+	const current = selection ? selection.value : meta?.modelId ?? settings?.defaultModelId ?? null;
 	const favourites = settings?.favoriteModelIds;
 	const groups = useMemo(() => groupModels(settings?.providers), [settings?.providers]);
 	const shown = useMemo(() => filterGroups(groups, query), [groups, query]);
@@ -132,11 +140,16 @@ export function ModelMenu({ anchor, onClose }: { anchor: Anchor; onClose: () => 
 
 	/** The rows a number key can reach: what is on screen, in the order it is drawn. */
 	const reachable = useMemo(
-		() => sections.filter((section) => !collapsed.includes(section.key)).flatMap((section) => section.rows),
-		[sections, collapsed],
+		() => sections.filter((section) => (!section.foldable || Boolean(query) || !collapsed.includes(section.key))).flatMap((section) => section.rows),
+		[sections, collapsed, query],
 	);
 
 	const choose = (modelId: string, options?: { asDefault?: boolean }) => {
+		if (selection) {
+			selection.onChange(modelId);
+			onClose();
+			return;
+		}
 		const midConversation = messages.length > 0 && current !== modelId;
 		if (midConversation) {
 			confirmer.ask({
@@ -180,10 +193,13 @@ export function ModelMenu({ anchor, onClose }: { anchor: Anchor; onClose: () => 
 
 	const star = useCallback(
 		(id: string) => {
-			if (!settings) return;
-			void saveSettings({ ...settings, favoriteModelIds: toggleFavourite(settings.favoriteModelIds, id) });
+			const latest = useApp.getState().settings;
+			if (!latest) return;
+			setError("");
+			void saveSettings({ ...latest, favoriteModelIds: toggleFavourite(latest.favoriteModelIds, id) })
+				.catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
 		},
-		[settings, saveSettings],
+		[saveSettings],
 	);
 
 	// Number keys pick from the first rows, matching the digits drawn on them.
@@ -220,8 +236,8 @@ export function ModelMenu({ anchor, onClose }: { anchor: Anchor; onClose: () => 
 		<Popover
 			anchor={anchor}
 			onClose={onClose}
-			placement="top"
-			align="start"
+			placement={selection ? "bottom" : "top"}
+			align={selection ? "end" : "start"}
 			width="wide"
 			label="选择模型"
 			/*
@@ -239,7 +255,7 @@ export function ModelMenu({ anchor, onClose }: { anchor: Anchor; onClose: () => 
 					<MenuSearch value={query} onChange={setQuery} placeholder="搜索模型或供应商" />
 				) : undefined
 			}
-			footer={
+			footer={selection ? undefined :
 				<div className="p-1">
 					<MenuItem
 						detail={meta ? "跳过推理直接作答，只影响当前会话" : "跳过推理直接作答，明显更快"}
@@ -283,6 +299,13 @@ export function ModelMenu({ anchor, onClose }: { anchor: Anchor; onClose: () => 
 			}
 		>
 			<MenuBody>
+				{error && <p role="alert" className="px-2 py-1 text-detail text-danger">{error}</p>}
+				{selection && !query && <>
+					<MenuItem icon={<Box size={14} />} selected={!current} trailing={!current ? <Check size={13} /> : undefined}
+						detail={selection.inheritDetail ? <ScrollText text={selection.inheritDetail} /> : undefined}
+						onClick={() => choose("")}>{selection.inheritLabel}</MenuItem>
+					<MenuSeparator />
+				</>}
 				{total === 0 && (
 					<MenuItem
 						onClick={() => {
@@ -300,7 +323,7 @@ export function ModelMenu({ anchor, onClose }: { anchor: Anchor; onClose: () => 
 				)}
 
 				{sections.map((section) => {
-					const folded = collapsed.includes(section.key);
+					const folded = section.foldable && !query && collapsed.includes(section.key);
 					return (
 						<div key={section.key}>
 							<SectionHead
@@ -333,7 +356,7 @@ export function ModelMenu({ anchor, onClose }: { anchor: Anchor; onClose: () => 
 					);
 				})}
 
-				{current && (
+				{!selection && current && (
 					<>
 						<MenuSeparator />
 						{/*

@@ -55,6 +55,12 @@ export function optionalStr(value: unknown, name: string, max = MAX_ID): Checked
 	return str(value, name, max);
 }
 
+/** A bounded string or an explicit null. Used for settings that inherit when cleared. */
+export function nullableStr(value: unknown, name: string, max = MAX_ID): Checked<string | null> {
+	if (value === null) return { ok: true, value: null };
+	return str(value, name, max);
+}
+
 /**
  * An absolute path. Relative paths are refused here rather than resolved somewhere surprising.
  *

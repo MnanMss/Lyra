@@ -30,6 +30,8 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { app, Menu, nativeImage, Tray } from "electron";
 import { trayMenu, type TrayAction, type TrayCommand, type TrayItem } from "./tray-menu.ts";
+import { resolveNativeLocale } from "./i18n.ts";
+import { settings } from "./app-settings.ts";
 
 export type { TrayCommand } from "./tray-menu.ts";
 
@@ -160,6 +162,7 @@ function buildMenu(): Electron.Menu {
 				windowVisible: actions?.window()?.isVisible() ?? false,
 				recent: actions?.recent() ?? [],
 				launchAtLogin: launchAtLogin(),
+				locale: resolveNativeLocale(settings().uiLocale, app.getLocale()),
 			}),
 		),
 	);

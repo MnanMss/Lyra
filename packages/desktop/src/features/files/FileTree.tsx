@@ -26,7 +26,7 @@ import { NewRow, TreeRow } from "./TreeRow.tsx";
 import { useFileActions } from "./useFileActions.ts";
 import { useFileTree } from "./useFileTree.ts";
 import { useTreeDrag } from "./useTreeDrag.ts";
-import { bridge } from "../../services/index.ts";
+import { available, bridge } from "../../services/index.ts";
 
 export function FileTree({
 	root,
@@ -48,6 +48,7 @@ export function FileTree({
 	const actions = useFileActions({ root, refresh: tree.refresh, onMoved, onRemoved });
 	const openWith = useOpenTarget();
 	const runInTerminal = useSide((s) => s.runInTerminal);
+	const readOnly = !available("files", "write");
 
 	/** Ordered, so ⇧-click has an anchor and the last one decides where 新建 lands. */
 	const [selection, setSelection] = useState<string[]>([]);
@@ -163,6 +164,7 @@ export function FileTree({
 
 	const drag = useTreeDrag({
 		root: home,
+		disabled: readOnly,
 		pathsFor: (entry) => (chosen.has(entry.path) ? selection : [entry.path]),
 		expand: tree.expand,
 		isExpanded: (path) => tree.expanded.has(path),
@@ -197,11 +199,11 @@ export function FileTree({
 		const index = tree.rows.findIndex((row) => row.entry.path === focus);
 		const row = index === -1 ? null : tree.rows[index];
 
-		if (mod && event.key === "c" && !event.altKey) return run(() => actions.copy(acted()));
-		if (mod && event.key === "x") return run(() => actions.cut(acted()));
-		if (mod && event.key === "v") return run(() => void actions.paste(targetDir));
+		if (!readOnly && mod && event.key === "c" && !event.altKey) return run(() => actions.copy(acted()));
+		if (!readOnly && mod && event.key === "x") return run(() => actions.cut(acted()));
+		if (!readOnly && mod && event.key === "v") return run(() => void actions.paste(targetDir));
 		if (mod && event.altKey && event.code === "KeyC") return run(() => void actions.copyPath(acted(), event.shiftKey));
-		if (mod && (event.key === "Backspace" || event.key === "Delete")) {
+		if (!readOnly && mod && (event.key === "Backspace" || event.key === "Delete")) {
 			return run(() => void removeSelected(event.shiftKey));
 		}
 
@@ -235,7 +237,7 @@ export function FileTree({
 				if (row) return run(() => activate(row.entry));
 				return;
 			case "F2":
-				if (row) return run(() => setRenaming(row.entry.path));
+				if (!readOnly && row) return run(() => setRenaming(row.entry.path));
 				return;
 			case "Escape":
 				if (creating) return run(() => setCreating(null));
@@ -275,18 +277,22 @@ export function FileTree({
 					className="min-w-0 flex-1"
 					onEscape={() => tree.setScope(null)}
 				/>
-				<IconButton
-					size="sm"
-					label="新建文件"
-					icon={<FilePlus2 size={12.5} strokeWidth={1.8} />}
-					onClick={() => startCreate(targetDir, "file")}
-				/>
-				<IconButton
-					size="sm"
-					label="新建文件夹"
-					icon={<FolderPlus size={12.5} strokeWidth={1.8} />}
-					onClick={() => startCreate(targetDir, "directory")}
-				/>
+				{!readOnly && (
+					<>
+						<IconButton
+							size="sm"
+							label="新建文件"
+							icon={<FilePlus2 size={12.5} strokeWidth={1.8} />}
+							onClick={() => startCreate(targetDir, "file")}
+						/>
+						<IconButton
+							size="sm"
+							label="新建文件夹"
+							icon={<FolderPlus size={12.5} strokeWidth={1.8} />}
+							onClick={() => startCreate(targetDir, "directory")}
+						/>
+					</>
+				)}
 				{tree.expanded.size > 0 && (
 					<IconButton
 						size="sm"
@@ -318,7 +324,7 @@ export function FileTree({
 					tabIndex={0}
 					data-ly-tree
 					onKeyDown={onKeyDown}
-					onContextMenu={(event) => menu.show(event, null)}
+					onContextMenu={readOnly ? undefined : (event) => menu.show(event, null)}
 					{...drag.backgroundProps()}
 					className={`flex min-h-full flex-col rounded-md outline-none ${
 						drag.dropTarget === home ? "bg-accent/8 ring-1 ring-accent ring-inset" : ""
@@ -345,6 +351,7 @@ export function FileTree({
 								cut={cutSet.has(entry.path)}
 								dropping={entry.isDirectory && drag.dropTarget === entry.path}
 								renaming={renaming === entry.path}
+								draggable={!readOnly}
 								onRename={(name) => void commitRename(entry.path, name)}
 								onRenameCancel={() => setRenaming(null)}
 								onClick={(event) => onRowClick(event, entry, index)}
@@ -375,7 +382,7 @@ export function FileTree({
 				</div>
 			</Scroller>
 
-			{menu.open && (
+			{menu.open && !readOnly && (
 				<FileMenu
 					anchor={menu.anchor}
 					onClose={menu.close}

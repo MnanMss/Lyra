@@ -22,6 +22,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { errorResult } from "../agent/tool-run.ts";
 import type { Tool, ToolResult } from "../types.ts";
+import { recordFileChange } from "./file-changes.ts";
 import { computeDiff, formatDiff } from "./diff.ts";
 import { applyHunks, parsePatch, PATCH_SYNTAX, PatchError, snapshotTag } from "./hunk.ts";
 import { displayPath, resolveWorkspacePath } from "./paths.ts";
@@ -122,6 +123,8 @@ export const editTool: Tool<EditArgs> = {
 			if (decision === "reject") return errorResult("The user rejected this edit.");
 		}
 
+		if (await readFile(absolute, "utf8") !== before) return errorResult("The file changed while awaiting approval. Read it again before editing.");
+		const changeId = await recordFileChange(ctx, absolute, before, after);
 		await writeFile(absolute, after, "utf8");
 		/*
 		 * Re-record against the file as it now is, so a follow-up edit in the same turn quotes the
@@ -140,6 +143,7 @@ export const editTool: Tool<EditArgs> = {
 			],
 			details: {
 				kind: "edit",
+				changeId,
 				path: shown,
 				added: diff.added,
 				removed: diff.removed,

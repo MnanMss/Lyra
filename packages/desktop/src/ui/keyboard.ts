@@ -28,9 +28,12 @@ export function acceleratorLabel(accelerator: string, platform = navigator.platf
 	return accelerator.split("+").map((part) => names[part.toLowerCase()] ?? part).join(mac ? " " : "+");
 }
 
+const composingTargets = new WeakSet<EventTarget>();
+export function markComposition(target: EventTarget, active: boolean): void { if (active) composingTargets.add(target); else composingTargets.delete(target); }
+
 /** The IME and AltGr own these keys; treating them as commands changes panes while typing. */
 export function composingKey(event: KeyboardEvent): boolean {
-	return event.isComposing || event.keyCode === 229 || event.getModifierState("AltGraph");
+	return (event.target !== null && composingTargets.has(event.target)) || event.isComposing || event.keyCode === 229 || event.getModifierState("AltGraph");
 }
 
 export function recordAccelerator(event: KeyboardEvent, platform = navigator.platform): string | null {

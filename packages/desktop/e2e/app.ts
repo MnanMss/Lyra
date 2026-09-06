@@ -228,9 +228,12 @@ export async function startApp({
 	 * Launch the binary directly: Windows cannot spawn a pnpm.cmd shim without a shell, and
 	 * electron-vite preview silently rebuilds per suite instead of testing the requested build.
 	 */
+	const childEnv: NodeJS.ProcessEnv = { ...process.env, LYRA_HOME: home, ELECTRON_ENABLE_LOGGING: "1" };
+	// The app may run node --test itself; inheriting this suppresses every nested test.
+	delete childEnv.NODE_TEST_CONTEXT;
 	const app: ChildProcess = spawn(executable, argv, {
 		cwd: ROOT,
-		env: { ...process.env, LYRA_HOME: home, ELECTRON_ENABLE_LOGGING: "1" },
+		env: childEnv,
 		stdio: "pipe",
 		detached: true,
 	});
@@ -257,8 +260,13 @@ export async function startApp({
 			returnByValue: true,
 			userGesture: true,
 		}).then((result) => {
-			const answer = result as { exceptionDetails?: { text: string }; result?: { value: T } };
-			if (answer.exceptionDetails) throw new Error(answer.exceptionDetails.text);
+			const answer = result as {
+				exceptionDetails?: { exception?: { description?: string }; text: string };
+				result?: { value: T };
+			};
+			if (answer.exceptionDetails) {
+				throw new Error(answer.exceptionDetails.exception?.description ?? answer.exceptionDetails.text);
+			}
 			return answer.result?.value as T;
 		});
 	try {
@@ -322,7 +330,7 @@ async function waitForShell(evaluate: <T>(expression: string) => Promise<T>): Pr
 }
 
 /** One call, one socket. Slower than keeping it open, and far easier to reason about. */
-async function call<T>(target: string, method: string, params: Record<string, unknown>): Promise<T> {
+export async function call<T>(target: string, method: string, params: Record<string, unknown>): Promise<T> {
 	const socket = new WebSocket(target);
 	try {
 		await new Promise<void>((resolve, reject) => {

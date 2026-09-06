@@ -8,6 +8,7 @@
  * The values it passes are in `ipc-shapes`, re-exported below so a caller still imports one thing.
  */
 
+import type { SessionChange } from "./ipc-shapes.ts";
 import type { TrajectoryEntry } from "@lyra/core";
 import type { ForgeAccount, ForgeKind, ForgeKindInfo } from "./forge/types.ts";
 import type {
@@ -157,6 +158,22 @@ export type ExternalFormatResult =
 	| { ok: false; reason: "missing"; tool: string; install: string };
 
 export interface LyraApi {
+	services: {
+		list(sessionId: string): Promise<import("../shared/session-services.ts").SessionServices>;
+		stop(sessionId: string, id: string, force: boolean): Promise<boolean>;
+	};
+	delivery: {
+		get(sessionId: string, timestamp: number): Promise<import("./turn-delivery.ts").TurnDelivery>;
+		undo(sessionId: string, timestamp: number, path: string): Promise<void>;
+	};
+	browser: {
+		state(): Promise<import("../shared/browser.ts").BrowserState>;
+		command(command: import("../shared/browser.ts").BrowserCommand): Promise<import("../shared/browser.ts").BrowserState>;
+		attach(id: string, contentsId: number): Promise<void>;
+		inspect(id: string, mode: "element" | "region"): Promise<import("../shared/browser.ts").BrowserSelection | null>;
+		cancelInspect(id: string): Promise<void>;
+		onChanged(handler: (state: import("../shared/browser.ts").BrowserState & { reveal: boolean }) => void): () => void;
+	};
 	/**
 	 * Which operating system this is, available before the first paint.
 	 *
@@ -221,6 +238,7 @@ export interface LyraApi {
 		info(path: string): Promise<WorkspaceInfo | null>;
 	};
 	sessions: {
+		onChanged(handler: (change: SessionChange) => void): () => void;
 		list(): Promise<SessionMeta[]>;
 		create(cwd: string, modelId: string, initial?: { content: UserContent[]; synthetic?: boolean }): Promise<SessionSnapshot>;
 		/** Start the agent for this session — skills, MCP servers, the lot. For running things. */
@@ -229,6 +247,7 @@ export interface LyraApi {
 		transcript(projectId: string, sessionId: string): Promise<SessionSnapshot | null>;
 		/** The same log, read as a trajectory: one entry per thing that happened, by source. */
 		trajectory(projectId: string, sessionId: string): Promise<TrajectoryEntry[]>;
+		exportTrajectory(projectId: string, sessionId: string, format: "json" | "md" | "output", selection?: { id?: string; correlationId?: string }): Promise<string>;
 		/** Copy history up to `seq` into a new session, leaving this one untouched. */
 		fork(projectId: string, sessionId: string, seq: number): Promise<{ meta: SessionMeta; messages: number } | null>;
 		remove(projectId: string, sessionId: string): Promise<void>;

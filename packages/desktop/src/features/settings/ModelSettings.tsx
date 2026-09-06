@@ -169,7 +169,12 @@ export function ModelSettings() {
 
       {editingModel && (
         <ModelEditor
-          providerId={editingModel.providerId}
+          provider={
+            p.providers.find((provider) => provider.id === editingModel.providerId) ?? {
+              id: editingModel.providerId,
+              baseUrl: "",
+            }
+          }
           model={editingModel.model}
           onCancel={() => setEditingModel(null)}
           onSave={(model) => {

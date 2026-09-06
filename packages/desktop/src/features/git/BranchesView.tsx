@@ -1,6 +1,7 @@
 /**
  * Branches, and the diff between any two of them.
  */
+import { Input } from "../../ui/inputs/NativeField.tsx";
 import { GitBranchPlus, FolderGit2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -192,7 +193,7 @@ export function BranchesView({
                 });
               }}
             >
-              <input
+              <Input
                 autoFocus
                 value={name}
                 onChange={(event) => setName(event.target.value)}

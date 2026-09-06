@@ -24,6 +24,11 @@ export function roomFor(token: string): string {
 	return createHash("sha256").update(token).digest("hex");
 }
 
+/** Separate from the conversation room so an asset URL never grants access to session frames. */
+export function assetKeyFor(token: string): string {
+	return createHash("sha256").update(`lyra-assets\0${token}`).digest("hex");
+}
+
 /**
  * Normalise whatever someone typed into the relay field.
  *
@@ -117,7 +122,12 @@ export class RelayLink {
 		socket.on("open", () => {
 			// The room, and nothing else: the relay refuses anything that is not a well-formed hello,
 			// and closes a socket that says nothing within ten seconds.
-			socket.send(JSON.stringify({ type: "hello", room: roomFor(this.token) }));
+			socket.send(JSON.stringify({
+				type: "hello",
+				room: roomFor(this.token),
+				role: "desktop",
+				assetKey: assetKeyFor(this.token),
+			}));
 			this.retry = FIRST_RETRY;
 		});
 

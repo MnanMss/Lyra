@@ -22,12 +22,12 @@ export function turnSlice(set: Set, get: Get) {
 		const { workspace, settings, scratchCwd, selectionEpoch: epoch } = get();
 		let sessionId = get().activeSessionId;
 		const cwd = workspace?.path ?? scratchCwd;
-		if (!sessionId && !cwd) { await get().pickWorkspace(); return; }
+		if (!sessionId && !cwd) { await get().pickWorkspace(); return false; }
 		// A second submission in the same draft shares its identity, never its title as a key.
 		const inFlight = !sessionId ? creating.get(epoch) : undefined;
 		if (inFlight) {
 			try { sessionId = (await inFlight).meta.id; }
-			catch { return; }
+			catch { return false; }
 		}
 		const ownsSelection = () => get().selectionEpoch === epoch;
 		const pending: Message = { role: "user", content, timestamp: Date.now(), ...(options.synthetic ? { synthetic: true } : {}) };
@@ -69,13 +69,15 @@ export function turnSlice(set: Set, get: Get) {
 			} catch (cause) {
 				if (ownsSelection()) set({ running: false, stopped: "error", turnStartedAt: null, pendingUserMessage: null });
 				get().notify(`新建会话失败：${cause instanceof Error ? cause.message : String(cause)}`, "error");
-				return;
+				return false;
 			} finally { creating.delete(epoch); }
 		}
-		if (!sessionId) return;
+		if (!sessionId) return false;
 		const id = sessionId;
+		let accepted = false;
 		try {
 			const meta = await bridge.agent.prompt(id, content, { ...options, resumePending });
+			accepted = true;
 			const cached = get().sessionCache[id];
 			set({
 				sessions: get().sessions.map((listed) => listed.id === id ? meta : listed),
@@ -89,13 +91,20 @@ export function turnSlice(set: Set, get: Get) {
 			const capabilities = await bridge.sessions.capabilities(id);
 			if (get().activeSessionId === id) set({ capabilities });
 		} catch (cause) {
+			// Once acknowledged, a failed follow-up read must not invite a duplicate submission.
+			if (accepted) {
+				get().notify(`消息已发送，刷新会话状态失败：${cause instanceof Error ? cause.message : String(cause)}`, "error");
+				return true;
+			}
 			const cached = get().sessionCache[id];
 			set({ activity: { ...get().activity, [id]: "failed" }, turns: without(get().turns, id),
 				...(cached?.state ? { sessionCache: { ...get().sessionCache, [id]: { ...cached, state: { ...cached.state, running: false, stopped: "error", pendingUserMessage: null } } } } : {}),
 			});
 			if (get().activeSessionId === id) set({ running: false, stopped: "error", pendingUserMessage: null, turnStartedAt: null });
 			get().notify(`发送失败：${cause instanceof Error ? cause.message : String(cause)}`, "error");
+			return false;
 		}
+		return true;
 	},
 
   /**
@@ -120,6 +129,7 @@ export function turnSlice(set: Set, get: Get) {
   async editMessage(index: number, content: UserContent[]) {
     const sessionId = get().activeSessionId;
     if (!sessionId || get().running) return;
+    const before = get();
 
     /*
      * Optimistic, and destructive on purpose.
@@ -155,7 +165,24 @@ export function turnSlice(set: Set, get: Get) {
     });
     saveCarried(sessionId, null);
 
-    await bridge.agent.editMessage(sessionId, index, content);
+		try {
+			await bridge.agent.editMessage(sessionId, index, content);
+		} catch (cause) {
+			const current = get();
+			// Roll back only the unacknowledged preview, never a newer stream or another selection.
+			if (current.activeSessionId === sessionId && current.pendingUserMessage === pending) {
+				set({ messages: before.messages, toolRuns: before.toolRuns, approvals: before.approvals,
+					running: before.running, pendingUserMessage: before.pendingUserMessage,
+					turnStartedAt: before.turnStartedAt, turnTokens: before.turnTokens,
+					turns: before.turns[sessionId] ? { ...current.turns, [sessionId]: before.turns[sessionId] } : without(current.turns, sessionId),
+					carried: before.carried[sessionId] ? { ...current.carried, [sessionId]: before.carried[sessionId] } : without(current.carried, sessionId) });
+				saveCarried(sessionId, before.carried[sessionId] ?? null);
+			}
+			if (get().sessionCache[sessionId]?.messages.includes(pending)) {
+				set({ sessionCache: without(get().sessionCache, sessionId) });
+			}
+			get().notify(`编辑重发失败：${cause instanceof Error ? cause.message : String(cause)}`, "error");
+		}
   },
 
   async abort() {
@@ -166,8 +193,12 @@ export function turnSlice(set: Set, get: Get) {
   async respondToApproval(id: string, decision: ApprovalDecision) {
     const sessionId = get().activeSessionId;
     if (!sessionId) return;
-    set({ approvals: get().approvals.filter((a) => a.id !== id) });
-    await bridge.agent.approve(sessionId, id, decision);
+		try {
+			await bridge.agent.approve(sessionId, id, decision);
+			if (get().activeSessionId === sessionId) set({ approvals: get().approvals.filter((a) => a.id !== id) });
+		} catch (cause) {
+			get().notify(`审批提交失败：${cause instanceof Error ? cause.message : String(cause)}`, "error");
+		}
   },
 
   /**
@@ -236,8 +267,14 @@ export function turnSlice(set: Set, get: Get) {
   async setThinking(thinking: ThinkingLevel) {
     const { activeSessionId, meta, settings } = get();
     if (activeSessionId) {
-      if (meta) set({ meta: { ...meta, thinking } });
-      await bridge.agent.setThinking(activeSessionId, thinking);
+			const optimistic = meta ? { ...meta, thinking } : null;
+			if (optimistic) set({ meta: optimistic });
+			try {
+				await bridge.agent.setThinking(activeSessionId, thinking);
+			} catch (cause) {
+				if (get().activeSessionId === activeSessionId && get().meta === optimistic) set({ meta });
+				get().notify(`推理等级设置失败：${cause instanceof Error ? cause.message : String(cause)}`, "error");
+			}
       return;
     }
     if (settings) await get().saveSettings({ ...settings, thinking });
@@ -248,4 +285,3 @@ export function turnSlice(set: Set, get: Get) {
   },
   };
 }
-

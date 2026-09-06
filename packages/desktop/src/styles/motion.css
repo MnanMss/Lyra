@@ -165,3 +165,20 @@
 		transform: translateX(-4px);
 	}
 }
+
+/* Clicking navigation has no exit motion; hover alone owns the preview transition. */
+.ly-question-preview[data-dismissed="true"] { transition: none; }
+.ly-question-excerpt.prose-dw {
+	max-height: 5.5em;
+	overflow: hidden;
+	font-size: inherit;
+	line-height: 1.5;
+	mask-image: linear-gradient(to bottom, rgb(0 0 0) calc(100% - 12px), transparent);
+}
+.ly-question-excerpt.prose-dw :is(p, h1, h2, h3, h4, ul, ol, pre, blockquote, .ly-table) {
+	margin-block: 0 0.25em;
+	font-size: inherit;
+	line-height: inherit;
+}
+.ly-question-excerpt.prose-dw :is(strong, h1, h2, h3, h4, code, a) { color: inherit; }
+.ly-question-excerpt.prose-dw pre { padding: 0.25em 0.5em; white-space: pre-wrap; }

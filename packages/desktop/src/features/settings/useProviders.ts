@@ -11,6 +11,7 @@
  */
 
 import type { ModelConfig, ProviderConfig } from "@lyra/core";
+import { modelConfigFromCatalog } from "@lyra/core/model-catalog";
 import { useEffect, useMemo, useState } from "react";
 import type { ProviderTestResult } from "../../../electron/ipc-types.ts";
 import { useApp } from "../../store/index.ts";
@@ -167,17 +168,21 @@ export function useProviders() {
 		const existingIds = new Set(selected.models.map((m) => m.modelId));
 		const newModels: ModelConfig[] = modelIds
 			.filter((mId) => !existingIds.has(mId))
-			.map((mId) => ({
-				id: `${selected.id}/${mId}`,
-				providerId: selected.id,
-				modelId: mId,
-				name: mId,
-				contextWindow: 200_000,
-				maxOutputTokens: 16_384,
-				supportsThinking: true,
-				supportsImages: true,
-				supportsTools: true,
-			}));
+			.map(
+				(mId) =>
+					modelConfigFromCatalog(selected, mId) ?? {
+						id: `${selected.id}/${mId}`,
+						providerId: selected.id,
+						modelId: mId,
+						name: mId,
+						contextWindow: 200_000,
+						maxOutputTokens: 16_384,
+						supportsThinking: false,
+						supportsImages: false,
+						supportsTools: false,
+						metadataSource: "catalog",
+					},
+			);
 
 		if (newModels.length > 0) {
 			await saveSettings({

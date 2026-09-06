@@ -74,7 +74,13 @@ const refuseSelection = (event: Event) => event.preventDefault();
 export function freezeMotion(): () => void {
 	if (held === 0) {
 		frozen = [...document.querySelectorAll(FREEZABLE)];
-		for (const element of frozen) element.setAttribute(FROZEN, "");
+		for (const element of frozen) {
+			// A splitter or window resize takes over immediately, including a compositor flight.
+			for (const motion of element.getAnimations()) {
+				if (motion.id === "ly-dock-geometry") motion.finish();
+			}
+			element.setAttribute(FROZEN, "");
+		}
 		document.addEventListener("selectstart", refuseSelection);
 	}
 	held++;

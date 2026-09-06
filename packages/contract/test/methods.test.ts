@@ -135,13 +135,64 @@ test("methodFor 能按路径找到，找不到的返回 undefined", () => {
 	}
 });
 
-test("数量对得上，且手机只拿到一小部分", () => {
+test("数量对得上，且手机能力是逐项审过的清单", () => {
 	assert.equal(CHANNELS.length, everyMethod().length, "每个方法一个 channel");
 	assert.ok(CHANNELS.length > 100, "这个应用的 IPC 面本来就大，少于一百说明清单丢了东西");
-	// 手机能调的是很小的一部分，而这正是它该有的样子。数字变大时应该有人解释为什么。
-	assert.ok(
-		REMOTE_METHODS.length < CHANNELS.length * 0.2,
-		`手机可用的方法占到了 ${REMOTE_METHODS.length}/${CHANNELS.length}——超过两成就值得重新看一遍白名单`,
+	/*
+	 * A percentage stopped measuring the thing it claimed to protect once the phone gained complete
+	 * conversation, task, side-chat and read-only file surfaces: one safe domain can legitimately
+	 * add several methods, while one dangerous method can stay below any ratio. An exact list makes
+	 * every new capability a reviewed test change and still fails closed when somebody flips one
+	 * remote flag casually.
+	 */
+	assert.deepEqual(
+		REMOTE_METHODS,
+		[
+			"settings.get",
+			"settings.save",
+			"workspace.info",
+			"sessions.list",
+			"sessions.create",
+			"sessions.open",
+			"sessions.transcript",
+			"sessions.trajectory", "sessions.fork",
+			"sessions.remove",
+			"sessions.setArchived",
+			"sessions.capabilities",
+			"sessions.rename",
+			"sessions.compact",
+			"sessions.contextBreakdown",
+			"agent.prompt",
+			"agent.editMessage",
+			"agent.abort",
+			"agent.approve",
+			"agent.setModel",
+			"agent.setThinking",
+			"subAgents.list",
+			"subAgents.detail",
+			"subAgents.steer",
+			"subAgents.abort",
+			"subAgents.dismiss",
+			"subAgents.dismissFinished",
+			"sideChat.state",
+			"sideChat.ask",
+			"sideChat.editAndResend",
+			"sideChat.abort",
+			"sideChat.reset",
+			"tasks.list",
+			"tasks.cancel",
+			"tasks.dismiss",
+			"tasks.resume",
+			"files.list",
+			"files.read",
+			"commands.list",
+			"rules.preview",
+			"rules.keep",
+			"rules.decline",
+			"git.generalScratch",
+			"git.scratchRoots",
+		],
+		"手机白名单发生了变化；请逐项确认能力和安全边界后更新这里",
 	);
 });
 

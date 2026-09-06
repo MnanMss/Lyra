@@ -28,6 +28,7 @@ export function Disclosure({
 	onToggle,
 	trailing,
 	children,
+	compact = false,
 }: {
 	title: string;
 	/** Shown after the title. Zero is worth saying; undefined is not. */
@@ -37,9 +38,11 @@ export function Disclosure({
 	/** Controls that belong to the section rather than to its contents — an edit button, a link. */
 	trailing?: ReactNode;
 	children: ReactNode;
+	/** Inline readings share the chevron and reveal, without a separate bordered section. */
+	compact?: boolean;
 }) {
 	return (
-		<section className="border-t border-line-soft first:border-t-0">
+		<section className={compact ? "" : "border-t border-line-soft first:border-t-0"}>
 			<div className="flex items-center gap-1">
 				{/*
 				 * No filled hover.
@@ -56,7 +59,7 @@ export function Disclosure({
 					type="button"
 					onClick={onToggle}
 					aria-expanded={open}
-					className="group/disclosure flex min-w-0 flex-1 items-center gap-1.5 py-2.5 pr-1.5 text-left"
+					className={`group/disclosure flex min-w-0 flex-1 items-center gap-1.5 pr-1.5 text-left ${compact ? "py-1" : "py-2.5"}`}
 				>
 					{/*
 					 * One chevron, turned. Right when closed, down when open — the same rotation a
@@ -69,7 +72,7 @@ export function Disclosure({
 						className="shrink-0 text-ink-faint transition-[transform,color] duration-[var(--ly-t-base)] ease-[var(--ly-e-out)] group-hover/disclosure:text-ink-muted"
 						style={{ transform: open ? "rotate(90deg)" : undefined }}
 					/>
-					<span className="text-label font-medium text-ink-muted transition-colors duration-[var(--ly-t-quick)] group-hover/disclosure:text-ink">
+					<span className={`${compact ? "text-detail" : "text-label font-medium"} text-ink-muted transition-colors duration-[var(--ly-t-quick)] group-hover/disclosure:text-ink`}>
 						{title}
 					</span>
 					{count !== undefined && <span className="text-detail text-ink-faint tabular-nums">{count}</span>}
@@ -78,9 +81,9 @@ export function Disclosure({
 				{trailing}
 			</div>
 
-			<div className="ly-reveal" data-open={open} aria-hidden={!open}>
+			<div className="ly-reveal" data-open={open} aria-hidden={!open} inert={!open}>
 				<div>
-					<div className="pb-3">{children}</div>
+					<div className={compact ? "pl-3.5" : "pb-3"}>{children}</div>
 				</div>
 			</div>
 		</section>

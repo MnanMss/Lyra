@@ -1,3 +1,4 @@
+import { Input } from "../../ui/inputs/NativeField.tsx";
 import { Archive, ArrowRight, FolderOpen, GitBranch, Pencil, PinOff, Pin, SquarePen, X } from "lucide-react";
 import { useState } from "react";
 import { Confirm } from "../../ui/overlay/Confirm.tsx";
@@ -110,7 +111,7 @@ export function ProjectMenu({
 					<label className="block pb-1.5 text-detail text-ink-faint">
 						{worktree ? "新工作树的分支名" : "项目名称"}
 					</label>
-					<input
+					<Input
 						autoFocus
 						value={draft}
 						onChange={(e) => setDraft(e.target.value)}

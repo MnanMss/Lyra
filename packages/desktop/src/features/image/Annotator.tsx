@@ -18,6 +18,7 @@
  * picture it is being used to annotate would be unusable at 400%.
  */
 
+import { Textarea } from "../../ui/inputs/NativeField.tsx";
 import {
 	ArrowUpRight,
 	Delete,
@@ -1204,7 +1205,7 @@ export function AnnotateCanvas({
 						}}
 						className="-inset-2 absolute cursor-move rounded-lg"
 					/>
-					<textarea
+					<Textarea
 						ref={field}
 						value={typing.value}
 						onChange={(event) =>

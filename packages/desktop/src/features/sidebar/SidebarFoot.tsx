@@ -38,7 +38,7 @@ export function SidebarFoot({ onNavigate }: { onNavigate: () => void }) {
 				{/* Fades when the badge beside it opens, rather than being squeezed into its own
 				    overflow animation — see `.ly-sidebar-foot` in styles.css. */}
 				<ScrollText
-					text={activeProviderLabel(settings?.providers ?? [])}
+					text={settings?.personalization?.sidebarMotto?.trim() || activeProviderLabel(settings?.providers ?? [])}
 					className="ly-sidebar-foot-label min-w-0 flex-1 text-label text-ink"
 				/>
 				<span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-line text-caption text-ink-faint">

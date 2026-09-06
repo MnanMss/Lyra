@@ -66,7 +66,7 @@ module.exports = {
 			to: {
 				path: "^packages/core/src",
 				pathNot:
-					"^packages/core/src/(types|tokens|activity|trajectory-view|commands-view|platform)\\.ts$" +
+					"^packages/core/src/(types|tokens|activity|trajectory-view|commands-view|model-catalog|agents-builtin|platform)\\.ts$" +
 					"|^packages/core/src/(config/schedule|config/model-roles|config/models|commands/builtin|plugins/install-record|ai/thinking-options|rules/condition)\\.ts$",
 				dependencyTypesNot: ["type-only"],
 			},

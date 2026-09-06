@@ -100,6 +100,7 @@ function Dismiss({ agent }: { agent: SubAgentSummary }) {
 	return (
 		<button
 			type="button"
+			data-ly-hover-reveal
 			data-ly-tip={running ? "停止并关闭（会中断它正在做的事）" : "关闭"}
 			aria-label={running ? `停止并关闭 ${agent.description}` : `关闭 ${agent.description}`}
 			onClick={async () => {

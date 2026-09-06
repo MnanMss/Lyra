@@ -1,3 +1,4 @@
+import { BUILTIN_AGENTS } from "@lyra/core/agents-builtin";
 import type { Settings } from "@lyra/core";
 import { availableModels, resolveModelRef, type SubAgentProfile } from "@lyra/core/model-roles";
 import { resolveModelThinkingOptions } from "@lyra/core/thinking-options";
@@ -6,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AgentCapabilities } from "../../../electron/ipc-types.ts";
 import { useApp } from "../../store/index.ts";
 import { Badge, Card, EmptyHint, InlineSelect, SectionTitle } from "./controls.tsx";
+import { ModelSelect } from "../models/index.ts";
 import { bridge } from "../../services/index.ts";
 
 const SOURCE_LABEL: Record<string, string> = { builtin: "内置", workspace: "项目", user: "用户" };
@@ -14,21 +16,24 @@ export function AgentsSettings() {
 	const activeSessionId = useApp((s) => s.activeSessionId);
 	const settings = useApp((s) => s.settings);
 	const mainModelId = useApp((s) => s.meta?.modelId);
-	const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(useApp.getState().capabilities);
+	const sharedCapabilities = useApp((s) => s.capabilities);
+	const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null);
 	const [saving, setSaving] = useState(false);
 	const savingRef = useRef(false);
 	const [error, setError] = useState("");
 
 	useEffect(() => {
 		let cancelled = false;
-		if (!activeSessionId) { setCapabilities(null); return; }
+		setCapabilities(activeSessionId ? sharedCapabilities : null);
+		setError("");
+		if (!activeSessionId || sharedCapabilities) return;
 		void bridge.sessions.capabilities(activeSessionId).then((value) => {
 			if (!cancelled) setCapabilities(value);
 		}).catch((cause: unknown) => {
 			if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
 		});
 		return () => { cancelled = true; };
-	}, [activeSessionId]);
+	}, [activeSessionId, sharedCapabilities]);
 
 	async function save(name: string, profile: SubAgentProfile) {
 		const current = useApp.getState().settings;
@@ -42,7 +47,7 @@ export function AgentsSettings() {
 		finally { savingRef.current = false; setSaving(false); }
 	}
 
-	const agents = capabilities?.agents ?? [];
+	const agents = capabilities?.agents ?? BUILTIN_AGENTS;
 	return (
 		<div className="pt-8">
 			<h1 className="text-display leading-tight font-semibold tracking-tight text-ink">子智能体</h1>
@@ -50,6 +55,7 @@ export function AgentsSettings() {
 				独立思考，只把结论交回主对话。模型与思考等级在下次派发时生效。
 			</p>
 			<SectionTitle>可用（{agents.length}）</SectionTitle>
+			{!capabilities && <p className="mb-3 text-detail text-ink-muted">内置子智能体始终可用；会话加载后会合并项目与用户定义。</p>}
 			{error && <p role="alert" className="mb-3 text-label text-danger">{error}</p>}
 			<Card className="mb-6">
 				{agents.length === 0 ? <EmptyHint>打开一个会话后即可看到可用的子智能体。</EmptyHint> : agents.map((agent) => (
@@ -86,14 +92,11 @@ function AgentModelControls({ agent, settings, mainModelId, disabled, onChange }
 	const invalidThinking = profile.thinking && levels.length > 0 && !levels.some((level) => level.id === profile.thinking);
 	const inheritedThinking = profile.modelId ? settings.thinking : inherited?.thinking ?? settings.thinking;
 	const defaultThinking = levels.find((level) => level.id === inheritedThinking) ?? levels.find((level) => level.isDefault) ?? levels[0];
-	const modelOptions = [
-		{ value: "", label: "遵循定义", detail: inherited ? `${inherited.provider.name} · ${inherited.model.name}` : "使用定义中的模型角色，未配置时跟随主会话" },
-		...(invalid && profile.modelId ? [{ value: profile.modelId, label: "模型不可用", detail: profile.modelId }] : []),
-		...models.map(({ provider, model }) => ({ value: model.id, label: `${provider.name} · ${model.name}` })),
-	];
+
 	return (
 		<fieldset disabled={disabled} aria-label={`${agent.name} 运行配置`} className="m-0 flex min-w-0 max-w-full flex-wrap items-center gap-2 border-0 p-0 disabled:opacity-60 [&>button]:max-w-full">
-			<InlineSelect ariaLabel={`${agent.name} 模型`} value={profile.modelId ?? ""} options={modelOptions} onChange={(modelId) => onChange(modelId ? { modelId } : {})} />
+			<ModelSelect ariaLabel={`${agent.name} 模型`} value={profile.modelId ?? ""} disabled={disabled}
+				inheritLabel="遵循定义" inheritDetail={inherited ? `${inherited.provider.name} · ${inherited.model.name}` : "使用定义中的模型角色，未配置时跟随主会话"} onChange={(modelId) => onChange(modelId ? { modelId } : {})} />
 			{levels.length > 0 ? <InlineSelect ariaLabel={`${agent.name} 思考等级`} value={profile.thinking ?? ""}
 				options={[
 					{ value: "", label: `默认 · ${defaultThinking?.label ?? "关闭"}`, icon: <Brain size={14} /> },

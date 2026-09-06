@@ -13,13 +13,14 @@
 import { CalendarPlus, ChevronsDownUp, ChevronsUpDown, Clock, Check } from "lucide-react";
 import { MenuBody, MenuItem, MenuLabel, MenuSeparator, Popover, type Anchor } from "../../ui/overlay/Popover.tsx";
 import type { SidebarTab } from "./SidebarTabs.tsx";
+import { useI18n, type MessageKey } from "../../i18n/index.ts";
 
 /** Which timestamp orders the list, and bands it. */
 export type SortKey = "updatedAt" | "createdAt";
 
-const SORTS: { value: SortKey; label: string; icon: React.ReactNode }[] = [
-	{ value: "updatedAt", label: "最近更新", icon: <Clock size={14} strokeWidth={1.8} /> },
-	{ value: "createdAt", label: "最近创建", icon: <CalendarPlus size={14} strokeWidth={1.8} /> },
+const SORTS: { value: SortKey; labelKey: MessageKey; icon: React.ReactNode }[] = [
+	{ value: "updatedAt", labelKey: "sidebar.updated", icon: <Clock size={14} strokeWidth={1.8} /> },
+	{ value: "createdAt", labelKey: "sidebar.created", icon: <CalendarPlus size={14} strokeWidth={1.8} /> },
 ];
 
 export function ListMenu({
@@ -40,10 +41,11 @@ export function ListMenu({
 	onFoldAll: (folded: boolean) => void;
 	onClose: () => void;
 }) {
+	const { t } = useI18n();
 	return (
-		<Popover anchor={anchor} onClose={onClose} placement="bottom" width="compact" label="列表设置">
+		<Popover anchor={anchor} onClose={onClose} placement="bottom" width="compact" label={t("sidebar.listSettings")}>
 			<MenuBody insetIcons>
-				<MenuLabel>排序方式</MenuLabel>
+				<MenuLabel>{t("sidebar.sortBy")}</MenuLabel>
 				{SORTS.map((option) => (
 					<MenuItem
 						key={option.value}
@@ -55,7 +57,7 @@ export function ListMenu({
 							onClose();
 						}}
 					>
-						{option.label}
+						{t(option.labelKey)}
 					</MenuItem>
 				))}
 
@@ -82,7 +84,7 @@ export function ListMenu({
 								onClose();
 							}}
 						>
-							{allFolded ? "展开全部项目" : "收起全部项目"}
+							{allFolded ? t("sidebar.expandProjects") : t("sidebar.collapseProjects")}
 						</MenuItem>
 					</>
 				)}

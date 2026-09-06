@@ -7,10 +7,11 @@
  * rather than three.
  */
 
+import { Input } from "../../ui/inputs/NativeField.tsx";
 import { Check, ChevronDown, Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
 import { acceleratorLabel, composingKey, recordAccelerator } from "../../ui/keyboard.ts";
-import { MenuBody, MenuItem, Popover, usePopover } from "../../ui/overlay/Popover.tsx";
+import { MENU_MAX_HEIGHT, MenuBody, MenuItem, Popover, usePopover } from "../../ui/overlay/Popover.tsx";
 
 export function TextInput({
 	value,
@@ -29,7 +30,7 @@ export function TextInput({
 	className?: string;
 } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "className">) {
 	return (
-		<input
+		<Input
 			{...rest}
 			value={value}
 			onChange={(e) => onChange(e.target.value)}
@@ -53,7 +54,7 @@ export function SecretInput({
 	const [visible, setVisible] = useState(false);
 	return (
 		<div className="relative">
-			<input
+			<Input
 				type={visible ? "text" : "password"}
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
@@ -129,7 +130,7 @@ function Dropdown<T extends string>({
 			</button>
 
 			{menu.open && (
-				<Popover anchor={menu.anchor} onClose={menu.close} placement="bottom" align="end" width="default">
+				<Popover anchor={menu.anchor} onClose={menu.close} placement="bottom" align="end" width="default" maxHeight={MENU_MAX_HEIGHT}>
 					{/*
 					 * The icon column is reserved for the whole list, not per row.
 					 *

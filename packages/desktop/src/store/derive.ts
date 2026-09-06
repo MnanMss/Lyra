@@ -181,6 +181,7 @@ export function rebuildToolRuns(messages: Message[]): Record<string, ToolRun> {
           details: message.details,
           isError: message.isError,
         };
+        run.startedAt = message.startedAt ?? run.startedAt;
         run.finishedAt = message.timestamp;
       }
     }

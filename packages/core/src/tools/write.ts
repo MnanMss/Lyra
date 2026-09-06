@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { errorResult } from "../agent/tool-run.ts";
 import type { Tool, ToolResult } from "../types.ts";
+import { recordFileChange } from "./file-changes.ts";
 import { computeDiff, formatDiff } from "./diff.ts";
 import { displayPath, exists, resolveWorkspacePath } from "./paths.ts";
 import { hasRead, markRead } from "./read.ts";
@@ -77,7 +78,7 @@ export const writeTool: Tool<WriteArgs> = {
 			return errorResult(`Read ${args.path} before overwriting it, so you do not discard content you have not seen.`);
 		}
 
-		const previous = alreadyExists ? await readFile(absolute, "utf8").catch(() => "") : "";
+		const previous = alreadyExists ? await readFile(absolute, "utf8") : "";
 
 		if (ctx.requestApproval) {
 			const decision = await ctx.requestApproval({
@@ -89,6 +90,8 @@ export const writeTool: Tool<WriteArgs> = {
 			if (decision === "reject") return errorResult("The user rejected this write.");
 		}
 
+		if ((await exists(absolute)) !== alreadyExists || (alreadyExists && await readFile(absolute, "utf8") !== previous)) return errorResult("The file changed while awaiting approval. Read it again before writing.");
+		const changeId = await recordFileChange(ctx, absolute, alreadyExists ? previous : null, args.content);
 		await mkdir(dirname(absolute), { recursive: true });
 		await writeFile(absolute, args.content, "utf8");
 		markRead(ctx, absolute);
@@ -104,6 +107,7 @@ export const writeTool: Tool<WriteArgs> = {
 			],
 			details: {
 				kind: "write",
+				changeId,
 				path: displayPath(ctx.cwd, absolute),
 				created: !alreadyExists,
 				added: diff.added,

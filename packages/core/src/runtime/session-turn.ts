@@ -237,6 +237,7 @@ async function assembleTurn(input: TurnInputs): Promise<{ config: AgentRunConfig
 		turn.systemPrompt,
 		turn.tools.map((tool) => tool.name),
 		can.skills.map((skill) => skill.name),
+		turn.tools.map(({ name, description, parameters }) => ({ name, description, parameters })),
 	);
 
 	const config = buildTurnConfig(

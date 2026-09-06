@@ -289,7 +289,8 @@ export function Popover({
 			 */
 			if (fixed !== undefined)
 				element.style.width = `${Math.min(fixed, limit)}px`;
-			const box = element.getBoundingClientRect();
+			// The opening scale belongs to presentation, not to the surface's layout dimensions.
+			const box = { width: element.offsetWidth, height: element.offsetHeight };
 			const w = Math.min(fixed ?? box.width, limit);
 
 			const fitsAbove = a.top - box.height - GAP >= MARGIN;
@@ -434,8 +435,23 @@ export function Popover({
 		};
 
 		measure();
-		window.addEventListener("resize", measure);
-		return () => window.removeEventListener("resize", measure);
+		let frame = 0;
+		const schedule = () => {
+			if (!frame) frame = requestAnimationFrame(() => { frame = 0; measure(); });
+		};
+		// Late content can move the trigger without resizing the window (for example a service URL).
+		const observer = new ResizeObserver(schedule);
+		observer.observe(element);
+		if (anchor instanceof HTMLElement) {
+			for (let parent: HTMLElement | null = anchor; parent; parent = parent.parentElement) observer.observe(parent);
+		}
+		const onScroll = (event: Event) => { if (!(event.target instanceof Node) || !element.contains(event.target)) schedule(); };
+		window.addEventListener("resize", schedule);
+		window.addEventListener("scroll", onScroll, true);
+		return () => {
+			observer.disconnect(); cancelAnimationFrame(frame);
+			window.removeEventListener("resize", schedule); window.removeEventListener("scroll", onScroll, true);
+		};
 	}, [anchor, align, placement, width, maxHeight]);
 
 	useEffect(() => {
@@ -532,7 +548,7 @@ export function Popover({
 				 * a native bar; making it the surface's job is what makes the answer the same everywhere.
 				 */}
 				<Scroller
-					className="min-h-0 flex-auto"
+					className="ly-menu-scroll min-h-0 flex-auto"
 					contentClassName={`overflow-x-hidden ${bodyClassName}`}
 				>
 					{children}

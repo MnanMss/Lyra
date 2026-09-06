@@ -32,6 +32,8 @@ const PORT = Number(process.env.PORT ?? 8787);
  */
 const MAX_ROOMS_PER_MINUTE = 30;
 const MAX_BYTES_PER_CONNECTION = 1024 * 1024 * 1024;
+const MAX_ASSET_RESPONSE_BYTES = 7 * 1024 * 1024;
+const ASSET_TIMEOUT_MS = 15_000;
 const RATE_WINDOW_MS = 60_000;
 
 /** 每个来源最近一分钟建了几次房。键是 IP，值是时间戳数组。 */
@@ -67,6 +69,10 @@ function forgetStale() {
 
 /** Rooms hold at most two: a host and a guest. `Map<room, Set<socket>>`. */
 const rooms = new Map();
+/** Renderer capability → the desktop socket that can read that public build. */
+const assetHosts = new Map();
+/** Asset request id → the HTTP response waiting for the desktop. */
+const assetRequests = new Map();
 
 const WS_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
@@ -74,6 +80,11 @@ const server = createServer((req, res) => {
 	if (req.url === "/health") {
 		res.writeHead(200, { "content-type": "application/json" });
 		res.end(JSON.stringify({ app: "lyra-relay", version: 1, rooms: rooms.size }));
+		return;
+	}
+	const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+	if (req.method === "GET" && url.pathname.startsWith("/app/")) {
+		void requestAsset(url.pathname, res);
 		return;
 	}
 	res.writeHead(404).end();
@@ -97,6 +108,8 @@ server.on("upgrade", (req, socket) => {
 		id: randomUUID().slice(0, 8),
 		socket,
 		room: null,
+		role: null,
+		assetKey: null,
 		/** Bytes not yet forming a whole frame. */
 		buffer: Buffer.alloc(0),
 		/** 这条连接转发过多少字节，用来对上上限。 */
@@ -160,6 +173,10 @@ function onData(client, chunk) {
 			return;
 		}
 
+		if (client.role === "desktop" && frame.opcode === 0x1 && acceptAssetResponse(client, frame.payload)) {
+			continue;
+		}
+
 		for (const peer of rooms.get(client.room) ?? []) {
 			if (peer !== client && !peer.socket.destroyed) peer.socket.write(encode(frame.payload, frame.opcode));
 		}
@@ -173,7 +190,15 @@ function join(client, payload) {
 	} catch {
 		return refuse(client, "bad-hello");
 	}
-	if (hello?.type !== "hello" || typeof hello.room !== "string" || !/^[a-f0-9]{64}$/.test(hello.room)) {
+	const role = hello?.role === "desktop" || hello?.role === "host"
+		? "desktop"
+		: hello?.role === "mobile" || hello?.role === "guest"
+			? "mobile"
+			: null;
+	if (hello?.type !== "hello" || typeof hello.room !== "string" || !/^[a-f0-9]{64}$/.test(hello.room) || !role) {
+		return refuse(client, "bad-hello");
+	}
+	if (hello.assetKey !== undefined && (typeof hello.assetKey !== "string" || !/^[a-f0-9]{64}$/.test(hello.assetKey))) {
 		return refuse(client, "bad-hello");
 	}
 
@@ -189,10 +214,14 @@ function join(client, payload) {
 	 * evicting a member would let whoever holds the leaked token displace the real device.
 	 */
 	if (members.size >= 2) return refuse(client, "room-full");
+	if ([...members].some((member) => member.role === role)) return refuse(client, "role-full");
 
 	client.room = hello.room;
+	client.role = role;
+	client.assetKey = role === "desktop" && typeof hello.assetKey === "string" ? hello.assetKey : null;
 	members.add(client);
 	rooms.set(hello.room, members);
+	if (client.assetKey) assetHosts.set(client.assetKey, client);
 
 	if (members.size === 2) {
 		for (const member of members) send(member, { type: "ready" });
@@ -202,6 +231,13 @@ function join(client, payload) {
 }
 
 function leave(client) {
+	if (client.assetKey && assetHosts.get(client.assetKey) === client) assetHosts.delete(client.assetKey);
+	for (const [id, pending] of assetRequests) {
+		if (pending.desktop !== client) continue;
+		clearTimeout(pending.timer);
+		assetRequests.delete(id);
+		if (!pending.res.headersSent) pending.res.writeHead(502).end();
+	}
 	if (!client.room) return;
 	const members = rooms.get(client.room);
 	if (!members) return;
@@ -209,6 +245,72 @@ function leave(client) {
 	for (const peer of members) send(peer, { type: "peer-left" });
 	if (members.size === 0) rooms.delete(client.room);
 	client.room = null;
+	client.role = null;
+	client.assetKey = null;
+}
+
+async function requestAsset(pathname, res) {
+	const match = /^\/app\/([a-f0-9]{64})(\/.*)?$/.exec(pathname);
+	if (!match) {
+		res.writeHead(404).end();
+		return;
+	}
+	if (!match[2]) {
+		res.writeHead(302, { location: `${pathname}/` }).end();
+		return;
+	}
+
+	const desktop = assetHosts.get(match[1]);
+	if (!desktop || desktop.socket.destroyed) {
+		res.writeHead(404).end();
+		return;
+	}
+
+	const id = randomUUID();
+	const timer = setTimeout(() => {
+		const pending = assetRequests.get(id);
+		if (!pending) return;
+		assetRequests.delete(id);
+		if (!res.headersSent) res.writeHead(504).end();
+	}, ASSET_TIMEOUT_MS);
+	timer.unref?.();
+	assetRequests.set(id, { res, desktop, timer });
+	send(desktop, { type: "asset_request", id, path: `/app${match[2]}` });
+}
+
+function acceptAssetResponse(client, payload) {
+	if (payload.length > MAX_ASSET_RESPONSE_BYTES) return false;
+	let message;
+	try {
+		message = JSON.parse(payload.toString("utf8"));
+	} catch {
+		return false;
+	}
+	if (message?.type !== "asset_response" || typeof message.id !== "string") return false;
+
+	const pending = assetRequests.get(message.id);
+	if (!pending || pending.desktop !== client) return true;
+	clearTimeout(pending.timer);
+	assetRequests.delete(message.id);
+
+	const status = message.status === 200 || message.status === 404 || message.status === 413 ? message.status : 502;
+	const contentType = safeHeader(message.contentType, "application/octet-stream");
+	const cacheControl = message.cacheControl === "public, max-age=31536000, immutable"
+		? message.cacheControl
+		: "no-store";
+	const body = typeof message.bodyBase64 === "string" ? Buffer.from(message.bodyBase64, "base64") : Buffer.alloc(0);
+	pending.res.writeHead(status, {
+		"content-type": contentType,
+		"cache-control": cacheControl,
+		"content-length": String(body.length),
+		"x-content-type-options": "nosniff",
+	});
+	pending.res.end(body);
+	return true;
+}
+
+function safeHeader(value, fallback) {
+	return typeof value === "string" && value.length <= 200 && !/[\r\n]/.test(value) ? value : fallback;
 }
 
 function refuse(client, reason) {

@@ -25,10 +25,11 @@ export function SourceFilter({
 	const active = new Set(selected);
 
 	return (
-		<div className="flex flex-wrap items-center gap-1 px-2 pt-2 pb-1">
+		<div data-trace-sources className="flex flex-wrap items-center gap-1 px-2 pt-2 pb-1">
 			<button
 				type="button"
 				onClick={onClear}
+				aria-pressed={active.size === 0}
 				className={`ly-item rounded-full px-2 py-[3px] text-caption ${
 					active.size === 0 ? "bg-accent/12 text-accent" : "text-ink-faint"
 				}`}
@@ -40,6 +41,7 @@ export function SourceFilter({
 				return (
 					<button
 						key={source}
+						aria-pressed={active.has(source)}
 						type="button"
 						disabled={count === 0}
 						onClick={() => onToggle(source)}

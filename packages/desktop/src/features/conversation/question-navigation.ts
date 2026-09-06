@@ -7,7 +7,7 @@ export function questionsIn(messages: readonly Message[]) {
 	for (const [index, message] of messages.entries()) {
 		if (message.role === "assistant") {
 			const question = questions.at(-1);
-			const answer = message.content.filter((block) => block.type === "text").map((block) => block.text).join(" ").trim();
+			const answer = message.content.filter((block) => block.type === "text").map((block) => block.text).join("\n\n").trim();
 			if (question && answer) question.answer = answer.slice(0, 600);
 			continue;
 		}

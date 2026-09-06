@@ -9,36 +9,11 @@
 import { ipcMain, shell } from "electron";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { builtinCommandsFor, collectSkills, commandSources, loadCommands, loadPlugins, lyraHome, type BuiltinCommand, type SlashCommand } from "@lyra/core";
+import { lyraHome } from "@lyra/core";
 import { settings } from "../app-settings.ts";
+import { listCommands, type CommandsList } from "../commands-service.ts";
 
-export interface CommandsList {
-	commands: SlashCommand[];
-	/** 内建命令。名字和说明在 core，动作由各个宿主实现。 */
-	builtins: BuiltinCommand[];
-	diagnostics: { path: string; message: string }[];
-	/**
-	 * The skills the same project can use, offered in the same menu.
-	 *
-	 * A plugin's whole promise is that its skills are callable — waza's own manifest says
-	 * 「callable as /waza:think, /waza:check …」 — and until now nothing in the app could call one.
-	 * The agent picked them up on its own judgement and there was no way to ask for one by name, so
-	 * a bundle you installed deliberately could sit there for a week without running once.
-	 *
-	 * The same list the session hands the model (`collectSkills`), so the menu cannot offer a skill
-	 * the agent does not have.
-	 */
-	skills: SkillEntry[];
-}
-
-/** What the menu needs to offer a skill. The body is not sent; the model reads it when asked. */
-export interface SkillEntry {
-	name: string;
-	description: string;
-	source: "workspace" | "user" | "builtin";
-	/** Set when it came from a bundle, which is also how it is named: `<plugin>:<skill>`. */
-	pluginId?: string;
-}
+export type { CommandsList, SkillEntry } from "../commands-service.ts";
 
 /** Where a newly created command goes, per scope. Only ours — nothing writes into `.claude`. */
 function directoryFor(scope: "workspace" | "user", cwd: string): string {
@@ -72,37 +47,7 @@ export function registerCommandsIpc(): void {
 	 * no checkout behind it never has one. User-level commands still apply in both cases.
 	 */
 	ipcMain.handle("commands:list", async (_event, cwd: string): Promise<CommandsList> => {
-		const { commands, diagnostics } = await loadCommands(commandSources(cwd || null, lyraHome()));
-		/*
-		 * Read fresh rather than taken from a live session: the menu opens whether or not one is
-		 * running, and installing a plugin has to show up without restarting anything.
-		 */
-		const bundles = await loadPlugins(
-			[
-				{ dir: join(cwd || lyraHome(), ".lyra", "plugins"), source: "workspace" as const },
-				{ dir: join(lyraHome(), "plugins"), source: "user" as const },
-			],
-			[],
-		).catch(() => ({ plugins: [] }));
-		const { skills } = await collectSkills(cwd || lyraHome(), bundles.plugins, settings()).catch(() => ({ skills: [] }));
-		return {
-			commands,
-			diagnostics,
-			/*
-			 * 内建命令跟着一起回去。
-			 *
-			 * 这一页回答的是「有哪些命令可以用」，而在此之前它的答案漏了 `/compact` `/clear`
-			 * `/commands` ——那三条只有 `/` 菜单知道，因为它们写在那个组件里。一个列表漏掉了
-			 * 用得最多的三条，比没有这个列表更误导。
-			 */
-			builtins: builtinCommandsFor(["compact", "clear", "manage-commands"]),
-			skills: skills.map((skill) => ({
-				name: skill.name,
-				description: skill.description,
-				source: skill.source,
-				...(skill.pluginId ? { pluginId: skill.pluginId } : {}),
-			})),
-		};
+		return listCommands(cwd, settings());
 	});
 
 	/**

@@ -18,7 +18,7 @@ import { useEffect, useState } from "react";
 import type { ForgeAccount, ForgeKindInfo } from "../../../electron/ipc-types.ts";
 import { Avatar } from "../pull-requests/index.ts";
 import { useAccountActions, useForgeAccounts } from "../pull-requests/index.ts";
-import { Button } from "../../ui/primitives/Button.tsx";
+import { IconButton } from "../../ui/primitives/IconButton.tsx";
 import { Badge, Card, EmptyHint, GhostButton, ListRow, SectionTitle, TextInput, Toggle } from "./controls.tsx";
 import { ForgeSignIn } from "./ForgeSignIn.tsx";
 import { bridge } from "../../services/index.ts";
@@ -43,9 +43,7 @@ export function ForgeSettings() {
 		<div className="pt-8">
 			<h1 className="text-display leading-tight font-semibold tracking-tight text-ink">代码托管</h1>
 			<p className="mt-2 max-w-[600px] pb-7 text-label leading-relaxed text-ink-muted">
-				添加账号后，「拉取请求」里会汇总所有账号下等你审查和由你创建的 Pull Request，可以直接评论、批准、请求修改。
-				支持 GitHub、GitLab、Gitee、Gitea/Forgejo，<strong className="font-medium text-ink">自建实例填自己的域名即可</strong>
-				，不依赖任何命令行工具。
+				连接代码托管账号，统一查看和审查 Pull Request。支持自建实例。
 			</p>
 
 			<SectionTitle>账号</SectionTitle>
@@ -111,20 +109,20 @@ export function ForgeSettings() {
 								 * 亮，这一行剩下的边框就只有开关那一个，而它是真的在表示状态。
 								 */
 								<>
-									<Button
-										variant="subtle"
+									<IconButton
+										className="ly-row-action"
 										size="sm"
 										label="重命名"
 										icon={<Pencil size={13} strokeWidth={1.8} />}
 										onClick={() => setEditing(account.id)}
 									/>
-									<Button
-										variant="subtle"
+									<IconButton
+										className="ly-row-action"
 										size="sm"
 										label="退出登录并删除令牌"
 										icon={<Trash2 size={13} strokeWidth={1.8} />}
 										onClick={() => void signOut(account.id)}
-										className="hover:text-danger"
+										tone="danger"
 									/>
 								</>
 							)
@@ -189,7 +187,7 @@ function RenameField({
 			value={value}
 			onChange={setValue}
 			autoFocus
-			className="h-[30px] w-full max-w-[280px]"
+			className="pointer-events-auto h-[26px] w-full max-w-[280px]"
 			onKeyDown={(event) => {
 				if (event.key === "Enter") onDone(value);
 				if (event.key === "Escape") onCancel();

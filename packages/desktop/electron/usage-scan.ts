@@ -13,56 +13,15 @@
  */
 
 import { createReadStream } from "node:fs";
-import { readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { lyraHome } from "@lyra/core";
+import { lyraHome, type ProviderConfig } from "@lyra/core";
+import { readUsageCache, USAGE_CACHE_VERSION, type UsageFileEntry, type UsageFiles } from "./usage-cache.ts";
+import { priceUsage, usagePricingKey, type TokenUsage } from "./usage-pricing.ts";
+import type { UsageBucket, UsageDay, UsageScan } from "./usage-types.ts";
 
-/** One day's spend on one model. The unit the page slices every way. */
-export interface UsageBucket {
-	/** `YYYY-MM-DD`, local. A turn at 23:00 belongs to the day you had it. */
-	day: string;
-	/** `${provider}/${model}` as the message recorded it — the wire names, not the local id. */
-	key: string;
-	provider: string;
-	model: string;
-	input: number;
-	output: number;
-	cacheRead: number;
-	cacheWrite: number;
-	cost: number;
-	/** Replies, which is what token counts belong to. */
-	replies: number;
-}
-
-/** One day, across every model. */
-export interface UsageDay {
-	day: string;
-	/** Conversations that said or heard anything that day. */
-	sessions: number;
-	/** Messages on both sides — what "how much did I talk to it" means. */
-	messages: number;
-}
-
-export interface UsageScan {
-	days: UsageDay[];
-	buckets: UsageBucket[];
-	/** How many logs were read this time, and how many were answered from the cache. */
-	scanned: number;
-	cached: number;
-	tookMs: number;
-}
-
-/** What one log contributed, kept so an unchanged file is never opened again. */
-interface FileEntry {
-	mtimeMs: number;
-	size: number;
-	buckets: UsageBucket[];
-	/** Messages per day in this one conversation; its presence is also its "active that day". */
-	days: Record<string, number>;
-}
-
-type Cache = Record<string, FileEntry>;
+export type { UsageBucket, UsageDay, UsageScan } from "./usage-types.ts";
 
 /** Local date key, deliberately not ISO/UTC. Mirrors `dayKey` in the settings page. */
 function dayKey(ms: number): string {
@@ -72,11 +31,20 @@ function dayKey(ms: number): string {
 	return `${date.getFullYear()}-${month}-${day}`;
 }
 
-function emptyEntry(mtimeMs: number, size: number): FileEntry {
+function asRecord(value: unknown): Record<string, unknown> | null {
+	return typeof value === "object" && value !== null ? Object.fromEntries(Object.entries(value)) : null;
+}
+
+function numberAt(record: Record<string, unknown> | null, key: string): number {
+	const value = record?.[key];
+	return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function emptyEntry(mtimeMs: number, size: number): UsageFileEntry {
 	return { mtimeMs, size, buckets: [], days: {} };
 }
 
-function bucketFor(entry: FileEntry, day: string, key: string, provider: string, model: string): UsageBucket {
+function bucketFor(entry: UsageFileEntry, day: string, key: string, provider: string, model: string): UsageBucket {
 	const found = entry.buckets.find((each) => each.day === day && each.key === key);
 	if (found) return found;
 	const fresh: UsageBucket = {
@@ -88,7 +56,19 @@ function bucketFor(entry: FileEntry, day: string, key: string, provider: string,
 		output: 0,
 		cacheRead: 0,
 		cacheWrite: 0,
+		reasoning: 0,
 		cost: 0,
+		inputCost: 0,
+		outputCost: 0,
+		cacheReadCost: 0,
+		cacheWriteCost: 0,
+		rawCost: 0,
+		cacheSavings: 0,
+		providerPricedTokens: 0,
+		catalogPricedTokens: 0,
+		manualPricedTokens: 0,
+		recordedPricedTokens: 0,
+		unpricedTokens: 0,
 		replies: 0,
 	};
 	entry.buckets.push(fresh);
@@ -103,7 +83,7 @@ function bucketFor(entry: FileEntry, day: string, key: string, provider: string,
  * crash mid-write is a thing that happens and losing one turn's numbers is not worth losing the
  * page over.
  */
-async function readLog(path: string, entry: FileEntry, size: number): Promise<void> {
+async function readLog(path: string, entry: UsageFileEntry, size: number, providers: ProviderConfig[]): Promise<void> {
 	const from = entry.size;
 	if (size <= from) return;
 
@@ -113,13 +93,14 @@ async function readLog(path: string, entry: FileEntry, size: number): Promise<vo
 		for await (const line of lines) {
 			// Cheaper than parsing: most records in a busy log are events, not messages.
 			if (!line.includes('"type":"message"')) continue;
-			let record: { type?: string; message?: Record<string, unknown> };
+			let parsed: unknown;
 			try {
-				record = JSON.parse(line) as typeof record;
+				parsed = JSON.parse(line);
 			} catch {
 				continue;
 			}
-			const message = record.type === "message" ? record.message : undefined;
+			const record = asRecord(parsed);
+			const message = record?.type === "message" ? asRecord(record.message) : null;
 			if (!message) continue;
 
 			const at = typeof message.timestamp === "number" ? message.timestamp : 0;
@@ -128,17 +109,35 @@ async function readLog(path: string, entry: FileEntry, size: number): Promise<vo
 			entry.days[day] = (entry.days[day] ?? 0) + 1;
 
 			if (message.role !== "assistant") continue;
-			const usage = (message.usage ?? {}) as Record<string, number | undefined> & {
-				cost?: { total?: number };
-			};
+			const usage = asRecord(message.usage);
 			const provider = String(message.provider ?? "unknown");
 			const model = String(message.model ?? "unknown");
 			const bucket = bucketFor(entry, day, `${provider}/${model}`, provider, model);
-			bucket.input += usage.input ?? 0;
-			bucket.output += usage.output ?? 0;
-			bucket.cacheRead += usage.cacheRead ?? 0;
-			bucket.cacheWrite += usage.cacheWrite ?? 0;
-			bucket.cost += usage.cost?.total ?? 0;
+			const tokens: TokenUsage = {
+				input: numberAt(usage, "input"),
+				output: numberAt(usage, "output"),
+				cacheRead: numberAt(usage, "cacheRead"),
+				cacheWrite: numberAt(usage, "cacheWrite"),
+			};
+			const priced = priceUsage(tokens, usage, providers, provider, model);
+			const tokenTotal = tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite;
+			bucket.input += tokens.input;
+			bucket.output += tokens.output;
+			bucket.cacheRead += tokens.cacheRead;
+			bucket.cacheWrite += tokens.cacheWrite;
+			bucket.reasoning += numberAt(usage, "reasoning");
+			bucket.cost += priced.cost.total;
+			bucket.inputCost += priced.cost.input;
+			bucket.outputCost += priced.cost.output;
+			bucket.cacheReadCost += priced.cost.cacheRead;
+			bucket.cacheWriteCost += priced.cost.cacheWrite;
+			bucket.rawCost += priced.rawCost;
+			bucket.cacheSavings += priced.cacheSavings;
+			if (priced.source === "provider") bucket.providerPricedTokens += tokenTotal;
+			else if (priced.source === "catalog") bucket.catalogPricedTokens += tokenTotal;
+			else if (priced.source === "manual") bucket.manualPricedTokens += tokenTotal;
+			else if (priced.source === "recorded") bucket.recordedPricedTokens += tokenTotal;
+			else bucket.unpricedTokens += tokenTotal;
 			bucket.replies += 1;
 		}
 	} finally {
@@ -169,16 +168,14 @@ async function logPaths(root: string): Promise<string[]> {
  * with what was recorded is re-read from scratch — including one that shrank, which means it was
  * rewritten rather than appended to and nothing about the old numbers can be trusted.
  */
-export async function scanUsage(home = lyraHome()): Promise<UsageScan> {
+export async function scanUsage(home = lyraHome(), providers: ProviderConfig[] = []): Promise<UsageScan> {
 	const started = Date.now();
 	const root = join(home, "sessions");
 	const cachePath = join(home, "usage-cache.json");
+	const currentPricingKey = usagePricingKey(providers);
+	const cache = await readUsageCache(cachePath, currentPricingKey);
 
-	const cache: Cache = await readFile(cachePath, "utf8")
-		.then((raw) => JSON.parse(raw) as Cache)
-		.catch(() => ({}));
-
-	const next: Cache = {};
+	const next: UsageFiles = {};
 	const days = new Map<string, UsageDay>();
 	const totals = new Map<string, UsageBucket>();
 	let scanned = 0;
@@ -204,7 +201,7 @@ export async function scanUsage(home = lyraHome()): Promise<UsageScan> {
 
 		if (untouched) cached += 1;
 		else {
-			await readLog(path, entry, info.size);
+			await readLog(path, entry, info.size, providers);
 			scanned += 1;
 		}
 		entry.mtimeMs = info.mtimeMs;
@@ -219,7 +216,7 @@ export async function scanUsage(home = lyraHome()): Promise<UsageScan> {
 			days.set(day, seen);
 		}
 		for (const bucket of entry.buckets) {
-			const id = `${bucket.day} ${bucket.key}`;
+			const id = `${bucket.day}\u0000${bucket.key}`;
 			const seen = totals.get(id);
 			if (!seen) {
 				totals.set(id, { ...bucket });
@@ -229,13 +226,25 @@ export async function scanUsage(home = lyraHome()): Promise<UsageScan> {
 			seen.output += bucket.output;
 			seen.cacheRead += bucket.cacheRead;
 			seen.cacheWrite += bucket.cacheWrite;
+			seen.reasoning += bucket.reasoning;
 			seen.cost += bucket.cost;
+			seen.inputCost += bucket.inputCost;
+			seen.outputCost += bucket.outputCost;
+			seen.cacheReadCost += bucket.cacheReadCost;
+			seen.cacheWriteCost += bucket.cacheWriteCost;
+			seen.rawCost += bucket.rawCost;
+			seen.cacheSavings += bucket.cacheSavings;
+			seen.providerPricedTokens += bucket.providerPricedTokens;
+			seen.catalogPricedTokens += bucket.catalogPricedTokens;
+			seen.manualPricedTokens += bucket.manualPricedTokens;
+			seen.recordedPricedTokens += bucket.recordedPricedTokens;
+			seen.unpricedTokens += bucket.unpricedTokens;
 			seen.replies += bucket.replies;
 		}
 	}
 
 	// Best effort: a cache that cannot be written costs a re-scan, which is not worth failing over.
-	await writeFile(cachePath, JSON.stringify(next), "utf8").catch(() => {});
+	await writeFile(cachePath, JSON.stringify({ version: USAGE_CACHE_VERSION, pricingKey: currentPricingKey, files: next }), "utf8").catch(() => {});
 
 	return {
 		days: [...days.values()].sort((a, b) => a.day.localeCompare(b.day)),

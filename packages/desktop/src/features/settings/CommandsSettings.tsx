@@ -16,10 +16,11 @@ import { FolderOpen, Plus, SquareTerminal, TriangleAlert, Wrench } from "lucide-
 import { useCallback, useEffect, useState } from "react";
 import type { AgentCapabilities } from "../../../electron/ipc-types.ts";
 import { useApp } from "../../store/index.ts";
-import { EmptyHint, GhostButton, PrimaryButton } from "./controls.tsx";
+import { EmptyHint, PrimaryButton } from "./controls.tsx";
 import { TextInput } from "./inputs.tsx";
 import { Card, ListRow, SectionTitle } from "./layout.tsx";
 import { bridge } from "../../services/index.ts";
+import { IconButton } from "../../ui/primitives/IconButton.tsx";
 import { RowDeleteButton } from "../../ui/primitives/RowDeleteButton.tsx";
 import { useDefinitionRemoval } from "./useDefinitionRemoval.tsx";
 
@@ -184,15 +185,9 @@ function SlashCommands() {
 			<div className="mb-2 flex items-center justify-between">
 				<SectionTitle>可用命令（{commands.length}）</SectionTitle>
 				<div className="flex items-center gap-1">
-					<GhostButton onClick={() => void bridge.commands.reveal("user", cwd)}>
-						<FolderOpen size={13} strokeWidth={1.9} />
-						个人目录
-					</GhostButton>
+					<IconButton label="打开个人命令目录" icon={<FolderOpen size={14} />} onClick={() => void bridge.commands.reveal("user", cwd)} />
 					{cwd && (
-						<GhostButton onClick={() => void bridge.commands.reveal("workspace", cwd)}>
-							<FolderOpen size={13} strokeWidth={1.9} />
-							项目目录
-						</GhostButton>
+						<IconButton label="打开项目命令目录" icon={<FolderOpen size={14} />} onClick={() => void bridge.commands.reveal("workspace", cwd)} />
 					)}
 				</div>
 			</div>

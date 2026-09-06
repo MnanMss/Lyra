@@ -1,3 +1,4 @@
+import { Input } from "../../ui/inputs/NativeField.tsx";
 import {
 	Archive,
 	Copy,
@@ -13,7 +14,7 @@ import { useState } from "react";
 import type { SessionMeta } from "@lyra/core";
 import { MenuBody, MenuItem, MenuSeparator, Popover, type Anchor } from "../../ui/overlay/Popover.tsx";
 import { useApp } from "../../store/index.ts";
-import { bridge } from "../../services/index.ts";
+import { bridge, onPhone } from "../../services/index.ts";
 
 export function SessionMenu({
 	anchor,
@@ -49,7 +50,7 @@ export function SessionMenu({
 					}}
 				>
 					<label className="block pb-1.5 text-detail text-ink-faint">会话标题</label>
-					<input
+					<Input
 						autoFocus
 						value={draft}
 						onChange={(e) => setDraft(e.target.value)}
@@ -208,7 +209,6 @@ export function SessionMenu({
 					icon={<Archive size={13} strokeWidth={1.8} />}
 					onClick={() => {
 						void setSessionArchived(session, true);
-						notify("已归档会话");
 						onClose();
 					}}
 				>
@@ -225,7 +225,7 @@ export function SessionMenu({
 					复制
 				</MenuItem>
 
-				<MenuItem
+				{!onPhone() && <MenuItem
 					icon={<ExternalLink size={13} strokeWidth={1.8} />}
 					onClick={() => {
 						void bridge.system.openExternal(`lyra://session/${session.id}`).catch(() => {});
@@ -234,7 +234,7 @@ export function SessionMenu({
 					}}
 				>
 					在新窗口中打开
-				</MenuItem>
+				</MenuItem>}
 			</MenuBody>
 		</Popover>
 	);

@@ -12,9 +12,11 @@
 
 import { Archive, X } from "lucide-react";
 import { StripButton } from "./SidebarTabs.tsx";
+import { useI18n } from "../../i18n/index.ts";
 
 export function ArchiveToggle({ open, count, onToggle }: { open: boolean; count: number; onToggle: () => void }) {
-	const label = open ? "退出归档" : count > 0 ? `已归档的聊天（${count}）` : "已归档的聊天";
+	const { t } = useI18n();
+	const label = open ? t("sidebar.exitArchive") : count > 0 ? t("sidebar.archivedCount", { count }) : t("sidebar.archived");
 
 	return (
 		<StripButton label={label} active={open} onClick={onToggle}>

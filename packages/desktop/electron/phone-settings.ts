@@ -41,6 +41,7 @@ import type { Settings } from "@lyra/core";
  *   disabledPlugins    switching a plugin off, which runs nothing by itself
  *   pinnedSessionIds   pinning a conversation
  *   commitLanguage     the language commit messages are written in
+	 *   uiLocale           the language Lyra itself uses
  *   retryAttempts      how many times a failed request is retried
  *   editor             which editor "open in" uses on the *desktop* — harmless, and the setting
  *                      lives on the page the phone can see
@@ -66,9 +67,41 @@ export const PHONE_WRITABLE = [
 	"disabledPlugins",
 	"pinnedSessionIds",
 	"commitLanguage",
+	"uiLocale",
 	"retryAttempts",
 	"editor",
+	"maxConcurrentSubAgents",
+	"modelRoles",
+	"subAgentProfiles",
 ] as const satisfies readonly (keyof Settings)[];
+
+/**
+ * A complete settings object the shared renderer can consume without receiving credentials.
+ *
+ * The renderer needs provider and model metadata for the composer picker, including each model's
+ * custom thinking levels. It never needs the bearer material used to call those providers. Keep
+ * the object complete so the shared UI follows the same code path, and replace every field that
+ * can authenticate, launch local code, or reveal the sync route.
+ */
+export function settingsForPhone(settings: Settings): Settings {
+	return {
+		...settings,
+		providers: settings.providers.map((provider) => ({
+			...provider,
+			apiKey: "",
+			headers: undefined,
+		})),
+		mcpServers: [],
+		hooks: [],
+		scheduledTasks: [],
+		searchApiKeys: {},
+		sync: {
+			enabled: settings.sync.enabled,
+			port: settings.sync.port,
+			token: null,
+		},
+	};
+}
 
 /**
  * The settings to actually save, given what a phone sent.

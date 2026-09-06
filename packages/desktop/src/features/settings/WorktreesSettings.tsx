@@ -1,3 +1,4 @@
+import { Input } from "../../ui/inputs/NativeField.tsx";
 import { FolderGit2, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useApp } from "../../store/index.ts";
@@ -92,7 +93,7 @@ export function WorktreesSettings() {
 					title="工作树根目录"
 					detail="ChatGPT / Agent 创建托管工作树的目录。留空则默认保存在项目同级目录下"
 					control={
-						<input
+						<Input
 							type="text"
 							value={rootDir}
 							placeholder="~/.lyra/worktrees"
@@ -168,7 +169,7 @@ export function WorktreesSettings() {
 					title="自动删除限制"
 					detail="要保留的托管工作树数量；超过后，较旧的工作树会自动被清理。"
 					control={
-						<input
+						<Input
 							type="number"
 							min={1}
 							max={100}

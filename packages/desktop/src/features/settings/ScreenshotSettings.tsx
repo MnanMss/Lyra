@@ -1,5 +1,5 @@
 /**
- * Screenshot settings page (macOS only).
+ * Screenshot settings shared by every desktop platform.
  *
  * Allows customizing screen capture shortcut, default save directory,
  * clipboard copy preference, and whether to open the annotator immediately.
@@ -25,6 +25,7 @@ export function ScreenshotSettings() {
 	if (!settings) return null;
 
 	const config = settings.screenshot ?? {
+		enabled: true,
 		shortcut: "Alt+A",
 		saveLocation: "",
 		showInComposer: false,
@@ -59,6 +60,11 @@ export function ScreenshotSettings() {
 			<SectionTitle>快捷键与入口</SectionTitle>
 			<Card className="mb-9">
 				<Row
+					title="启用屏幕截图"
+					detail="关闭后释放全局快捷键，方便使用其他截图工具。"
+					control={<Toggle checked={config.enabled !== false} onChange={(enabled) => patch({ enabled })} />}
+				/>
+				<Row
 					title="截图全局快捷键"
 					detail="在任意界面按下该快捷键即可触发系统交互式区域截图（点击后直接按键盘设置）"
 					control={
@@ -89,7 +95,7 @@ export function ScreenshotSettings() {
 					title="测试截图"
 					detail="立即触发一次屏幕区域截图"
 					control={
-						<GhostButton icon={<Camera size={14} />} onClick={() => void bridge.screenshot.start()}>
+						<GhostButton disabled={config.enabled === false} icon={<Camera size={14} />} onClick={() => void bridge.screenshot.start().catch((error: unknown) => useApp.getState().notify(String(error), "error"))}>
 							立即截屏
 						</GhostButton>
 					}

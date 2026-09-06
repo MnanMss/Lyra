@@ -47,6 +47,21 @@ export interface Method extends Reach {
  * written.
  */
 export const METHODS = {
+	delivery: {
+		get: { channel: "delivery:get", remote: false, why: "本机文件差异和实现记录" },
+		undo: { channel: "delivery:undo", remote: false, why: "恢复本轮文件，要求本机审阅" },
+	},
+	services: {
+		list: { channel: "services:list", remote: false, why: "读取本机进程和监听端口" },
+		stop: { channel: "services:stop", remote: false, why: "停止当前会话拥有的本机进程" },
+	},
+	browser: {
+		state: { channel: "browser:state", remote: false, why: "浏览器在桌面端显示" },
+		command: { channel: "browser:command", remote: false, why: "控制本机网页与开发工具" },
+		attach: { channel: "browser:attach", remote: false, why: "连接本机窗口的浏览器页面" },
+		inspect: { channel: "browser:inspect", remote: false, why: "需要在本机网页中选取元素" },
+		cancelInspect: { channel: "browser:cancelInspect", remote: false, why: "本机页面检查状态" },
+	},
 	settings: {
 		get: { channel: "settings:get", remote: true },
 		save: { channel: "settings:save", remote: true },
@@ -67,15 +82,16 @@ export const METHODS = {
 		create: { channel: "sessions:create", remote: true },
 		open: { channel: "sessions:open", remote: true },
 		transcript: { channel: "sessions:transcript", remote: true },
-		trajectory: { channel: "sessions:trajectory", remote: false, why: "完整轨迹给桌面端的审阅视图用，手机上没有那个界面" },
-		fork: { channel: "sessions:fork", remote: false, why: "分叉出新会话是编辑动作，手机上没有入口" },
+		trajectory: { channel: "sessions:trajectory", remote: true },
+		exportTrajectory: { channel: "sessions:exportTrajectory", remote: false, why: "生成本机完整轨迹检查文件" },
+		fork: { channel: "sessions:fork", remote: true },
 		remove: { channel: "sessions:remove", remote: true },
 		setArchived: { channel: "sessions:setArchived", remote: true },
 		removeArchived: { channel: "sessions:removeArchived", remote: false, why: "批量删除且不可撤销——不该由一部可能丢失的手机发起" },
 		capabilities: { channel: "sessions:capabilities", remote: true },
 		rename: { channel: "sessions:rename", remote: true },
-		compact: { channel: "sessions:compact", remote: false, why: "手动压缩要看得见上下文分项，那是桌面端的圆环" },
-		contextBreakdown: { channel: "sessions:contextBreakdown", remote: false, why: "分项面板只在桌面端" },
+		compact: { channel: "sessions:compact", remote: true },
+		contextBreakdown: { channel: "sessions:contextBreakdown", remote: true },
 	},
 	agent: {
 		prompt: { channel: "agent:prompt", remote: true },
@@ -94,24 +110,24 @@ export const METHODS = {
 		 * 见过它。以实现为准：手机上要显示一个回合里派出了哪些子智能体，那是只读的。
 		 */
 		list: { channel: "subagents:list", remote: true },
-		detail: { channel: "subagents:detail", remote: false, why: "详情面板只在桌面端，手机上没有展开它的位置" },
-		steer: { channel: "subagents:steer", remote: false, why: "给正在跑的子智能体插话，是编辑动作" },
-		abort: { channel: "subagents:abort", remote: false, why: "中止别人的回合，不该由一部可能丢失的手机发起" },
-		dismiss: { channel: "subagents:dismiss", remote: false, why: "同上，且不可撤销" },
-		dismissFinished: { channel: "subagents:dismissFinished", remote: false, why: "批量关闭，同上" },
+		detail: { channel: "subagents:detail", remote: true },
+		steer: { channel: "subagents:steer", remote: true },
+		abort: { channel: "subagents:abort", remote: true },
+		dismiss: { channel: "subagents:dismiss", remote: true },
+		dismissFinished: { channel: "subagents:dismissFinished", remote: true },
 	},
 	sideChat: {
-		state: { channel: "sidechat:state", remote: false, why: "桌面端专有" },
-		ask: { channel: "sidechat:ask", remote: false, why: "桌面端专有" },
-		editAndResend: { channel: "sidechat:editAndResend", remote: false, why: "桌面端专有" },
-		abort: { channel: "sidechat:abort", remote: false, why: "桌面端专有" },
-		reset: { channel: "sidechat:reset", remote: false, why: "桌面端专有" },
+		state: { channel: "sidechat:state", remote: true },
+		ask: { channel: "sidechat:ask", remote: true },
+		editAndResend: { channel: "sidechat:editAndResend", remote: true },
+		abort: { channel: "sidechat:abort", remote: true },
+		reset: { channel: "sidechat:reset", remote: true },
 	},
 	tasks: {
-		list: { channel: "tasks:list", remote: false, why: "队列在桌面端跑" },
-		cancel: { channel: "tasks:cancel", remote: false, why: "队列在桌面端跑" },
-		dismiss: { channel: "tasks:dismiss", remote: false, why: "队列在桌面端跑" },
-		resume: { channel: "tasks:resume", remote: false, why: "队列在桌面端跑" },
+		list: { channel: "tasks:list", remote: true },
+		cancel: { channel: "tasks:cancel", remote: true },
+		dismiss: { channel: "tasks:dismiss", remote: true },
+		resume: { channel: "tasks:resume", remote: true },
 	},
 	format: {
 		external: { channel: "format:external", remote: false, why: "调用本机装的格式化器" },
@@ -119,8 +135,8 @@ export const METHODS = {
 		config: { channel: "format:config", remote: false, why: "调用本机装的格式化器" },
 	},
 	files: {
-		list: { channel: "files:list", remote: false, why: "读写任意路径" },
-		read: { channel: "files:read", remote: false, why: "读写任意路径" },
+		list: { channel: "files:list", remote: true },
+		read: { channel: "files:read", remote: true },
 		document: { channel: "files:document", remote: false, why: "读写任意路径" },
 		bytes: { channel: "files:bytes", remote: false, why: "读写任意路径" },
 		write: { channel: "files:write", remote: false, why: "读写任意路径" },
@@ -154,7 +170,7 @@ export const METHODS = {
 		rotateToken: { channel: "sync:rotateToken", remote: false, why: "同步服务由桌面端管，手机是它的客户端" },
 	},
 	commands: {
-		list: { channel: "commands:list", remote: false, why: "读本机磁盘上的命令定义" },
+		list: { channel: "commands:list", remote: true },
 		create: { channel: "commands:create", remote: false, why: "读本机磁盘上的命令定义" },
 		reveal: { channel: "commands:reveal", remote: false, why: "读本机磁盘上的命令定义" },
 		open: { channel: "commands:open", remote: false, why: "读本机磁盘上的命令定义" },

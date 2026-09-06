@@ -1,7 +1,7 @@
 /**
  * The live sessions, and how their events get out.
  *
- * A session is expensive: it owns MCP servers as real child processes and a headless browser. So
+ * A session is expensive: it owns MCP servers as real child processes and a visible browser tabs. So
  * this is also where they are kept to a bounded number and evicted by recency — an afternoon of
  * moving between conversations should not leave a dozen sets of processes running.
  *
@@ -9,10 +9,12 @@
  * keeps the map from being reachable — and therefore mutable — from six different files.
  */
 
-import { AgentSession, type AgentEvent, type SessionStorage, type Settings, type SideChat } from "@lyra/core";
+import { AgentSession, backgroundJobs, type AgentEvent, type SessionStorage, type Settings, type SideChat } from "@lyra/core";
 import type { BrowserWindow } from "electron";
+import { browserState, closeSessionBrowser } from "./browser-workspace.ts";
 import { createBrowserTools } from "./browser-tools.ts";
 import { autoCreateSessionWorktree, cleanOldWorktrees } from "./git-worktrees.ts";
+import type { SessionChange } from "./ipc-shapes.ts";
 import type { SessionSnapshot, LyraApi } from "./ipc-types.ts";
 import { createStoredSession, type InitialPrompt } from "./create-session.ts";
 import { initialPrompt, promptContent, promptOptions } from "./prompt-input.ts";
@@ -23,7 +25,11 @@ export interface HubDeps {
 	settings(): Settings;
 	window(): BrowserWindow | null;
 	/** Events also go to connected phones, when the sync server is up. */
-	sync?(): { broadcast(sessionId: string, event: AgentEvent): void } | null;
+	sync?(): {
+		broadcast(sessionId: string, event: AgentEvent): void;
+		broadcastSideChat(sessionId: string, event: AgentEvent): void;
+		broadcastSessionChange(change: SessionChange): void;
+	} | null;
 }
 
 let deps: HubDeps = {
@@ -85,6 +91,26 @@ export const browsers = new Map<string, () => void>();
 export const sideChats = new Map<string, SideChat>();
 
 
+export async function editSessionMessage(sessionId: string, index: number, content: Parameters<LyraApi["agent"]["editMessage"]>[2]): Promise<void> {
+	const session = await ensureLiveSession(sessionId);
+	if (!session) throw new Error("找不到这个会话。");
+	if (session.running) throw new Error("请先停止当前回复，再编辑消息。");
+	// Acknowledge submission immediately; the rerun and any failure arrive on the shared stream.
+	void session.editAndResend(index, content).catch((error: unknown) => {
+		const message = error instanceof Error ? error.message : String(error);
+		broadcast(sessionId, { type: "notice", level: "error", message });
+		broadcast(sessionId, { type: "agent_end", reason: "error", error: message });
+	});
+}
+
+export function broadcastSessionChange(change: SessionChange): void {
+	const win = deps.window();
+	if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+		win.webContents.send("sessions:changed", change);
+	}
+	deps.sync?.()?.broadcastSessionChange(change);
+}
+
 export function broadcast(sessionId: string, event: AgentEvent): void {
 	const win = deps.window();
 	if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
@@ -94,16 +120,14 @@ export function broadcast(sessionId: string, event: AgentEvent): void {
 }
 
 /**
- * Side-chat events go to this window and nowhere else.
- *
- * Not to the sync server: the side chat is memory-only and belongs to the machine you are
- * sitting at. A phone replaying the session log would have no conversation to attach these to.
+ * Side-chat events have their own channel on both transports so they cannot enter the main thread.
  */
 export function broadcastSideChat(sessionId: string, event: AgentEvent): void {
 	const win = deps.window();
 	if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
 		win.webContents.send("sidechat:event", { sessionId, event });
 	}
+	deps.sync?.()?.broadcastSideChat(sessionId, event);
 }
 
 export async function getOrCreateSession(cwd: string, _modelId: string): Promise<AgentSession> {
@@ -148,7 +172,7 @@ export async function getOrCreateSession(cwd: string, _modelId: string): Promise
 /**
  * How many sessions stay warm.
  *
- * Each one owns its MCP servers — real child processes — plus a headless browser, so an
+ * Each one owns its MCP servers — real child processes — plus a visible browser tabs, so an
  * unbounded map meant an afternoon of browsing left a dozen sets of them running. Three keeps
  * the conversations you are actually moving between instant without hoarding processes.
  */
@@ -183,6 +207,7 @@ export async function disposeSession(sessionId: string): Promise<void> {
 	submitted.delete(sessionId);
 	try { await initializing.get(sessionId); } catch { /* Failed initialization still owns resources to release. */ }
 	await sessions.get(sessionId)?.dispose();
+	closeSessionBrowser(sessionId);
 	browsers.get(sessionId)?.();
 	browsers.delete(sessionId);
 	// A side chat reads its session's live message list; without the session it has nothing
@@ -236,7 +261,8 @@ async function startStoredSession(projectId: string, sessionId: string): Promise
 		return session;
 	} catch (cause) {
 		await session.dispose();
-		browsers.get(sessionId)?.();
+		closeSessionBrowser(sessionId);
+	browsers.get(sessionId)?.();
 		ready.delete(sessionId);
 		sessions.delete(sessionId); browsers.delete(sessionId);
 		throw cause;
@@ -268,6 +294,8 @@ async function evictStaleSessions(keep: string): Promise<void> {
 		// An open side chat is a conversation in progress, same as a running turn — evicting
 		// its session would silently throw that conversation away.
 		if (id === keep || session.running || session.meta.pendingPrompt || initializing.has(id) || sideChats.has(id)) continue;
+		if (browserState().tabs.some((tab) => tab.sessionId === id)) continue;
+		if (backgroundJobs(session.can.state).list().some((job) => job.status === "running" || job.status === "stopping")) continue;
 		await disposeSession(id);
 	}
 }

@@ -11,6 +11,7 @@
  * about how you work rather than about this visit.
  */
 
+import { Input } from "../../ui/inputs/NativeField.tsx";
 import { ChevronRight, RefreshCw, Search, UserPlus } from "lucide-react";
 import { useState } from "react";
 import type { ForgeAccount, PullRequestSummary } from "../../../electron/ipc-types.ts";
@@ -175,7 +176,7 @@ export function PullRequestList({
 			<div className="shrink-0 px-3 pt-1 pb-2">
 				<label className="flex h-[32px] items-center gap-2 rounded-[9px] border border-line px-2.5 focus-within:border-ink-faint">
 					<Search size={13} strokeWidth={1.9} className="shrink-0 text-ink-faint" />
-					<input
+					<Input
 						value={query}
 						onChange={(event) => onQuery(event.target.value)}
 						placeholder="搜索 Pull Request"

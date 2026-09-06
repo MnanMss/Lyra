@@ -28,6 +28,7 @@ import { useTrayCommands } from "./window/tray-commands.ts";
 import { useFileTreeStore } from "../store/fileTree.ts";
 import { useMemoryPass } from "../features/memory/useMemoryPass.ts";
 import { WINDOW_HEADER_HEIGHT } from "../../shared/window-chrome.ts";
+import { useBrowserWorkspace } from "../features/browser/index.ts";
 
 /*
  * The screens that are not a conversation, fetched when they are first opened.
@@ -71,10 +72,12 @@ import { useOpenFile } from "../store/openFile.ts";
 import { useTerminalPrewarm } from "../features/terminal/index.ts";
 import { applyAppearance, watchSystemTheme } from "../features/settings/index.ts";
 import { bridge } from "../services/index.ts";
+import { I18nProvider, useI18n } from "../i18n/index.ts";
 
 export function App() {
 	const ready = useApp((s) => s.ready);
 	const bootstrap = useApp((s) => s.bootstrap);
+	const uiLocale = useApp((s) => s.settings?.uiLocale ?? "system");
 
 	useEffect(() => {
 		void bootstrap();
@@ -122,6 +125,7 @@ export function App() {
 	 * 「这个项目的历史会话里有没有值得记的」。
 	 */
 	useMemoryPass();
+	useBrowserWorkspace();
 
 	/*
 	 * The boot screen has a floor as well as a ceiling.
@@ -137,10 +141,9 @@ export function App() {
 		return () => window.clearTimeout(timer);
 	}, []);
 
-	if (!ready || !settled) return <BootScreen />;
-
 	return (
-		<LayoutProvider>
+		<I18nProvider locale={uiLocale}>
+		{!ready || !settled ? <BootScreen /> : <LayoutProvider>
 			<Shell />
 			{/*
 			 * One viewer for the whole window, outside the shell.
@@ -168,7 +171,8 @@ export function App() {
 			 * window rather than to any one view.
 			 */}
 			<Toaster />
-		</LayoutProvider>
+		</LayoutProvider>}
+		</I18nProvider>
 	);
 }
 
@@ -228,8 +232,9 @@ function Shell() {
  * phone, loading the same bundle across a relay, that this is for.
  */
 function LazyScreen({ children, shape = "list" }: { children: React.ReactNode; shape?: "settings" | "list" | "grid" }) {
+	const { t } = useI18n();
 	const fallback =
-		shape === "settings" ? <SettingsFallback /> : shape === "grid" ? <SkeletonGrid count={6} label="正在打开" /> : <SkeletonList count={6} label="正在打开" />;
+		shape === "settings" ? <SettingsFallback /> : shape === "grid" ? <SkeletonGrid count={6} label={t("common.loading")} /> : <SkeletonList count={6} label={t("common.loading")} />;
 	return <Suspense fallback={fallback}>{children}</Suspense>;
 }
 
@@ -249,9 +254,10 @@ function LazyScreen({ children, shape = "list" }: { children: React.ReactNode; s
  */
 function SettingsFallback() {
 	const { compact, sidebarWidth } = useLayout();
+	const { t } = useI18n();
 
 	return (
-		<div className="ly-shell relative flex h-full" role="status" aria-label="正在打开">
+		<div className="ly-shell relative flex h-full" role="status" aria-label={t("common.loading")}>
 			{!compact && (
 				<div className="ly-sidebar-fill flex h-full shrink-0 flex-col" style={{ width: sidebarWidth }}>
 					<div className="shrink-0" style={{ height: WINDOW_HEADER_HEIGHT }} />
@@ -276,7 +282,7 @@ function SettingsFallback() {
 						<SkeletonBar width="min(300px, 52%)" height={10} className="mt-2" />
 					</div>
 					<div className="pt-7">
-						<SkeletonList count={4} label="正在打开" />
+						<SkeletonList count={4} label={t("common.loading")} />
 					</div>
 				</div>
 			</div>
@@ -296,6 +302,7 @@ function SettingsFallback() {
 function useMainPane() {
 	const view = useApp((s) => s.view);
 	const meta = useApp((s) => s.meta);
+	const { t } = useI18n();
 
 	/*
 	 * `solo` marks the screens that are not a conversation in a project.
@@ -306,13 +313,13 @@ function useMainPane() {
 	 * not merely empty on those screens, they are about somewhere else, and they step aside.
 	 */
 	if (view === "pull-requests") {
-		return { title: "拉取请求", icon: <GitPullRequest size={12.5} strokeWidth={1.8} />, solo: true };
+		return { title: t("app.pullRequests"), icon: <GitPullRequest size={12.5} strokeWidth={1.8} />, solo: true };
 	}
 	if (view === "plugins") {
-		return { title: "插件", icon: <Puzzle size={12.5} strokeWidth={1.8} />, solo: true };
+		return { title: t("app.plugins"), icon: <Puzzle size={12.5} strokeWidth={1.8} />, solo: true };
 	}
 	if (view === "scheduled") {
-		return { title: "计划任务", icon: <CalendarClock size={12.5} strokeWidth={1.8} />, solo: true };
+		return { title: t("app.scheduledTasks"), icon: <CalendarClock size={12.5} strokeWidth={1.8} />, solo: true };
 	}
 	return {
 		title: sessionTitle(meta?.title),
@@ -342,6 +349,7 @@ function ChatShell({ settings }: { settings: boolean }) {
 	const attach = useSide((s) => s.attach);
 	const { drawn: sidebarDrawn, max: sidebarMax } = useSidebarFit();
 	const main = useMainPane();
+	const { t } = useI18n();
 
 	// The side chat reads the session it is attached to, so it follows whichever one is open.
 	useEffect(() => {
@@ -355,7 +363,7 @@ function ChatShell({ settings }: { settings: boolean }) {
 
 	return (
 		<div className="ly-shell relative flex h-full overflow-hidden">
-			<NavPane width={sidebarDrawn} maxWidth={sidebarMax} label="侧边栏">
+			<NavPane width={sidebarDrawn} maxWidth={sidebarMax} label={t("app.sidebar")}>
 				<Sidebar />
 			</NavPane>
 

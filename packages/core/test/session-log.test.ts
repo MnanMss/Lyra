@@ -115,6 +115,9 @@ test("the context the model was given is written down, once", async () => {
 		assert.match(first.event.systemPrompt, /Lyra/, "the prompt itself is kept, not a hash of it");
 		assert.ok(first.event.tools.includes("bash"), "and which tools it could reach");
 		assert.deepEqual([...first.event.tools].sort(), first.event.tools, "recorded in a stable order");
+		assert.ok(first.event.schemas?.some(tool => tool.name === "bash" && tool.parameters), "the actual tool schemas survive a restart");
+		const requests = (await h.records()).filter(record => record.type === "event" && record.event.type === "request");
+		assert.equal(requests.length, 2, "each model invocation has a durable start boundary");
 	} finally {
 		await h.cleanup();
 	}
@@ -172,11 +175,17 @@ test("a delegated turn is written down: what it was sent, what it did, what it s
 		assert.equal(start.event.agent, "explore");
 		assert.equal(start.event.prompt, "Find out why the build is slow.");
 		assert.ok(!start.event.tools.includes("write"), "and the narrower tool set it was given");
+		const childId = start.event.id;
 
 		const end = records.find((r) => r.type === "event" && r.event.type === "subagent_done");
 		if (end?.type !== "event" || end.event.type !== "subagent_done") throw new Error("no result record");
 		assert.equal(end.event.id, start.event.id, "the two halves are joinable");
 		assert.equal(end.event.answer, "the cache is cold on every build");
+		const messages = records.filter(record => record.type === "event" && record.event.type === "subagent_message" && record.event.id === childId);
+		assert.ok(messages.some(record => record.type === "event" && record.event.type === "subagent_message" && record.event.message.role === "assistant"), "the child transcript is durable, not just its final summary");
+		for (const type of ["request", "context", "turn_start"]) {
+			assert.ok(records.some(record => record.type === "event" && record.event.type === "subagent_event" && record.event.id === childId && record.event.event.type === type), `child ${type} retains its scope`);
+		}
 	} finally {
 		await h.cleanup();
 	}

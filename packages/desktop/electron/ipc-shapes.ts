@@ -18,6 +18,12 @@ export interface RefDiff {
 }
 
 export type { BranchList };
+
+export interface SessionChange {
+	id: string;
+	projectId: string;
+	meta: SessionMeta | null;
+}
 import type {
 	CommandRun,
 	ContextBreakdown,
@@ -101,6 +107,8 @@ export interface FileOpResult {
 }
 
 export interface FileContents {
+	/** Granted contextual files outside the project are readable, never writable through this channel. */
+	readOnly?: boolean;
 	text: string;
 	/** True when the file was longer than the read cap and only its head is here. */
 	truncated: boolean;

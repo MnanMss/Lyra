@@ -87,12 +87,14 @@ export const SANDBOX = "sandbox";
  * a local process — a container, another machine — can satisfy it without pretending to be one.
  */
 export interface SandboxProcess {
+	/** Available for locally owned processes; remote sandboxes may omit it. */
+	readonly pid?: number;
 	/** stdout and stderr interleaved, in arrival order, as the shell would have shown them. */
 	onOutput(listener: (chunk: string) => void): void;
 	onExit(listener: (code: number | null) => void): void;
 	/** The command could not be started at all. Exit is not reported after this. */
 	onError(listener: (error: Error) => void): void;
-	kill(): void;
+	kill(signal?: "SIGTERM" | "SIGKILL"): void;
 }
 
 export interface Sandbox {

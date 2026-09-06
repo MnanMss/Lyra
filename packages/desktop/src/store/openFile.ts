@@ -252,6 +252,7 @@ export const useOpenFile = create<OpenFileState>((set, get) => ({
 		if (text === undefined || text === contents.text) return null;
 		// Truncated files must not be saved: writing back the head would delete the rest.
 		if (contents.truncated) return "文件过大，只读";
+		if (contents.readOnly) return "上下文文件，只读";
 		const result = await bridge.files.write(path, text);
 		if (!result.ok) return result.error ?? "写入失败";
 		get().setDraft(path, undefined);

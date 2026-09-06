@@ -20,11 +20,14 @@ import {
 	type ThinkingLevel,
 	type UserContent,
 } from "@lyra/core";
+import { grantArtifactRead } from "../readable-artifacts.ts";
+import { exportTrajectory } from "../trajectory-export.ts";
 import { ipcMain } from "electron";
 import { cleanOldWorktrees } from "../git-worktrees.ts";
 import type { AgentCapabilities } from "../ipc-types.ts";
 import {
 	activateSession,
+	editSessionMessage,
 	broadcast,
 	disposeSession,
 	ensureLiveSession,
@@ -49,6 +52,7 @@ export function registerSessionsIpc({
 	saveSettings,
 }: SessionsIpcDeps): void {
 	const store = readStore();
+	ipcMain.handle("sessions:exportTrajectory", (_event, projectId: string, sessionId: string, format: "json" | "md" | "output", selection?: { id?: string; correlationId?: string }) => exportTrajectory(store, projectId, sessionId, format, selection, sessions.get(sessionId)?.running ?? false));
 
 	ipcMain.handle("sessions:list", async () => store.listSessions());
 
@@ -86,13 +90,13 @@ export function registerSessionsIpc({
 	ipcMain.handle(
 		"sessions:trajectory",
 		async (_event, projectId: string, sessionId: string) =>
-			readTrajectory(store as never, projectId, sessionId),
+			readTrajectory(store, projectId, sessionId, sessions.get(sessionId)?.running ?? false),
 	);
 
 	ipcMain.handle(
 		"sessions:fork",
 		async (_event, projectId: string, sessionId: string, seq: number) =>
-			forkSession(store as never, projectId, sessionId, seq),
+			forkSession(store, projectId, sessionId, seq),
 	);
 
 	ipcMain.handle(
@@ -203,7 +207,9 @@ export function registerSessionsIpc({
 		"sessions:contextBreakdown",
 		async (_event, sessionId: string): Promise<ContextBreakdown | null> => {
 			const session = await ensureSession(sessionId);
-			return session ? session.contextBreakdown() : null;
+			const detail = session ? await session.contextBreakdown() : null;
+			for (const file of [...(detail?.memoryFiles ?? []), ...(detail?.projectMemoryFiles ?? [])]) grantArtifactRead(file.path);
+			return detail;
 		},
 	);
 
@@ -314,23 +320,7 @@ export function registerSessionsIpc({
 			messageIndex: number,
 			content: UserContent[],
 		) => {
-			const session = await ensureSession(sessionId);
-			if (!session) throw new Error(`Session ${sessionId} is not open.`);
-			// Not awaited, same as `prompt`: the re-run streams back over IPC and can take minutes.
-			void session
-				.editAndResend(messageIndex, content)
-				.catch((error: unknown) => {
-					broadcast(sessionId, {
-						type: "notice",
-						level: "error",
-						message: error instanceof Error ? error.message : String(error),
-					});
-					broadcast(sessionId, {
-						type: "agent_end",
-						reason: "error",
-						error: String(error),
-					});
-				});
+			await editSessionMessage(sessionId, messageIndex, content);
 		},
 	);
 
@@ -370,17 +360,9 @@ export function registerSessionsIpc({
 	ipcMain.handle(
 		"agent:setModel",
 		async (_event, sessionId: string, modelId: string) => {
-			const live = sessions.get(sessionId);
-			if (live) {
-				// Returns false once the conversation has started; the model is settled by then.
-				await live.setModel(modelId);
-				return;
-			}
-			// Not warm: write the choice straight to the log rather than starting an agent for it.
-			// The same rule applies — a stored session with messages keeps the model it ran on.
-			const meta = (await store.listSessions()).find((s) => s.id === sessionId);
-			if (meta && meta.messageCount === 0)
-				await store.append(meta, { type: "meta", meta: { ...meta, modelId } });
+			// Switching a cold conversation must apply the same provider-handle cleanup as a warm one.
+			const session = await ensureSession(sessionId);
+			await session?.setModel(modelId);
 		},
 	);
 

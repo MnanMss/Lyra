@@ -9,12 +9,13 @@
  * what is opened are the same string — see `resolveInside`.
  */
 
+import { readableArtifact } from "../readable-artifacts.ts";
 import { ipcMain } from "electron";
-import { readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import { documentKind } from "../../shared/document-kind.ts";
 import { readDatabase, readWorkbook, type DocumentData } from "../documents.ts";
-import { join } from "node:path";
 import type { FileContents, FileEntry } from "../ipc-types.ts";
+import { listReadableFiles, readReadableFile } from "../file-read-service.ts";
 
 export interface FilesIpcDeps {
 	/** The path, normalised, if it lies in an open project — otherwise null. */
@@ -22,25 +23,7 @@ export interface FilesIpcDeps {
 }
 
 export function registerFilesIpc({ projectPath }: FilesIpcDeps): void {
-	ipcMain.handle("files:list", async (_event, raw: string): Promise<FileEntry[]> => {
-		const dir = projectPath(raw);
-		if (!dir) return [];
-		const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
-		const out = await Promise.all(
-			entries.map(async (entry) => {
-				const path = join(dir, entry.name);
-				const info = entry.isDirectory() ? null : await stat(path).catch(() => null);
-				return { name: entry.name, path, isDirectory: entry.isDirectory(), size: info?.size ?? 0 };
-			}),
-		);
-		// Directories first, then case-insensitive by name — the order a file list is read in.
-		return out.sort((a, b) =>
-			a.isDirectory === b.isDirectory ? a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) : a.isDirectory ? -1 : 1,
-		);
-	});
-
-	/** Enough for any source file; past this it is generated output nobody reads in a panel. */
-	const FILE_READ_CAP = 512 * 1024;
+	ipcMain.handle("files:list", async (_event, raw: string): Promise<FileEntry[]> => listReadableFiles(projectPath(raw)));
 	/**
 	 * And a much larger one for documents, which are compressed archives rather than source.
 	 *
@@ -82,25 +65,9 @@ export function registerFilesIpc({ projectPath }: FilesIpcDeps): void {
 	});
 
 	ipcMain.handle("files:read", async (_event, raw: string): Promise<FileContents | null> => {
-		const path = projectPath(raw);
-		if (!path) return null;
-		const info = await stat(path).catch(() => null);
-		if (!info?.isFile()) return null;
-
-		const buffer = await readFile(path).catch(() => null);
-		if (!buffer) return null;
-
-		// A NUL byte in the first block is the classic, and reliable enough, binary tell.
-		const head = buffer.subarray(0, 8000);
-		if (head.includes(0)) return { text: "", truncated: false, bytes: info.size, binary: true, modifiedAt: info.mtimeMs };
-
-		const clipped = buffer.subarray(0, FILE_READ_CAP);
-		return {
-			text: clipped.toString("utf8"),
-			truncated: buffer.byteLength > FILE_READ_CAP,
-			bytes: info.size,
-			modifiedAt: info.mtimeMs,
-		};
+		const writable = projectPath(raw);
+		const path = writable ?? readableArtifact(raw);
+		return readReadableFile(path, !writable);
 	});
 
 	ipcMain.handle("files:write", async (_event, raw: string, text: string) => {

@@ -54,13 +54,13 @@ function session(emit: (event: AgentEvent) => void) {
 	});
 }
 
-test("steering a running sub-agent emits the message, so a window can show it", () => {
+test("steering a running sub-agent emits the message, so a window can show it", async () => {
 	const events: AgentEvent[] = [];
 	const agent = session((event) => events.push(event));
 	agent.subAgents.start({ id: "sub1", agent: "explore", description: "找一处代码", abort: () => {} });
 	events.length = 0;
 
-	assert.equal(agent.steerSubAgent("sub1", "别看测试目录"), true);
+	assert.equal(await agent.steerSubAgent("sub1", "别看测试目录"), true);
 
 	const message = events.find((event) => event.type === "subagent_message");
 	assert.ok(message, `no subagent_message was emitted; got ${events.map((e) => e.type).join(", ")}`);
@@ -71,7 +71,7 @@ test("steering a running sub-agent emits the message, so a window can show it", 
 	);
 });
 
-test("steering a finished sub-agent emits nothing and says it failed", () => {
+test("steering a finished sub-agent emits nothing and says it failed", async () => {
 	// Emitting here would put a message in the pane for something that will never read it.
 	const events: AgentEvent[] = [];
 	const agent = session((event) => events.push(event));
@@ -79,7 +79,7 @@ test("steering a finished sub-agent emits nothing and says it failed", () => {
 	agent.subAgents.finish("sub1", { status: "done", answer: "" });
 	events.length = 0;
 
-	assert.equal(agent.steerSubAgent("sub1", "再看看"), false);
+	assert.equal(await agent.steerSubAgent("sub1", "再看看"), false);
 	assert.equal(
 		events.some((event) => event.type === "subagent_message"),
 		false,

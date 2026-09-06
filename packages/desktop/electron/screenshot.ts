@@ -707,6 +707,9 @@ export function overlayPainted(): void {
  * measured when this ran before the overlay was up. So the focus is taken straight back.
  */
 function stepMainAside(overlayWindow: BrowserWindow): void {
+	// Only macOS raises sibling windows on app activation. Hiding them on Windows removes
+	// the taskbar entry, and neither cancel nor an external capture brings them back.
+	if (process.platform !== "darwin") return;
 	if (cameFromApp || steppedAsideMain) return;
 	const main = BrowserWindow.getAllWindows().find(
 		(other) => other !== overlayWindow && !other.isDestroyed() && other.isVisible(),
@@ -874,6 +877,7 @@ export function destroyScreenshotOverlay(): void {
  * Open the interactive fullscreen overlay window on the display where the cursor currently is.
  */
 export async function startScreenshotSession(customSettings?: ScreenshotSettings): Promise<void> {
+	if (currentSettingsProvider?.()?.screenshot?.enabled === false) throw new Error("屏幕截图已关闭，可在设置中开启。");
 	/*
 	 * Asked before anything is shown, because in a moment the overlay itself will be the focused
 	 * window and the answer will always be yes. See `cameFromApp`.
@@ -1160,7 +1164,7 @@ export function registerScreenshotShortcut(
 		activeShortcut = null;
 	}
 
-	if (!shortcut) return;
+	if (getSettings()?.screenshot?.enabled === false || !shortcut) return;
 
 	try {
 		const success = globalShortcut.register(shortcut, () => {

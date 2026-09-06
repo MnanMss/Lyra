@@ -14,7 +14,8 @@
  * 是每个模型旁边的那颗星。
  */
 
-import type { Settings } from "@lyra/core";
+import { useRef, useState } from "react";
+import { ModelSelect } from "../models/index.ts";
 /*
  * 从子入口，不是从包根。
  *
@@ -22,10 +23,10 @@ import type { Settings } from "@lyra/core";
  * `node:os`——包能加载，然后在第一个 Node 内置模块上抛出来，窗口一片空白。这条我是先撞上
  * 才想起来的：`ScheduledView.tsx` 里那段注释写的就是同一件事。类型编译时就没了，不要紧。
  */
-import { availableModels, MODEL_ROLES, ROLE_DESCRIPTIONS, roleStatus, type ModelRole } from "@lyra/core/model-roles";
+import { MODEL_ROLES, ROLE_DESCRIPTIONS, roleStatus, type ModelRole } from "@lyra/core/model-roles";
 import { AlertTriangle } from "lucide-react";
 import { useApp } from "../../store/index.ts";
-import { Card, InlineSelect, Row, SectionTitle } from "./controls.tsx";
+import { Card, Row, SectionTitle } from "./controls.tsx";
 
 /** `default` 由那颗星决定，不在这里配。 */
 const CONFIGURABLE: ModelRole[] = MODEL_ROLES.filter((role) => role !== "default");
@@ -42,10 +43,12 @@ const FOLLOW_DEFAULT = "";
 export function ModelRoles() {
 	const settings = useApp((s) => s.settings);
 	const saveSettings = useApp((s) => s.saveSettings);
+	const [saving, setSaving] = useState(false);
+	const savingRef = useRef(false);
+	const [error, setError] = useState("");
 	if (!settings) return null;
 
 	const status = new Map(roleStatus(settings).map((entry) => [entry.role, entry]));
-	const models = availableModels(settings);
 
 	/*
 	 * 「跟随默认」永远排在第一个，而且是空字符串。
@@ -54,21 +57,22 @@ export function ModelRoles() {
 	 * 有人换默认模型之后留在原地——而那正是「换了模型之后子代理还在用旧的」这种查起来最费劲的
 	 * 一类问题。
 	 */
-	const options = [
-		{ value: FOLLOW_DEFAULT, label: "跟随默认模型" },
-		...models.map(({ provider, model }) => ({ value: model.id, label: model.name, detail: provider.name })),
-	];
-
-	const setRole = (role: ModelRole, id: string) => {
-		const roles = { ...settings.modelRoles };
+	const setRole = async (role: ModelRole, id: string) => {
+		const latest = useApp.getState().settings;
+		if (!latest || savingRef.current) return;
+		savingRef.current = true; setSaving(true); setError("");
+		const roles = { ...latest.modelRoles };
 		if (id === FOLLOW_DEFAULT) delete roles[role];
 		else roles[role] = id;
-		void saveSettings({ ...settings, modelRoles: roles } as Settings);
+		try { await saveSettings({ ...latest, modelRoles: roles }); }
+		catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+		finally { savingRef.current = false; setSaving(false); }
 	};
 
 	return (
 		<>
 			<SectionTitle>模型角色</SectionTitle>
+			{error && <p role="alert" className="mb-3 text-label text-danger">{error}</p>}
 			<Card>
 				{CONFIGURABLE.map((role) => {
 					const current = status.get(role);
@@ -94,10 +98,11 @@ export function ModelRoles() {
 								)
 							}
 							control={
-								<InlineSelect
-									value={dangling ? FOLLOW_DEFAULT : (current?.id ?? FOLLOW_DEFAULT)}
-									onChange={(id) => setRole(role, id)}
-									options={dangling ? [{ value: current!.id!, label: `${current!.id}（已失效）` }, ...options] : options}
+								<ModelSelect
+									value={current?.id ?? FOLLOW_DEFAULT}
+									onChange={(id) => { void setRole(role, id); }}
+									disabled={saving}
+									inheritLabel="跟随默认模型"
 									ariaLabel={`${TITLES[role]} 用哪个模型`}
 								/>
 							}

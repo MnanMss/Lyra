@@ -11,7 +11,7 @@ import { directoryOf } from "../../lib/markdown/assets.ts";
 import { Scroller } from "../../ui/scroll/Scroller.tsx";
 import { useApp } from "../../store/index.ts";
 import { useOpenFile } from "../../store/openFile.ts";
-import { bridge } from "../../services/index.ts";
+import { available, bridge } from "../../services/index.ts";
 
 const IMAGE = new Set(["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico", "svg"]);
 const VIDEO = new Set(["mp4", "webm", "mov", "mkv", "m4v"]);
@@ -101,7 +101,8 @@ export function FileViewer({
 
 	const text = draft ?? contents.text;
 	// Truncated files must not be saved: writing back the head would delete the rest.
-	const readOnly = contents.truncated;
+	const readOnly = contents.truncated || contents.readOnly === true;
+	const richPreview = available("files", "bytes");
 
 	const media = bridge.files.mediaUrl(path);
 
@@ -110,7 +111,13 @@ export function FileViewer({
 			{/* Where the toolbar was: the files this pane has had open. */}
 			<FileTabs />
 
-			{kind === "image" ? (
+			{!richPreview && ["image", "video", "audio", "sheet", "pdf", "document"].includes(kind) ? (
+				<div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+					<FileWarning size={26} strokeWidth={1.4} className="text-ink-faint" />
+					<p className="text-label text-ink-muted">手机端暂不预览这种文件。</p>
+					<p className="text-detail text-ink-faint">可以查看项目里的文本和代码文件。</p>
+				</div>
+			) : kind === "image" ? (
 				// Zoom and pan, because an icon and a screenshot are both images and neither is
 				// legible at "whatever fits the pane" — see `ImagePane`.
 				<ImagePane key={path} src={media} name={name} />

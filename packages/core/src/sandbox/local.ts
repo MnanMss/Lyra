@@ -11,7 +11,7 @@
  * says confined, the logs say confined, and nothing is.
  */
 
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { systemShell } from "../platform.ts";
 import type { Sandbox, SandboxProcess } from "../kernel/services.ts";
 import { confine } from "./backend.ts";
@@ -42,12 +42,15 @@ export class LocalSandbox implements Sandbox {
 		const child = wrap
 			? spawn(wrap.command, [...wrap.args, shell.file, shell.flag, command], {
 					cwd: options.cwd,
+					detached: process.platform !== "win32",
+					windowsHide: true,
 					// The Windows runner needs `ELECTRON_RUN_AS_NODE`; the others contribute nothing.
 					env: { ...env, ...wrap.env },
 				})
-			: spawn(command, { cwd: options.cwd, shell: shell.file, env });
+			: spawn(command, { cwd: options.cwd, shell: shell.file, env, detached: process.platform !== "win32", windowsHide: true });
 
 		return {
+			get pid() { return child.pid; },
 			onOutput(listener) {
 				const forward = (chunk: Buffer) => listener(chunk.toString("utf8"));
 				child.stdout?.on("data", forward);
@@ -59,8 +62,17 @@ export class LocalSandbox implements Sandbox {
 			onError(listener) {
 				child.on("error", listener);
 			},
-			kill() {
-				child.kill("SIGKILL");
+			kill(signal = "SIGKILL") {
+				if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
+				// A shell owns a process tree. Killing only the shell leaves its dev server running.
+				if (process.platform === "win32") {
+					execFile("taskkill", ["/PID", String(child.pid), "/T", ...(signal === "SIGKILL" ? ["/F"] : [])], { windowsHide: true }, (error) => {
+						if (error && child.exitCode === null && child.signalCode === null) child.emit("error", error);
+					});
+				} else {
+					try { process.kill(-child.pid, signal); }
+					catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error; }
+				}
 			},
 		};
 	}

@@ -21,6 +21,7 @@
  *     the same metrics, so the caret is real and the colours are real.
  */
 
+import { Textarea } from "../../ui/inputs/NativeField.tsx";
 import { RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CodeThemeSpec } from "../../lib/code/themes.ts";
@@ -252,7 +253,7 @@ function CodeSnippetBox({
 						 * text itself is transparent and a caret that inherited it would be too. The
 						 * selection stays visible: `::selection` paints over transparent glyphs.
 						 */}
-						<textarea
+						<Textarea
 							value={code}
 							onChange={(event) => onDraft(event.target.value)}
 							spellCheck={false}

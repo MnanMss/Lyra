@@ -1,3 +1,4 @@
+import { Input, Textarea } from "../../ui/inputs/NativeField.tsx";
 import type { ScheduledTask } from "@lyra/core";
 /*
  * From the sub-entry, not from the package root.
@@ -141,7 +142,7 @@ function TaskCard({
 		<div className="ly-enter overflow-hidden rounded-[10px] border border-line bg-card/40">
 			<div className="flex items-center gap-2.5 border-b border-line-soft px-4 py-2.5">
 				<Clock size={14} strokeWidth={1.8} className="shrink-0 text-ink-muted" />
-				<input
+				<Input
 					value={name}
 					onChange={(e) => setName(e.target.value)}
 					onBlur={() => name !== task.name && onChange({ name })}
@@ -187,7 +188,7 @@ function TaskCard({
 			<div className="space-y-3 px-4 py-3">
 				<label className="block">
 					<span className="mb-1.5 block text-detail text-ink-muted">提示</span>
-					<textarea
+					<Textarea
 						value={prompt}
 						onChange={(e) => setPrompt(e.target.value)}
 						onBlur={() => prompt !== task.prompt && onChange({ prompt })}

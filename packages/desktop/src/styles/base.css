@@ -27,7 +27,7 @@
      * it sets a full-width comma the western way, floating at mid-height instead of sitting at the
      * bottom-left of its box. 「加德克拉斯，123」 with the comma halfway up the line.
      */
-    font-family: "Lyra CJK", var(--ly-ui-font, var(--font-sans));
+	font-family: var(--ly-script-font, "Lyra CJK"), var(--ly-ui-font, var(--font-sans));
     font-size: var(--ly-ui-size, 13px);
     line-height: 1.6;
     /*

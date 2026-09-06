@@ -1,10 +1,12 @@
+import { SessionServices } from "./SessionServices.tsx";
 import { ListTodo } from "lucide-react";
-import { useState } from "react";
+import { memo, useDeferredValue, useMemo, useRef, useState } from "react";
 
 import { PanelEmpty } from "../../ui/layout/PanelEmpty.tsx";
 import { Mark, lastTurnFailed } from "./Mark.tsx";
-import { DetailCard } from "../conversation/index.ts";
-import { RunDetail } from "./RunDetail.tsx";
+import { SearchField } from "../../ui/inputs/SearchField.tsx";
+import { filterRuns } from "./filter-runs.ts";
+import { TaskRuns } from "./TaskRuns.tsx";
 import { Scroller } from "../../ui/scroll/Scroller.tsx";
 import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
 import { Text } from "../../ui/primitives/Text.tsx";
@@ -21,7 +23,7 @@ import { useApp } from "../../store/index.ts";
  * on their cards — but scattered through a transcript that may be hundreds of messages long. The
  * value here is entirely in having them in one column, in order.
  */
-export function TaskPanel() {
+export const TaskPanel = memo(function TaskPanel() {
 	const todos = useApp((s) => s.todos);
 	const toolRuns = useApp((s) => s.toolRuns);
 	const running = useApp((s) => s.running);
@@ -34,28 +36,20 @@ export function TaskPanel() {
 	 * How the last turn ended is what distinguishes them.
 	 */
 	const failed = !running && lastTurnFailed(messages);
-	/*
-	 * One row open at a time.
-	 *
-	 * Several open at once turns the column into a wall of output you have to scroll past to reach
-	 * the next step — the list stops being a list. Opening one closes the last.
-	 */
-	const [openId, setOpenId] = useState<string | null>(null);
-
-	// Newest first: what just happened is what you came to look at.
-	const runs = Object.values(toolRuns).sort((a, b) => b.startedAt - a.startedAt);
+	const scrollRef = useRef<HTMLDivElement>(null);
+	const sessionId = useApp((s) => s.activeSessionId);
+	const runs = useMemo(() => Object.values(toolRuns).sort((a, b) => b.startedAt - a.startedAt), [toolRuns]);
+	const [query, setQuery] = useState("");
+	const [status, setStatus] = useState("");
+	const search = useDeferredValue(query);
+	const matched = useMemo(() => filterRuns(runs, search, status), [runs, search, status]);
 	const done = todos.filter((todo) => todo.status === "completed").length;
 
-	if (todos.length === 0 && runs.length === 0) {
-		return (
-			<PanelEmpty icon={ListTodo} title="任务">
-				这个对话还没有执行过任何操作。
-			</PanelEmpty>
-		);
-	}
 
 	return (
-		<Scroller className="flex-1 pt-2" contentClassName="px-2 pb-3">
+		<Scroller scrollRef={scrollRef} className="flex-1 pt-2" contentClassName="relative px-2 pb-3">
+			<SessionServices />
+			{todos.length === 0 && runs.length === 0 && <PanelEmpty icon={ListTodo} title="任务">这个对话还没有执行过任何操作。</PanelEmpty>}
 			{todos.length > 0 && (
 				<>
 					<Header label="计划" hint={`${done}/${todos.length}`} />
@@ -75,34 +69,18 @@ export function TaskPanel() {
 
 			{runs.length > 0 && (
 				<>
-					<Header label="执行记录" hint={String(runs.length)} />
-					{runs.map((run) => (
-						<DetailCard
-							key={run.toolCallId}
-							open={openId === run.toolCallId}
-							onToggle={() => setOpenId(openId === run.toolCallId ? null : run.toolCallId)}
-							summary={<ScrollText text={run.summary} className="ly-fade-tail min-w-0 flex-1 text-detail" />}
-							trailing={
-								<>
-									<span
-										className={`h-[6px] w-[6px] shrink-0 rounded-full ${
-											run.status === "running" ? "ly-pulse bg-info" : run.status === "error" ? "bg-danger" : "bg-ok/70"
-										}`}
-									/>
-									<Text size="caption" tone="faint" numeric className="shrink-0">
-										{run.finishedAt ? formatSpan(run.finishedAt - run.startedAt) : "进行中"}
-									</Text>
-								</>
-							}
-						>
-							<RunDetail run={run} />
-						</DetailCard>
-					))}
+					<Header label="执行记录" hint={`${matched.length}/${runs.length}`} />
+					<div className="mb-2 flex items-center gap-1">
+						<SearchField value={query} onChange={setQuery} placeholder="搜索命令、参数、完整结果…" className="flex-1" />
+						<select aria-label="筛选任务执行状态" value={status} onChange={event => setStatus(event.target.value)} className="max-w-20 bg-transparent text-caption text-ink-faint"><option value="">全部</option><option value="running">进行中</option><option value="error">失败</option><option value="done">完成</option></select>
+					</div>
+					{!matched.length && <p className="px-2 py-2 text-caption text-ink-faint">没有匹配的执行记录。</p>}
+					<TaskRuns key={`${sessionId}:${search}:${status}`} runs={matched} scrollRef={scrollRef} query={search} />
 				</>
 			)}
 		</Scroller>
 	);
-}
+});
 
 function Header({ label, hint }: { label: string; hint: string }) {
 	return (
@@ -115,11 +93,4 @@ function Header({ label, hint }: { label: string; hint: string }) {
 			</Text>
 		</div>
 	);
-}
-
-/** Whole seconds under a minute; nobody is timing a tool call to the millisecond. */
-function formatSpan(ms: number): string {
-	const seconds = Math.max(0, Math.round(ms / 1000));
-	if (seconds < 60) return `${seconds}s`;
-	return `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`;
 }

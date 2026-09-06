@@ -4,16 +4,15 @@
     "slug": "lyra",
     "version": "0.8.36",
     "icon": "../../assets/lyra.png",
-    "orientation": "portrait",
+    "orientation": "default",
     "scheme": "lyra",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "backgroundColor": "#171717",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "dev.lyra.app",
       "infoPlist": {
-        "UIUserInterfaceStyle": "Dark",
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         }

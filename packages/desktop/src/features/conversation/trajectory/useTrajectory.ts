@@ -1,59 +1,43 @@
-/**
- * Loading a session's trajectory, and narrowing it.
- *
- * Read once when the conversation changes, filtered in memory afterwards. Search re-runs on every
- * keystroke, and re-reading a session with several hundred records for each one would make the
- * box feel broken.
- *
- * Reloaded when the turn ends rather than on every event: the file is being appended to while the
- * agent works, and a list that reshuffles under the cursor is worse than one that is a moment
- * behind.
- */
-
-import { useEffect, useMemo, useState } from "react";
-import { countBySource, filterTrajectory, type Entry as TrajectoryEntry, type Source as TrajectorySourceKind } from "@lyra/core/trajectory-view";
+import { useEffect, useState, useCallback } from "react";
+import type { Entry } from "@lyra/core/trajectory-view";
 import { useApp } from "../../../store/index.ts";
 import { bridge } from "../../../services/index.ts";
 
-export interface TrajectoryView {
-	entries: TrajectoryEntry[];
-	counts: Record<string, number>;
-	total: number;
-	loading: boolean;
-}
+const cache = new Map<string, Entry[]>();
+const durable = new Set(["command_status", "compacted", "message_end", "tool_start", "tool_end", "context", "request", "agent_start", "agent_end", "subagent", "subagent_done", "subagent_message", "subagent_event", "notice", "retry", "approval_request", "rewound"]);
 
-export function useTrajectory(sources: TrajectorySourceKind[], query: string): TrajectoryView {
-	const meta = useApp((s) => s.meta);
-	const running = useApp((s) => s.running);
-	const [all, setAll] = useState<TrajectoryEntry[]>([]);
-	const [loading, setLoading] = useState(false);
-
-	const projectId = meta?.projectId;
-	const sessionId = meta?.id;
-
+/** Subscribe before reading; a single in-flight read drains invalidations without polling. */
+export function useTrajectory() {
+	const meta = useApp(state => state.meta);
+	const sessionId = meta?.id, projectId = meta?.projectId;
+	const key = `${projectId}:${sessionId}`;
+	const [value, setValue] = useState<{ key: string; entries: Entry[] } | null>(null);
+	const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
+	const [revision, setRevision] = useState(0);
+	const refresh = useCallback(() => setRevision(value => value + 1), []);
 	useEffect(() => {
-		if (!projectId || !sessionId) {
-			setAll([]);
-			return;
-		}
-		let live = true;
-		setLoading(true);
-		void bridge.sessions
-			.trajectory(projectId, sessionId)
-			.then((entries) => {
-				if (live) setAll(entries);
-			})
-			.finally(() => {
-				if (live) setLoading(false);
-			});
-		return () => {
-			live = false;
+		if (!sessionId || !projectId) return;
+		let live = true, reading = false, dirty = false;
+		const read = async () => {
+			dirty = true;
+			if (reading) return;
+			reading = true;
+			try {
+				do {
+					dirty = false;
+					const entries = await bridge.sessions.trajectory(projectId, sessionId);
+					if (!live) return;
+					cache.delete(key); cache.set(key, entries);
+					while (cache.size > 4) { const oldest = cache.keys().next().value; if (oldest) cache.delete(oldest); }
+					setValue({ key, entries }); setFailure(null);
+				} while (dirty);
+			} catch (error) { if (live) setFailure({ key, message: String(error) }); }
+			finally { reading = false; }
 		};
-		// `running` is in here so the trajectory refreshes once a turn finishes.
-	}, [projectId, sessionId, running]);
-
-	const counts = useMemo(() => countBySource(all), [all]);
-	const entries = useMemo(() => filterTrajectory(all, { sources, query }), [all, sources, query]);
-
-	return { entries, counts, total: all.length, loading };
+		const off = bridge.agent.onEvent(payload => { if (payload.sessionId === sessionId && durable.has(payload.event.type)) void read(); });
+		void read();
+		return () => { live = false; off(); };
+	}, [projectId, sessionId, key, revision]);
+	const all = value?.key === key ? value.entries : cache.get(key);
+	return { all: all ?? [], loading: Boolean(sessionId && !all && failure?.key !== key), error: failure?.key === key ? failure.message : "", refresh };
 }

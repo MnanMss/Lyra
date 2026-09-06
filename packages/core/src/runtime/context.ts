@@ -38,6 +38,7 @@ export interface ContextBreakdown {
 	/** Individual memory / instruction files making up the 'memory' segment. */
 	memoryFiles?: MemoryFileItem[];
 	projectMemory?: string;
+	projectMemoryFiles?: MemoryFileItem[];
 }
 
 /** What a tool costs on the wire: the schema the provider is given, every single request. */
@@ -63,6 +64,7 @@ export function buildContextBreakdown(input: {
 	/** As `buildSystemPrompt` receives them, so the same text is measured that gets embedded. */
 	projectInstructions: { path: string; content: string }[];
 	projectMemory?: string;
+	projectMemoryFiles?: { path: string; content: string }[];
 }): ContextBreakdown {
 	const projectMemory = textTokens(input.projectMemory ?? "");
 	const skills = textTokens(input.skillCatalogue);
@@ -109,6 +111,7 @@ export function buildContextBreakdown(input: {
 
 	return {
 		projectMemory: input.projectMemory,
+		projectMemoryFiles: input.projectMemoryFiles?.map((file) => ({ path: file.path, tokens: textTokens(file.content) })),
 		limit: input.model.contextWindow,
 		segments,
 		used: messages + overhead,
