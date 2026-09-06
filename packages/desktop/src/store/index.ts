@@ -1,5 +1,6 @@
 import type {
   AgentEvent,
+	ApprovalDecision,
 	CommandRun,
   Message,
   SessionMeta,
@@ -86,6 +87,7 @@ export interface PendingApproval {
   subject?: string;
   /** Interactive choices offered to user. */
   options?: string[];
+  allowCustomInput?: boolean;
 }
 
 export interface AppState {
@@ -178,8 +180,8 @@ export interface AppState {
    * - `new:scratch` for blank session without a project (Chat / 不在项目中工作)
    * - `<sessionId>` for drafts typed in an existing session
    */
-  drafts: Record<string, { text: string; attachments: { id: string; name: string; mimeType: string; data?: string; text?: string; isText?: boolean }[] }>;
-  setDraft(key: string, draft: { text: string; attachments?: { id: string; name: string; mimeType: string; data?: string; text?: string; isText?: boolean }[] } | null): void;
+  drafts: Record<string, { text: string; attachments: { id: string; name: string; mimeType: string; data?: string; text?: string; isText?: boolean }[]; sessionRefs?: Array<{ id: string; title: string }> }>;
+  setDraft(key: string, draft: { text: string; attachments?: { id: string; name: string; mimeType: string; data?: string; text?: string; isText?: boolean }[]; sessionRefs?: Array<{ id: string; title: string }> } | null): void;
 
   activeSessionId: string | null;
   selectionEpoch: number;
@@ -384,7 +386,8 @@ export interface AppState {
   abort(): Promise<void>;
   respondToApproval(
     id: string,
-    decision: "once" | "always" | "reject",
+    decision: ApprovalDecision,
+    sessionId?: string,
   ): Promise<void>;
   /**
    * Run this conversation on a different model.
@@ -507,7 +510,7 @@ export const useApp = create<AppState>((set, get) => ({
   setComposerDraft: (text, replace = false) => set({ composerDraft: { text, replace } }),
   setDraft: (key, draft) =>
     set((state) => {
-      if (!draft || (!draft.text.trim() && (!draft.attachments || draft.attachments.length === 0))) {
+      if (!draft || (!draft.text.trim() && (!draft.attachments || draft.attachments.length === 0) && !draft.sessionRefs?.length)) {
         if (!state.drafts[key]) return state;
         const copy = { ...state.drafts };
         delete copy[key];
@@ -519,6 +522,7 @@ export const useApp = create<AppState>((set, get) => ({
           [key]: {
             text: draft.text,
             attachments: draft.attachments ?? [],
+            sessionRefs: draft.sessionRefs,
           },
         },
       };

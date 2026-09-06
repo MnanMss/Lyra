@@ -38,36 +38,25 @@ export const askUserTool: Tool<AskUserArgs> = {
 	summarize: (args) => `Ask user: ${args.question.slice(0, 40)}`,
 
 	async execute(args, ctx: ToolContext): Promise<ToolResult> {
-		if (ctx.requestApproval) {
-			const decision = await ctx.requestApproval({
-				kind: "interactive",
-				title: "模型请求决策协助",
-				detail: args.question,
-				subject: "ask_user",
-				reason: args.question,
-				options: args.options,
-			});
-
-			return {
-				content: [
-					{
-						type: "text",
-						text:
-							decision === "reject"
-								? "用户取消了选项确认，或选择自行在输入框输入回复。"
-								: "已向用户展示选项卡片并等待交互。",
-					},
-				],
-			};
+		if (!ctx.requestApproval) {
+			return { content: [{ type: "text", text: "This host cannot ask the user. No answer was received." }], isError: true };
 		}
-
+		const question = args.question.trim();
+		const options = [...new Set(args.options.map((option) => option.trim()).filter(Boolean))];
+		if (!question || (!options.length && !args.allowCustomInput)) {
+			return { content: [{ type: "text", text: "Provide a question and at least one choice, or enable custom input." }], isError: true };
+		}
+		const decision = await ctx.requestApproval({
+			kind: "interactive",
+			title: "需要你的意见",
+			detail: question,
+			subject: "ask_user",
+			options,
+			allowCustomInput: args.allowCustomInput === true,
+		});
 		return {
-			content: [
-				{
-					type: "text",
-					text: `[Interactive Question]\n${args.question}\nOptions:\n${args.options.map((o, idx) => `${idx + 1}. ${o}`).join("\n")}`,
-				},
-			],
+			content: [{ type: "text", text: typeof decision === "object" ? decision.answer : "The question was cancelled or expired. No answer was received." }],
+			isError: typeof decision !== "object",
 		};
 	},
 };

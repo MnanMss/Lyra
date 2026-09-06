@@ -633,7 +633,7 @@ export class AgentSession {
 		// Names the conversation after its opening line — unless it already has a name someone
 		// chose, which this must not overwrite. See `SessionMeta.titleSetByUser`.
 		if (!this.log.meta.titleSetByUser && this.log.messages.filter((m) => m.role === "user").length === 1) {
-			await this.setTitleFromPrompt(content, options.displayText);
+			await this.setTitleFromPrompt(content, options.displayText === "" ? options.skillRef?.name ?? options.sessionRefs?.[0]?.title ?? "" : options.displayText);
 		}
 
 		if (this.abortEpoch !== epoch) return;
@@ -806,7 +806,7 @@ export class AgentSession {
 		return this.approvals.request(request);
 	}
 
-	resolveApproval(requestId: string, decision: ApprovalDecision): boolean {
+	resolveApproval(requestId: string, decision: unknown): boolean {
 		return this.approvals.resolve(requestId, decision);
 	}
 
@@ -837,17 +837,7 @@ export class AgentSession {
 	}
 
 	private async setTitleFromPrompt(content: UserContent[], displayText?: string): Promise<void> {
-		const raw = displayText || content.find((c) => c.type === "text")?.text || "";
-		// Strip injected context reference hint suffix (split by literal indicator to avoid ReDoS)
-		const refIndex = raw.indexOf("[上下文引用提示]");
-		let text = (refIndex >= 0 ? raw.slice(0, refIndex) : raw).trim();
-		// Strip injected skill header: 使用 `xxx` 技能...
-		if (text.startsWith("使用")) {
-			const skillEnd = text.indexOf("。");
-			if (skillEnd > 0 && skillEnd < 120 && text.slice(0, skillEnd).includes("技能")) {
-				text = text.slice(skillEnd + 1).trim();
-			}
-		}
+		const text = displayText ?? content.find((c) => c.type === "text")?.text ?? "";
 		const title = text.replace(/\s+/g, " ").trim().slice(0, 60) || "New session";
 		await this.log.append({ type: "title", title });
 		await this.emit({ type: "title", title });

@@ -1,3 +1,4 @@
+import { registerReferenceFiles } from "../reference-files.ts";
 /**
  * Slash commands, from the four directories they can live in to the composer that lists them.
  *
@@ -9,7 +10,7 @@
 import { ipcMain, shell } from "electron";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { builtinCommandsFor, collectSkills, commandSources, loadCommands, loadPlugins, lyraHome, type BuiltinCommand, type SlashCommand } from "@lyra/core";
+import { builtinCommandsFor, collectAgents, collectSkills, commandSources, loadCommands, loadPlugins, lyraHome, type BuiltinCommand, type SlashCommand } from "@lyra/core";
 import { settings } from "../app-settings.ts";
 
 export interface CommandsList {
@@ -29,6 +30,7 @@ export interface CommandsList {
 	 * the agent does not have.
 	 */
 	skills: SkillEntry[];
+	agents?: Array<{ id: string; name: string; description: string }>;
 }
 
 /** What the menu needs to offer a skill. The body is not sent; the model reads it when asked. */
@@ -87,7 +89,10 @@ export function registerCommandsIpc(): void {
 			[],
 		).catch(() => ({ plugins: [] }));
 		const { skills } = await collectSkills(cwd || lyraHome(), bundles.plugins, settings()).catch(() => ({ skills: [] }));
+		await registerReferenceFiles(skills.map((skill) => skill.path));
+		const agents = await collectAgents(cwd || lyraHome(), settings());
 		return {
+			agents: agents.map((agent) => ({ id: agent.name, name: agent.name, description: agent.description })),
 			commands,
 			diagnostics,
 			/*

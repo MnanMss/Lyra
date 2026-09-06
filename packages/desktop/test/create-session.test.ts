@@ -55,3 +55,27 @@ test("prompt boundary rejects malformed payloads and keeps supported image/text 
 	assert.throws(() => promptOptions({ deliver: "unknown" }));
 	assert.deepEqual(initialPrompt({ content: [{ type: "image", data: "eA==", mimeType: "image/png" }] }), { content: [{ type: "image", data: "eA==", mimeType: "image/png" }] });
 });
+
+test("presentation metadata is validated on both prompt entry points", () => {
+	for (const invalid of [{ displayText: 12 }, { skillRef: { name: "s", path: {} } }, { skillRef: { name: "s", pluginId: [] } }, { sessionRefs: [null] }, { sessionRefs: [{ id: 4, title: "t" }] }]) {
+		assert.throws(() => initialPrompt({ content: "hello", ...invalid }));
+		assert.throws(() => promptOptions(invalid));
+	}
+	const metadata = { displayText: "", skillRef: { name: "s", path: "/skills/s.md", pluginId: "p" }, sessionRefs: [{ id: "a", title: "同名" }, { id: "b", title: "同名" }] };
+	assert.deepEqual(promptOptions(metadata), metadata);
+	assert.deepEqual(initialPrompt({ content: "hello", ...metadata }), { content: [{ type: "text", text: "hello" }], ...metadata });
+});
+
+test("a reference-only opening uses its label and persists both same-title targets", async () => {
+	const root = await mkdtemp(join(tmpdir(), "lyra-reference-prompt-"));
+	try {
+		const store = new SessionStore(join(root, "sessions"));
+		const initial = initialPrompt({ content: "reference instructions", displayText: "", sessionRefs: [{ id: "a", title: "同名" }, { id: "b", title: "同名" }] });
+		const saved = await createStoredSession(store, DEFAULT_SETTINGS, root, "", initial);
+		assert.equal(saved.meta.title, "同名");
+		const message = (await store.load(saved.meta.projectId, saved.meta.id))?.messages[0];
+		assert.ok(message?.role === "user");
+		assert.deepEqual(message.sessionRefs, initial?.sessionRefs);
+		assert.equal(message.displayText, "");
+	} finally { await rm(root, { recursive: true, force: true }); }
+});

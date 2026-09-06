@@ -348,7 +348,7 @@ export function registerSessionsIpc({
 		) => {
 			const session = sessions.get(sessionId);
 			if (!session) return;
-			session.resolveApproval(requestId, decision);
+			if (!session.resolveApproval(requestId, decision)) throw new Error("Invalid or expired approval response");
 			if (decision === "always") {
 				const request = session
 					.listPendingApprovals()
