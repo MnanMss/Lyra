@@ -80,8 +80,8 @@ async function begin(prompt: string) {
 }
 async function appearance(theme: "light" | "dark", width: number) {
 	await app.send("Emulation.setDeviceMetricsOverride", { width, height: 800, deviceScaleFactor: 1, mobile: false });
-	await app.evaluate(`(async()=>{const s=await window.lyra.settings.get();await window.lyra.settings.save({...s,appearance:{...s.appearance,theme:${JSON.stringify(theme)}}});})()`);
-	await until(`document.documentElement.classList.contains(${JSON.stringify(theme)})`); await frames(20);
+	await app.evaluate(`(async()=>{const s=await window.lyra.settings.get();await window.lyra.settings.save({...s,appearance:{...s.appearance,theme:${theme === "light" ? '"light"' : '"dark"'}}});})()`);
+	await until(`document.documentElement.classList.contains(${theme === "light" ? '"light"' : '"dark"'})`); await frames(20);
 }
 async function shot(name: string) {
 	const directory = process.env.LYRA_E2E_ARTIFACTS; if (!directory) return;
