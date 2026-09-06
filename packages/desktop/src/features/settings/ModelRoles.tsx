@@ -32,6 +32,7 @@ const CONFIGURABLE: ModelRole[] = MODEL_ROLES.filter((role) => role !== "default
 
 const TITLES: Record<ModelRole, string> = {
 	default: "默认",
+	compact: "@compact · 上下文压缩",
 	fast: "@fast · 快而便宜",
 	deep: "@deep · 复杂推理",
 	review: "@review · 审查与顾问",
@@ -54,8 +55,8 @@ export function ModelRoles() {
 	 * 有人换默认模型之后留在原地——而那正是「换了模型之后子代理还在用旧的」这种查起来最费劲的
 	 * 一类问题。
 	 */
-	const options = [
-		{ value: FOLLOW_DEFAULT, label: "跟随默认模型" },
+	const optionsForRole = (role: ModelRole) => [
+		{ value: FOLLOW_DEFAULT, label: role === "compact" ? "同会话模型" : "跟随默认模型" },
 		...models.map(({ provider, model }) => ({ value: model.id, label: model.name, detail: provider.name })),
 	];
 
@@ -97,7 +98,7 @@ export function ModelRoles() {
 								<InlineSelect
 									value={dangling ? FOLLOW_DEFAULT : (current?.id ?? FOLLOW_DEFAULT)}
 									onChange={(id) => setRole(role, id)}
-									options={dangling ? [{ value: current!.id!, label: `${current!.id}（已失效）` }, ...options] : options}
+									options={dangling ? [{ value: current!.id!, label: `${current!.id}（已失效）` }, ...optionsForRole(role)] : optionsForRole(role)}
 									ariaLabel={`${TITLES[role]} 用哪个模型`}
 								/>
 							}

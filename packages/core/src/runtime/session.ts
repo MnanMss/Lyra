@@ -33,6 +33,7 @@ import { driveTurn, modelHistory, summaryStream } from "./session-turn.ts";
 import { SubAgentRegistry } from "./sub-agents.ts";
 import { sessionTaskQueue, type TaskQueue } from "./task-queue.ts";
 import { stripStaleHandles } from "./model-switch.ts";
+import { resolveModelRef } from "../config/model-roles.ts";
 
 export interface AgentSessionOptions {
 	cwd: string;
@@ -361,16 +362,18 @@ export class AgentSession {
 		const history = modelHistory(this.log, resolved.provider, resolved.model);
 		if (history.length <= 6) return { ok: false, reason: "对话还太短，没什么可压缩的。" };
 
+		const summarizer = resolveModelRef(this.settings, "@compact", resolved);
 		const compaction = await compactIfNeeded(
 			history,
 			resolved.model,
 			resolved.provider,
-			summaryStream(this.streamFn, resolved.provider, resolved.model),
+			summaryStream(this.streamFn, { sessionId: this.meta.id, cwd: this.cwd }),
 			0,
 			true,
 			// 剪掉的原文存下来，占位标记里给出 `artifact://` 地址。
 			{ keep: (tool, content) => this.can.keepArtifact(tool, content) },
 			{ instructions, signal },
+			summarizer,
 		);
 		/*
 		 * Two different outcomes, and they used to say the same thing.

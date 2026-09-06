@@ -48,6 +48,7 @@ const FALLBACK = { provider: PROVIDER, model: model("p/session") };
 // ---------------------------------------------------------------------------
 
 test("@role is a role; anything else is an id", () => {
+	assert.deepEqual(parseModelRef("@compact"), { role: "compact", thinking: undefined });
 	assert.deepEqual(parseModelRef("@fast"), { role: "fast", thinking: undefined });
 	assert.deepEqual(parseModelRef("p/big"), { id: "p/big" });
 });
@@ -78,6 +79,14 @@ test("a configured role resolves to its model", () => {
 	const resolved = resolveModelRef(settings({ fast: "p/small" }), "@fast", FALLBACK);
 	assert.equal(resolved.model.id, "p/small");
 	assert.equal(resolved.via, "@fast");
+});
+test("the compact role resolves to its configured model or falls back", () => {
+	const configured = resolveModelRef(settings({ compact: "p/small" }), "@compact", FALLBACK);
+	assert.equal(configured.model.id, "p/small");
+	assert.equal(configured.via, "@compact");
+
+	const unconfigured = resolveModelRef(settings({}), "@compact", FALLBACK);
+	assert.equal(unconfigured.model.id, "p/session");
 });
 
 test("an unconfigured role falls through to the session's model", () => {

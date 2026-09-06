@@ -19,6 +19,7 @@ import type { AgentRunConfig } from "../agent/loop.ts";
 import { runTurn } from "../agent/runner.ts";
 import type { streamAssistant } from "../ai/index.ts";
 import type { Settings } from "../config/settings.ts";
+import { resolveModelRef } from "../config/model-roles.ts";
 import { withEnvironment } from "../prompt/environment.ts";
 import { readPromptOverride } from "../prompt/overrides.ts";
 import { buildSystemPrompt, loadProjectInstructions } from "../prompt/system.ts";
@@ -325,8 +326,18 @@ export async function runSubAgent(
 				 * The overhead handed over is this run's own: its system prompt and its own subset of
 				 * the tools, which is not what the parent carries.
 				 */
-				compact: (messages, model) =>
-					compactWith(messages, model, runProvider, options.summaryStream, textTokens(subAgentPrompt) + toolTokens(allowed)),
+				compact: (messages, model) => {
+					const summarizer = resolveModelRef(options.settings, "@compact", { provider: runProvider, model });
+					return compactWith(
+						messages,
+						model,
+						runProvider,
+						options.summaryStream,
+						textTokens(subAgentPrompt) + toolTokens(allowed),
+						undefined,
+						summarizer,
+					);
+				},
 				maxTurns: 60,
 			},
 			(event) => {
