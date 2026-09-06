@@ -248,7 +248,7 @@ export class SessionStore implements SessionStorage {
 	async load(
 		projectId: string,
 		sessionId: string,
-	): Promise<{ meta: SessionMeta; messages: Message[]; compactions: number[]; compaction: Boundary | null } | null> {
+	): Promise<{ meta: SessionMeta; messages: Message[]; entries: { seq: number; message: Message }[]; compactions: number[]; compaction: Boundary | null } | null> {
 		let meta: SessionMeta | null = null;
 		// Kept with their sequence numbers so a truncate record can drop the right tail.
 		let entries: { seq: number; message: Message }[] = [];
@@ -307,7 +307,7 @@ export class SessionStore implements SessionStorage {
 		}
 		// Seed the append queue's view so a reopened session keeps numbering where it left off.
 		this.latestMeta.set(this.keyFor(meta), meta);
-		return { meta, messages, compactions, compaction };
+		return { meta, messages, entries, compactions, compaction };
 	}
 
 	// -------------------------------------------------------------------------
@@ -404,21 +404,35 @@ export class SessionStore implements SessionStorage {
 		const loaded = await this.load(projectId, sessionId);
 		if (!loaded || messageIndex < 0 || messageIndex >= loaded.messages.length) return null;
 
-		// The seq to keep is the one just before the record carrying the doomed message.
-		let seen = 0;
-		let cutoff: number | null = null;
-		for await (const record of this.read(projectId, sessionId)) {
-			if (record.type !== "message") continue;
-			if (seen === messageIndex) {
-				cutoff = record.seq - 1;
-				break;
-			}
-			seen += 1;
+		/*
+		 * Turn atomicity: never cut inside a tool-call turn.
+		 * If messageIndex points to a toolResult, snap back past the assistant
+		 * turn that triggered it so calls and results are never torn apart.
+		 */
+		let targetIndex = messageIndex;
+		while (targetIndex > 0 && loaded.messages[targetIndex]?.role === "toolResult") {
+			targetIndex -= 1;
 		}
-		if (cutoff === null) return null;
+		// If targetIndex is inside or at the assistant message that spawned the tool calls,
+		// also drop the assistant message itself so no orphaned tool calls remain.
+		if (
+			targetIndex >= 0 &&
+			loaded.messages[targetIndex]?.role === "assistant" &&
+			loaded.messages[targetIndex]?.content.some((c) => c.type === "toolCall")
+		) {
+			// Check if all its tool results are within targetIndex; if not all results follow,
+			// or if we truncated into the results run, we must step back before this assistant.
+			if (messageIndex > targetIndex) {
+				targetIndex = Math.max(0, targetIndex);
+			}
+		}
+
+		// The seq to keep is the seq of the last message that survives.
+		// 0 means no messages survive (drop everything).
+		const cutoff = targetIndex === 0 ? 0 : loaded.entries[targetIndex - 1].seq;
 
 		const meta = await this.append(loaded.meta, { type: "truncate", afterSeq: cutoff });
-		const messages = loaded.messages.slice(0, messageIndex);
+		const messages = loaded.messages.slice(0, targetIndex);
 		// The index tracks message count; a truncate is the one write that lowers it.
 		const corrected = await this.append(meta, { type: "meta", meta: { ...meta, messageCount: messages.length } });
 		return { meta: { ...corrected, messageCount: messages.length }, messages };
