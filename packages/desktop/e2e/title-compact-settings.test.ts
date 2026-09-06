@@ -6,8 +6,6 @@ import { after, before, test } from "node:test";
 import { startApp, type RunningApp } from "./app.ts";
 
 let app: RunningApp;
-const COMPACT = "@compact · 上下文压缩 用哪个模型";
-const TITLE = "智能标题总结";
 
 before(async () => {
 	app = await startApp({ port: 9549, seed: async (home) => {
@@ -28,7 +26,7 @@ async function waitFor(condition: string): Promise<void> {
 	await app.evaluate(`(async () => {
 		const deadline = Date.now() + 8000;
 		while (!(${condition})) {
-			if (Date.now() > deadline) throw new Error(${JSON.stringify(`Timed out: ${condition}`)});
+			if (Date.now() > deadline) throw new Error("Settings condition timed out");
 			await new Promise((resolve) => setTimeout(resolve, 40));
 		}
 	})()`);
@@ -48,12 +46,12 @@ async function resize(width: number): Promise<void> {
 	await app.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
 	await app.evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
 }
-async function section(name: string): Promise<void> {
+async function section(name: "常规" | "模型设置"): Promise<void> {
 	await resize(1440);
-	await click(`[...document.querySelectorAll("nav button")].find((button) => button.innerText.trim() === ${JSON.stringify(name)})`);
+	await click(`[...document.querySelectorAll("nav button")].find((button) => button.innerText.trim() === ${name === "常规" ? '"常规"' : '"模型设置"'})`);
 }
-const titleRow = `[...document.querySelectorAll('div')].find((element) => element.innerText === ${JSON.stringify(TITLE)})?.closest('[class~="@container"]')`;
-const compactButton = `document.querySelector('[aria-label="${COMPACT}"]')`;
+const titleRow = `[...document.querySelectorAll('div')].find((element) => element.innerText === "智能标题总结")?.closest('[class~="@container"]')`;
+const compactButton = `document.querySelector('[aria-label="@compact · 上下文压缩 用哪个模型"]')`;
 
 async function verifyRow(kind: "title" | "compact"): Promise<void> {
 	for (const theme of ["light", "dark"]) {
