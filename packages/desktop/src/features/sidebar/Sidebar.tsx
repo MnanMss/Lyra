@@ -38,7 +38,6 @@ const COLLAPSED_KEY = "ly-collapsed-projects";
 const TAB_KEY = "ly-sidebar-tab";
 /** And what "most recent" means, which is a preference rather than a place. */
 const SORT_KEY = "ly-sidebar-sort";
-const MANUAL_KEY = "ly-sidebar-has-manual";
 
 export function Sidebar() {
 	const workspace = useApp((s) => s.workspace);
@@ -75,7 +74,7 @@ export function Sidebar() {
 		const val = localStorage.getItem(SORT_KEY);
 		return val === "createdAt" ? "createdAt" : val === "manual" ? "manual" : "updatedAt";
 	});
-	const [hasManual, setHasManual] = useState<boolean>(() => localStorage.getItem(MANUAL_KEY) === "true");
+	const hasManual = useApp((state) => Object.keys(state.settings?.sessionOrder ?? {}).length > 0);
 	const menu = usePopover();
 	/**
 	 * Which projects are folded shut.
@@ -113,8 +112,7 @@ export function Sidebar() {
 		} catch {
 			// A full or disabled storage costs the memory of the choice, not the choice itself.
 		}
-			if (hasManual) localStorage.setItem(MANUAL_KEY, "true");
-	}, [collapsed, tab, sort, hasManual]);
+	}, [collapsed, tab, sort]);
 
 	const viewport = useRef<HTMLDivElement>(null);
 	/*
@@ -325,14 +323,8 @@ export function Sidebar() {
 							onLooseCollapse={() => setLooseShown(SESSION_PAGE)}
 							actions={actions}
 							empty={empty}
-							onReordered={() => {
-								setHasManual(true);
-								setSort("manual");
-								try {
-									localStorage.setItem(MANUAL_KEY, "true");
-									localStorage.setItem(SORT_KEY, "manual");
-								} catch {}
-							}}
+							sort={sort}
+							onReordered={archiveOpen ? undefined : () => setSort("manual")}
 						/>
 					) : (
 						<ChatList
@@ -356,6 +348,7 @@ export function Sidebar() {
 				<ListMenu
 					anchor={menu.anchor}
 					tab={tab}
+					archive={archiveOpen}
 					sort={sort}
 					hasManual={hasManual}
 					onSort={setSort}

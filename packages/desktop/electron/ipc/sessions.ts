@@ -156,12 +156,7 @@ export function registerSessionsIpc({
 			}
 			const meta = (await store.listSessions()).find((s) => s.id === sessionId);
 			if (!meta) return null;
-			const renamed = await store.append(meta, { type: "title", title: cleanTitle });
-			// Same flag the live path sets, or the name is lost to the first prompt after this
-			// session is woken up. See `SessionMeta.titleSetByUser`.
-			const updated = renamed.titleSetByUser
-				? renamed
-				: await store.append(renamed, { type: "meta", meta: { ...renamed, titleSetByUser: true } });
+			const updated = await store.append(meta, { type: "title", title: cleanTitle, source: "user" });
 			broadcast(sessionId, { type: "title", title: cleanTitle });
 			return updated;
 		},
@@ -348,7 +343,7 @@ export function registerSessionsIpc({
 		) => {
 			const session = sessions.get(sessionId);
 			if (!session) return;
-			session.resolveApproval(requestId, decision);
+			if (!session.resolveApproval(requestId, decision)) throw new Error("Invalid or expired approval response");
 			if (decision === "always") {
 				const request = session
 					.listPendingApprovals()

@@ -1,3 +1,4 @@
+import { referenceFile } from "../reference-files.ts";
 /**
  * Reading and writing files on the renderer's behalf.
  *
@@ -103,7 +104,7 @@ export function registerFilesIpc({ projectPath }: FilesIpcDeps): void {
 	});
 
 	ipcMain.handle("files:read", async (_event, raw: string): Promise<FileContents | null> => {
-		const path = projectPath(raw);
+		const path = projectPath(raw) ?? await referenceFile(raw);
 		if (!path) return null;
 		const info = await stat(path).catch(() => null);
 		if (!info?.isFile()) return null;

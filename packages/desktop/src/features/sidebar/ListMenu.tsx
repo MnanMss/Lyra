@@ -12,10 +12,11 @@
 
 import { ArrowUpDown, CalendarPlus, ChevronsDownUp, ChevronsUpDown, Clock, Check } from "lucide-react";
 import { MenuBody, MenuItem, MenuLabel, MenuSeparator, Popover, type Anchor } from "../../ui/overlay/Popover.tsx";
+import type { SessionSortKey } from "../../lib/sidebar-order.ts";
 import type { SidebarTab } from "./SidebarTabs.tsx";
 
 /** Which timestamp orders the list, and bands it. */
-export type SortKey = "updatedAt" | "createdAt" | "manual";
+export type SortKey = SessionSortKey;
 
 const SORTS: { value: SortKey; label: string; icon: React.ReactNode }[] = [
 	{ value: "updatedAt", label: "最近更新", icon: <Clock size={14} strokeWidth={1.8} /> },
@@ -25,6 +26,7 @@ const SORTS: { value: SortKey; label: string; icon: React.ReactNode }[] = [
 export function ListMenu({
 	anchor,
 	tab,
+	archive,
 	sort,
 	hasManual,
 	onSort,
@@ -34,6 +36,7 @@ export function ListMenu({
 }: {
 	anchor: Anchor;
 	tab: SidebarTab;
+	archive: boolean;
 	sort: SortKey;
 	hasManual?: boolean;
 	onSort: (sort: SortKey) => void;
@@ -42,21 +45,23 @@ export function ListMenu({
 	onFoldAll: (folded: boolean) => void;
 	onClose: () => void;
 }) {
+	const manualEnabled = tab === "projects" && !archive;
+	const selectedSort = sort === "manual" && !manualEnabled ? "updatedAt" : sort;
 	return (
 		<Popover anchor={anchor} onClose={onClose} placement="bottom" width="compact" label="列表设置">
 			<MenuBody insetIcons>
 				<MenuLabel>排序方式</MenuLabel>
 				{[
 					...SORTS,
-					...(hasManual || sort === "manual"
+					...(manualEnabled && (hasManual || sort === "manual")
 						? [{ value: "manual" as const, label: "手动排序", icon: <ArrowUpDown size={14} strokeWidth={1.8} /> }]
 						: []),
 				].map((option) => (
 					<MenuItem
 						key={option.value}
 						icon={option.icon}
-						selected={sort === option.value}
-						trailing={sort === option.value ? <Check size={13} strokeWidth={2.2} /> : undefined}
+						selected={selectedSort === option.value}
+						trailing={selectedSort === option.value ? <Check size={13} strokeWidth={2.2} /> : undefined}
 						onClick={() => {
 							onSort(option.value);
 							onClose();

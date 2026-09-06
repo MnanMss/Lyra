@@ -84,6 +84,12 @@ export async function collectSkills(
 	};
 }
 
+/** Menu candidates use the runtime registry, including project overrides and configured precedence. */
+export async function collectAgents(cwd: string, settings?: Pick<Settings, "capabilityPreferences">): Promise<AgentDefinition[]> {
+	const result = await sessionRegistry([]).load<AgentDefinition>("agent", { cwd, preferred: preferredSources(settings) });
+	return result.items;
+}
+
 /** 一条规则在设置页里该说清楚的全部。 */
 export interface RuleEntry {
 	name: string;

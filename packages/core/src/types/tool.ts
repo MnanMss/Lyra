@@ -133,8 +133,9 @@ export interface ApprovalRequest {
 	subject: string;
 	/** Optional interactive options for user decision. */
 	options?: string[];
+	allowCustomInput?: boolean;
 }
-export type ApprovalDecision = "once" | "always" | "reject";
+export type ApprovalDecision = "once" | "always" | "reject" | { answer: string };
 
 export interface SubAgentInput {
 	description: string;

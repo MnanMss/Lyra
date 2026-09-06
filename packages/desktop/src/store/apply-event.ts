@@ -265,12 +265,12 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
 
     case "message_start":
     case "message_end":
-      set(messageEvent(get(), event));
+      set(messageEvent(get(), event, sessionId));
       break;
 
     case "message_update":
       coalesce(() => {
-        if (get().activeSessionId === sessionId) set(messageEvent(get(), event));
+        if (get().activeSessionId === sessionId) set(messageEvent(get(), event, sessionId));
       });
       break;
 
@@ -291,7 +291,7 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
             detail: event.detail,
             ...(event.reason ? { reason: event.reason } : {}),
             subject: event.subject,
-            ...(event.options ? { options: event.options } : {}),
+            ...(event.options ? { options: event.options } : {}), ...(event.allowCustomInput !== undefined ? { allowCustomInput: event.allowCustomInput } : {}),
           },
         ],
       });

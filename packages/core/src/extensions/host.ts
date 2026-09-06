@@ -17,6 +17,7 @@
 import { Worker } from "node:worker_threads";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { FAILURE_LIMIT, HANDLER_TIMEOUT_MS, validateManifest, type ExtensionDiagnostic, type ExtensionEvent, type ExtensionManifest, type ExtensionReply, type ExtensionStats } from "./types.ts";
 
 interface Pending {
@@ -39,7 +40,7 @@ export interface LoadedExtension {
 function bridgeSource(entry: string): string {
 	return `
 import { parentPort } from "node:worker_threads";
-const mod = await import(${JSON.stringify(entry)});
+const mod = await import(${JSON.stringify(pathToFileURL(entry).href)});
 const handlers = mod.default ?? mod;
 
 parentPort.on("message", async (message) => {

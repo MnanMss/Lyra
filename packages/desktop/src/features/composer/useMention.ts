@@ -5,9 +5,9 @@ import { bridge } from "../../services/index.ts";
 import { useApp } from "../../store/index.ts";
 import {
 	findMentionRanges,
+	formatMention,
 	parseMentionTrigger,
 	rankMentions,
-	type MentionCompletion,
 	type MentionItem,
 } from "./mention-catalog.ts";
 
@@ -16,17 +16,19 @@ export function useMention(
 	cwd: string,
 	field: React.RefObject<HTMLTextAreaElement | null>,
 	setText: (text: string) => void,
-	onPickAction?: (actionId: string, completion: MentionCompletion) => void,
+	onPickAction?: (actionId: string) => Promise<string | null>,
+	onPickSession?: (session: { id: string; title: string }) => void,
 ) {
 	const [active, setActive] = useState(0);
+	const [keyboardSelection, setKeyboardSelection] = useState(true);
 	const [dismissed, setDismissed] = useState(false);
 	const [selection, setSelection] = useState({ text, start: text.length, end: text.length });
 	const [focused, setFocused] = useState(false);
 	const id = useId();
 
+	const [agents, setAgents] = useState<Array<{ id: string; name: string; description: string }>>([]);
 	const [skills, setSkills] = useState<SkillEntry[]>([]);
 	const [sessions, setSessions] = useState<SessionMeta[]>([]);
-	const [chosenSessions, setChosenSessions] = useState<Map<string, string>>(() => new Map());
 	const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
 
 	const nonce = useApp((state) => state.extensionsNonce);
@@ -43,10 +45,13 @@ export function useMention(
 	useEffect(() => {
 		if (!mentionMode) return;
 		let alive = true;
+		setSkills([]);
+		setAgents([]);
+		setWorkspaceFiles([]);
 
 		// Fetch skills & plugins
 		void bridge.commands.list(cwd).then((result) => {
-			if (alive && result.skills) setSkills(result.skills);
+			if (alive) { setSkills(result.skills); setAgents(result.agents ?? []); }
 		}).catch(() => {});
 
 		// Fetch sessions
@@ -74,14 +79,16 @@ export function useMention(
 		if (term === null || dismissed || !focused) return [];
 		return rankMentions(term, {
 			files: workspaceFiles,
+			agents,
 			sessions,
 			skills,
 			allowAction: true,
 		});
-	}, [term, dismissed, focused, workspaceFiles, sessions, skills]);
+	}, [term, dismissed, focused, workspaceFiles, sessions, skills, agents]);
 
 	useEffect(() => {
 		setActive(0);
+		setKeyboardSelection(true);
 	}, [term, cwd]);
 
 	const current = Math.min(active, Math.max(0, matches.length - 1));
@@ -93,38 +100,37 @@ export function useMention(
 
 	function insertMentionText(tokenText: string) {
 		const el = field.current;
-		if (!completion || !el) return;
+		if (!completion || !el || el.value !== text) return;
 		el.focus();
 		el.setSelectionRange(completion.start, completion.end);
-		const trailingSpace = /\s/.test(text[completion.end] ?? "") ? "" : " ";
+		const trailingSpace = !tokenText || /\s/.test(text[completion.end] ?? "") ? "" : " ";
 		document.execCommand("insertText", false, `${tokenText}${trailingSpace}`);
 		setText(el.value);
 		select();
 		setDismissed(true);
 	}
 
-	function pick(item: MentionItem) {
+	async function pick(item: MentionItem) {
 		if (!completion) return;
 
 		if (item.kind === "action") {
-			onPickAction?.(item.id, completion);
 			setDismissed(true);
+			const token = await onPickAction?.(item.id);
+			if (token) insertMentionText(token);
 			return;
 		}
 
 		let token = "";
-		if (item.kind === "subagent" || item.kind === "plugin") {
+		if (item.kind === "plugin") {
+			token = `/skill:${item.title}`;
+		} else if (item.kind === "subagent") {
 			token = `@${item.title}`;
 		} else if (item.kind === "session") {
-			// Show human-readable title without exposing session UUID to user.
-			// Wrap in quotes if title contains whitespace or punctuation that could break token boundaries.
-			const formattedTitle = /[\s`"'()[\]{}]/.test(item.title) ? `@"${item.title}"` : `@${item.title}`;
-			token = formattedTitle;
-			if (item.data?.sessionId) {
-				setChosenSessions((prev) => new Map(prev).set(item.title, item.data!.sessionId!));
-			}
+			if (item.data?.sessionId) onPickSession?.({ id: item.data.sessionId, title: item.title });
+			insertMentionText("");
+			return;
 		} else if (item.kind === "file") {
-			token = item.title.includes(" ") ? `@"${item.title}"` : `@${item.title}`;
+			token = formatMention(item.data?.path ?? item.title);
 		} else {
 			token = `@${item.title}`;
 		}
@@ -145,12 +151,12 @@ export function useMention(
 		matches,
 		term: term ?? "",
 		active: current,
-		setActive,
+		keyboardSelection,
+		hover(index: number) { setKeyboardSelection(false); setActive(index); },
 		pick,
 		insertMentionText,
 		mentionDecorations,
 		completion,
-		chosenSessions,
 		sessions,
 		change(next: string) {
 			setText(next);
@@ -170,6 +176,7 @@ export function useMention(
 			}
 			if (event.key === "ArrowDown" || event.key === "ArrowUp") {
 				event.preventDefault();
+				setKeyboardSelection(true);
 				setActive((current + (event.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length);
 				return true;
 			}

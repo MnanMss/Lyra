@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseMentionTrigger, rankMentions, findMentionRanges } from "../src/features/composer/mention-catalog.ts";
+import { parseMentionTrigger, rankMentions, findMentionRanges, formatMention } from "../src/features/composer/mention-catalog.ts";
 
 test("parseMentionTrigger detects @ at start of line", () => {
 	const result = parseMentionTrigger("@file", 5, 5);
@@ -38,6 +38,7 @@ test("findMentionRanges finds unquoted and quoted mentions in text", () => {
 test("rankMentions filters items by search term", () => {
 	const items = rankMentions("rev", {
 		files: ["src/review.ts", "src/index.ts"],
+		agents: [{id: "review", name: "review", description: "审查"}],
 		sessions: [{ id: "s-1", title: "code review session", cwd: "/test", projectName: "test", status: "idle", unread: false, createdAt: Date.now(), updatedAt: Date.now() }],
 		allowAction: true,
 	});
@@ -45,4 +46,17 @@ test("rankMentions filters items by search term", () => {
 	assert.ok(items.some((i) => i.id === "subagent:review"));
 	assert.ok(items.some((i) => i.title === "src/review.ts"));
 	assert.ok(items.some((i) => i.id === "session:s-1" && i.title === "code review session"));
+});
+
+test("a picked path survives quotes, whitespace, and Windows separators exactly", () => {
+	for (const path of ["/outside/project-neighbor/report.md", '/tmp/a "quote".md', "C:\\Users\\me\\test file.md"]) {
+		assert.equal(findMentionRanges(formatMention(path))[0].inner, path);
+	}
+	assert.equal(findMentionRanges(String.raw`@"C:\test\notes.md"`)[0].inner, String.raw`C:\test\notes.md`);
+	assert.doesNotThrow(() => findMentionRanges('@"incomplete \\"'));
+});
+
+test("agent candidates come from the registry, including configured names", () => {
+	assert.equal(rankMentions("", {}).some((item) => item.kind === "subagent"), false);
+	assert.equal(rankMentions("custom", { agents: [{ id: "custom", name: "custom", description: "project agent" }] })[0].id, "subagent:custom");
 });

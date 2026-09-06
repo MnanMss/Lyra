@@ -405,17 +405,7 @@ export async function runAgent(config: AgentRunConfig, emit: AgentEventSink): Pr
 			 * hold on to goes in `todo_write`, where it becomes the first test above; one left in
 			 * prose is a sentence, and sentences are the user's to judge.
 			 */
-			/*
-			 * If the assistant explicitly asked a question to the user ending with a question mark,
-			 * or stated that it needs user confirmation, let it pause naturally rather than pushing past it.
-			 */
-			const lastText = assistant.content
-				.filter((part): part is Extract<typeof part, { type: "text" }> => part.type === "text")
-				.map((part) => part.text.trim())
-				.join("\n");
-			const looksLikeQuestion = /[？?]\s*$/.test(lastText) || /(?:请问|是否|请确认|请选择|需要您)/.test(lastText);
-
-			if ((unfinished.length > 0 || saidNothing) && !looksLikeQuestion && nudges < MAX_NUDGES) {
+			if ((unfinished.length > 0 || saidNothing) && nudges < MAX_NUDGES) {
 				nudges += 1;
 				let nudgeText = "（自动继续）上一条回复是空的。请直接开始执行：说明你要做什么，并调用工具去做。";
 				if (!saidNothing && unfinished.length > 0) {

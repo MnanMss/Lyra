@@ -76,7 +76,8 @@ export type SessionRecord =
 	| { seq: number; ts: number; type: "meta"; meta: SessionMeta }
 	| { seq: number; ts: number; type: "message"; message: Message }
 	| { seq: number; ts: number; type: "event"; event: AgentEvent }
-	| { seq: number; ts: number; type: "title"; title: string }
+	| { seq: number; ts: number; type: "title"; title: string; source?: "user" | "auto" }
+	| { seq: number; ts: number; type: "usage"; source: "title-summary"; providerId: string; modelId: string; usage: Usage }
 	/**
 	 * Its own record type rather than a `meta` write: archiving must not touch `updatedAt`,
 	 * and a `meta` record always refreshes it. Sending it through the log also means a phone
@@ -195,13 +196,18 @@ export class SessionStore implements SessionStorage {
 		const key = this.keyFor(meta);
 		// Callers may hold a stale snapshot; the store's own copy is the source of truth.
 		const base = this.latestMeta.get(key) ?? meta;
+		if (payload.type === "title" && payload.source === "auto" && base.titleSetByUser) return base;
 		const next: SessionMeta = { ...base, seq: base.seq + 1, updatedAt: Date.now() };
 
 		if (payload.type === "message") {
 			next.messageCount = base.messageCount + 1;
 			if (payload.message.role === "assistant") next.usage = addUsage(base.usage, payload.message.usage);
 		}
-		if (payload.type === "title") next.title = payload.title;
+		if (payload.type === "title") {
+			next.title = payload.title;
+			if (payload.source === "user") next.titleSetByUser = true;
+		}
+		if (payload.type === "usage") next.usage = addUsage(base.usage, payload.usage);
 		if (payload.type === "archive") {
 			next.archived = payload.archived;
 			// Filing something away is not activity; the list stays sorted by last real use.
@@ -210,9 +216,14 @@ export class SessionStore implements SessionStorage {
 		if (payload.type === "meta") {
 			// A meta record carries caller-side changes such as the selected model.
 			Object.assign(next, payload.meta, { seq: next.seq, updatedAt: next.updatedAt, usage: next.usage });
+			// A model/settings snapshot cannot undo an explicit name chosen while it was in flight.
+			if (base.titleSetByUser) { next.title = base.title; next.titleSetByUser = true; }
 		}
 
-		const record = { seq: next.seq, ts: Date.now(), ...payload } as SessionRecord;
+		const persisted = payload.type === "meta" && base.titleSetByUser
+			? { ...payload, meta: { ...payload.meta, title: next.title, titleSetByUser: true } }
+			: payload;
+		const record: SessionRecord = { seq: next.seq, ts: Date.now(), ...persisted };
 		await mkdir(this.dirFor(meta.projectId), { recursive: true });
 		await appendFile(this.fileFor(meta.projectId, meta.id), `${JSON.stringify(record)}\n`, "utf8");
 		this.latestMeta.set(key, next);
@@ -254,10 +265,18 @@ export class SessionStore implements SessionStorage {
 	async load(
 		projectId: string,
 		sessionId: string,
-	): Promise<{ meta: SessionMeta; messages: Message[]; entries: { seq: number; message: Message }[]; compactions: number[]; commandRuns?: CommandRun[]; compaction: Boundary | null } | null> {
+	): Promise<{
+		meta: SessionMeta;
+		messages: Message[];
+		entries: { seq: number; message: Message }[];
+		compactions: number[];
+		commandRuns?: CommandRun[];
+		compaction: Boundary | null;
+	} | null> {
 		let meta: SessionMeta | null = null;
 		// Kept with their sequence numbers so a truncate record can drop the right tail.
 		let entries: { seq: number; message: Message }[] = [];
+		let auxiliaryUsage = emptyUsage();
 		/*
 		 * Where history was summarised, as positions in the transcript.
 		 *
@@ -294,7 +313,11 @@ export class SessionStore implements SessionStorage {
 					compaction = { at: record.ts, summary: summary ?? "", keptFrom: Math.max(0, entries.length - kept) };
 				}
 			} else if (record.type === "message") entries.push({ seq: record.seq, message: record.message });
-			else if (record.type === "title" && meta) meta.title = record.title;
+			else if (record.type === "title" && meta) {
+				if (record.source !== "auto" || !meta.titleSetByUser) meta.title = record.title;
+				if (record.source === "user") meta.titleSetByUser = true;
+			}
+			else if (record.type === "usage") auxiliaryUsage = addUsage(auxiliaryUsage, record.usage);
 			else if (record.type === "archive" && meta) meta.archived = record.archived;
 			else if (record.type === "truncate") {
 				entries = entries.filter((e) => e.seq <= record.afterSeq);
@@ -309,7 +332,7 @@ export class SessionStore implements SessionStorage {
 		const messages = entries.map((e) => e.message);
 		meta.messageCount = messages.length;
 		// Re-accumulate usage across assistant messages if it was lost/cleared
-		let totalUsage = emptyUsage();
+		let totalUsage = auxiliaryUsage;
 		for (const msg of messages) {
 			if (msg.role === "assistant" && msg.usage) {
 				totalUsage = addUsage(totalUsage, msg.usage);
@@ -320,7 +343,14 @@ export class SessionStore implements SessionStorage {
 		}
 		// Seed the append queue's view so a reopened session keeps numbering where it left off.
 		this.latestMeta.set(this.keyFor(meta), meta);
-		return { meta, messages, entries, compactions, compaction, commandRuns: [...commandRuns.values()].map((entry) => entry.run) };
+		return {
+			meta,
+			messages,
+			entries,
+			compactions,
+			compaction,
+			commandRuns: [...commandRuns.values()].map((entry) => entry.run),
+		};
 	}
 
 	// -------------------------------------------------------------------------
@@ -415,7 +445,7 @@ export class SessionStore implements SessionStorage {
 		messageIndex: number,
 	): Promise<{ meta: SessionMeta; messages: Message[] } | null> {
 		const loaded = await this.load(projectId, sessionId);
-		if (!loaded || messageIndex < 0 || messageIndex >= loaded.messages.length) return null;
+		if (!loaded || !Number.isInteger(messageIndex) || messageIndex < 0 || messageIndex >= loaded.messages.length) return null;
 
 		/*
 		 * Turn atomicity: never cut inside a tool-call turn.
@@ -426,25 +456,9 @@ export class SessionStore implements SessionStorage {
 		while (targetIndex > 0 && loaded.messages[targetIndex]?.role === "toolResult") {
 			targetIndex -= 1;
 		}
-		// If targetIndex is inside or at the assistant message that spawned the tool calls,
-		// also drop the assistant message itself so no orphaned tool calls remain.
-		if (
-			targetIndex >= 0 &&
-			loaded.messages[targetIndex]?.role === "assistant" &&
-			loaded.messages[targetIndex]?.content.some((c) => c.type === "toolCall")
-		) {
-			// Check if all its tool results are within targetIndex; if not all results follow,
-			// or if we truncated into the results run, we must step back before this assistant.
-			if (messageIndex > targetIndex) {
-				targetIndex = Math.max(0, targetIndex);
-			}
-		}
 
-		// The seq to keep is the one just before the record carrying the first doomed message.
-		// Any events emitted before this message arrived belong to the retained turns.
-		const cutoff = targetIndex < loaded.entries.length
-			? Math.max(0, loaded.entries[targetIndex].seq - 1)
-			: loaded.meta.seq;
+		// The seq to keep is the one just before the record carrying the doomed message.
+		const cutoff = loaded.entries[targetIndex].seq - 1;
 
 		const meta = await this.append(loaded.meta, { type: "truncate", afterSeq: cutoff });
 		const messages = loaded.messages.slice(0, targetIndex);

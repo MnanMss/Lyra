@@ -15,7 +15,7 @@ export function cachedEvent(cached: Cache[string], event: AgentEvent): Cache[str
 	};
 	switch (event.type) {
 		case "message_start": case "message_update": case "message_end": {
-			const next = messageEvent({ messages, pendingUserMessage: state.pendingUserMessage }, event);
+			const next = messageEvent({ messages, pendingUserMessage: state.pendingUserMessage }, event, meta.id);
 			messages = next.messages;
 			state = { ...state, pendingUserMessage: next.pendingUserMessage, retrying: null };
 			break;
@@ -34,7 +34,7 @@ export function cachedEvent(cached: Cache[string], event: AgentEvent): Cache[str
 			state = { ...state, running: false, approvals: [], pendingUserMessage: null, retrying: null, stopped: howItStopped(messages, event.reason) };
 			break;
 		case "approval_request":
-			state = { ...state, approvals: [...state.approvals, { id: event.requestId, kind: event.kind, title: event.title, detail: event.detail, subject: event.subject, ...(event.options ? { options: event.options } : {}) }] };
+			state = { ...state, approvals: [...state.approvals, { id: event.requestId, kind: event.kind, title: event.title, detail: event.detail, subject: event.subject, ...(event.options ? { options: event.options } : {}), ...(event.allowCustomInput !== undefined ? { allowCustomInput: event.allowCustomInput } : {}) }] };
 			break;
 		case "title": meta = { ...meta, title: event.title }; break;
 		case "rewound":

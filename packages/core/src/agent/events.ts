@@ -38,6 +38,7 @@ export type AgentEvent =
 			subject: string;
 			/** Interactive choices for user selection. */
 			options?: string[];
+			allowCustomInput?: boolean;
 		}
 	| { type: "turn_end"; message: AssistantMessage; toolResults: ToolResultMessage[] }
 	/** `stalled`: the turn kept making the same call for the same answer and was stopped. */

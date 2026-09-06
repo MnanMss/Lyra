@@ -43,7 +43,7 @@ export function turnSlice(set: Set, get: Get) {
 		const meter = relight(options.carryOn && sessionId ? carriedMeter : null, Date.now());
 		if (sessionId) saveCarried(sessionId, null);
 		if (ownsSelection()) set({
-			messages: [...get().messages, pending], pendingUserMessage: pending,
+			messages: [...get().messages, pending], pendingUserMessage: { sessionId: sessionId ?? null, message: pending },
 			running: true, stopped: null, turnStartedAt: meter.startedAt, turnTokens: meter.tokens,
 		});
 		if (sessionId) set({
@@ -155,7 +155,7 @@ export function turnSlice(set: Set, get: Get) {
     };
     set({
       messages: [...get().messages.slice(0, index), pending],
-      pendingUserMessage: pending,
+      pendingUserMessage: { sessionId, message: pending },
       toolRuns: {},
       approvals: [],
       running: true,
@@ -183,11 +183,17 @@ export function turnSlice(set: Set, get: Get) {
     if (sessionId) await bridge.agent.abort(sessionId);
   },
 
-  async respondToApproval(id: string, decision: ApprovalDecision) {
-    const sessionId = get().activeSessionId;
+  async respondToApproval(id: string, decision: ApprovalDecision, ownerId?: string) {
+    const sessionId = ownerId ?? get().activeSessionId;
     if (!sessionId) return;
-    set({ approvals: get().approvals.filter((a) => a.id !== id) });
     await bridge.agent.approve(sessionId, id, decision);
+    set((state) => {
+      const cached = state.sessionCache[sessionId];
+      return {
+        ...(state.activeSessionId === sessionId ? { approvals: state.approvals.filter((request) => request.id !== id) } : {}),
+        ...(cached?.state ? { sessionCache: { ...state.sessionCache, [sessionId]: { ...cached, state: { ...cached.state, approvals: cached.state.approvals.filter((request) => request.id !== id) } } } } : {}),
+      };
+    });
   },
 
   /**

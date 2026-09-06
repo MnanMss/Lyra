@@ -248,8 +248,8 @@ test("a project rule and a user rule go to different places", async () => {
 	const project = await saveRule("project", root, "no-any", "---\n---\n不用 any。\n");
 	const personal = await saveRule("user", root, "no-any", "---\n---\n不用 any。\n");
 
-	assert.match(project.path, /\.lyra\/rules\/no-any\.md$/);
-	assert.ok(personal.path.startsWith(home), "the user one lands in the home directory, not the project");
+	assert.equal(project.path, join(root, ".lyra", "rules", "no-any.md"));
+	assert.equal(personal.path, join(home, "rules", "no-any.md"));
 });
 
 test("an existing rule is not overwritten", async () => {

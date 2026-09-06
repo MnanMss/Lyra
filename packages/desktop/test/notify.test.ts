@@ -47,11 +47,10 @@ test("notifyTaskDone: suppresses notification when OS does not support it", () =
 	assert.equal(created, false, "Notifications unsupported; must not attempt creation");
 });
 
-test("notifyTaskDone: shows notification when window is not focused, and triggers reveal on click", () => {
+test("notifyTaskDone: shows notification when window is not focused, and sends the session to the shared tray dispatcher on click", () => {
 	let shown = false;
 	let capturedOptions: unknown = null;
 	let clickHandler: (() => void) | null = null;
-	let revealed = false;
 	let sentCommand: string | null = null;
 
 	const dummyNotification: NotificationInstance = {
@@ -70,10 +69,6 @@ test("notifyTaskDone: shows notification when window is not focused, and trigger
 		createNotification: (options) => {
 			capturedOptions = options;
 			return dummyNotification;
-		},
-		reveal: (then) => {
-			revealed = true;
-			then?.();
 		},
 		sendTrayCommand: (cmd) => {
 			sentCommand = cmd;
@@ -94,7 +89,6 @@ test("notifyTaskDone: shows notification when window is not focused, and trigger
 	assert.ok(clickHandler, "Click handler must be registered");
 	(clickHandler as () => void)();
 
-	assert.equal(revealed, true, "Clicking notification must reveal the window");
 	assert.equal(sentCommand, "open-session:sess-42", "Must navigate to target session");
 });
 
@@ -278,3 +272,20 @@ test("the session event boundary notifies both ordinary approvals and interactiv
 	for (const reason of ["aborted", "error", "max_turns", "stalled"] as const) notifyAgentEvent("session-a", { type: "agent_end", reason });
 	assert.equal(bodies.length, 2, "only normal completion is a completion notification");
 });
+
+for (const [name, window] of [
+	["closed", () => null],
+	["hidden", () => mockWindow({ isVisible: () => false })],
+	["destroyed", () => mockWindow({ isDestroyed: () => true })],
+] satisfies [string, () => WindowLike | null][]) {
+	test(`notifyTaskDone: a ${name} window still receives completion notifications`, () => {
+		let shown = 0;
+		configureNotify({
+			isSupported: () => true,
+			window,
+			createNotification: () => ({ show: () => { shown++; }, on: () => {} }),
+		});
+		notifyTaskDone({ sessionId: "background" });
+		assert.equal(shown, 1);
+	});
+}

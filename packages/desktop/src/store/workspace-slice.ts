@@ -10,6 +10,7 @@ import type { SessionMeta } from "@lyra/core";
 import type { AppState } from "./index.ts";
 import { useSubAgents } from "./subAgents.ts";
 import { bridge } from "../services/index.ts";
+import { moveBeforeOrAfter, orderedSessions, type SessionSortKey } from "../lib/sidebar-order.ts";
 
 type Get = () => AppState;
 type Set = (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void;
@@ -51,19 +52,15 @@ export function workspaceSlice(set: Set, get: Get) {
 
     const settings = get().settings;
     if (!settings) return;
-    const projects = settings.projects.filter((p) => p.path !== path);
+    const previous = settings.projects.find((project) => project.path === path);
+    const entry = {
+      id: previous?.id ?? path, name: workspace.name, path,
+      pinned: previous?.pinned ?? false, lastOpenedAt: Date.now(),
+    };
     await get().saveSettings({
       ...settings,
-      projects: [
-        {
-          id: path,
-          name: workspace.name,
-          path,
-          pinned: settings.projects.find((p) => p.path === path)?.pinned ?? false,
-          lastOpenedAt: Date.now(),
-        },
-        ...projects,
-      ],
+      // Opening a project updates its recency without undoing an explicit list order.
+      projects: previous ? settings.projects.map((project) => project.path === path ? entry : project) : [entry, ...settings.projects],
     });
   },
 
@@ -185,58 +182,30 @@ export function workspaceSlice(set: Set, get: Get) {
       pinnedSessionIds: Array.from(current),
     });
   },
-  async reorderProjects(sourcePath: string, targetPath: string, placement: "before" | "after") {
-    const settings = get().settings;
-    if (!settings || sourcePath === targetPath) return;
-    const list = [...settings.projects];
-    const sourceIdx = list.findIndex((p) => p.path === sourcePath);
-    if (sourceIdx === -1) return;
-    const [item] = list.splice(sourceIdx, 1);
-    const targetIdx = list.findIndex((p) => p.path === targetPath);
-    if (targetIdx === -1) {
-      list.push(item);
-    } else {
-      const insertIdx = placement === "before" ? targetIdx : targetIdx + 1;
-      list.splice(insertIdx, 0, item);
-    }
-    await get().saveSettings({
-      ...settings,
-      projects: list,
-    });
-  },
+	async reorderProjects(sourcePath: string, targetPath: string, placement: "before" | "after") {
+		const settings = get().settings;
+		if (!settings) return false;
+		const source = settings.projects.find((project) => project.path === sourcePath);
+		const target = settings.projects.find((project) => project.path === targetPath);
+		// Pinned and ordinary projects are separate visible lists.
+		if (!source || !target || source.pinned !== target.pinned) return false;
+		const projects = moveBeforeOrAfter(settings.projects, source, target, placement);
+		if (!projects) return false;
+		await get().saveSettings({ ...settings, projects });
+		return true;
+	},
 
-  async reorderProjectSessions(projectPath: string, sourceId: string, targetId: string, placement: "before" | "after") {
-    const settings = get().settings;
-    if (!settings || sourceId === targetId) return;
-    // Collect current session order for this project
-    const sessionsInProject = get().sessions.filter((s) => s.cwd === projectPath && !s.archived);
-    const existingOrder = settings.sessionOrder?.[projectPath] ?? [];
-    // Build normalized sequence containing all current sessions
-    const known = new Set(existingOrder);
-    const ordered = existingOrder.filter((id) => sessionsInProject.some((s) => s.id === id));
-    for (const s of sessionsInProject) {
-      if (!known.has(s.id)) ordered.unshift(s.id);
-    }
-    const sourceIdx = ordered.indexOf(sourceId);
-    if (sourceIdx === -1) return;
-    ordered.splice(sourceIdx, 1);
-    const targetIdx = ordered.indexOf(targetId);
-    if (targetIdx === -1) {
-      ordered.push(sourceId);
-    } else {
-      const insertIdx = placement === "before" ? targetIdx : targetIdx + 1;
-      ordered.splice(insertIdx, 0, sourceId);
-    }
-    const nextMap: Record<string, string[]> = {
-      ...settings.sessionOrder,
-      [projectPath]: ordered,
-    };
-    await get().saveSettings({
-      ...settings,
-      sessionOrder: nextMap,
-    });
-  },
-
+	async reorderProjectSessions(projectPath: string, sourceId: string, targetId: string, placement: "before" | "after", sort: SessionSortKey) {
+		const settings = get().settings;
+		if (!settings) return false;
+		const pinned = new Set(settings.pinnedSessionIds ?? []);
+		const sessions = get().sessions.filter((session) => session.cwd === projectPath && !session.archived && !pinned.has(session.id));
+		const ordered = orderedSessions(sessions, sort, settings.sessionOrder?.[projectPath]).map((session) => session.id);
+		const next = moveBeforeOrAfter(ordered, sourceId, targetId, placement);
+		if (!next) return false;
+		await get().saveSettings({ ...settings, sessionOrder: { ...settings.sessionOrder, [projectPath]: next } });
+		return true;
+	},
 
   /**
    * Rename a conversation: on screen at once, on disk right after.

@@ -32,7 +32,7 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
 async function seed(home: string): Promise<void> {
 	// The remote lives outside the workspace, or the panel's repository scan would list it too.
 	remote = join(home, "remote.git");
-	await exec("git", ["init", "-q", "--bare", remote]);
+	await exec("git", ["init", "-q", "--bare", "--initial-branch=main", remote]);
 
 	project = join(home, "project");
 	await mkdir(project, { recursive: true });

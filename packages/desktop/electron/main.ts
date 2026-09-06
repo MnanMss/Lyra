@@ -1,7 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn as spawnPty } from "node-pty";
-import { app, BrowserWindow, protocol } from "electron";
+import { app, BrowserWindow, Notification, protocol } from "electron";
 import {
 	createContext,
 	lyraHome,
@@ -99,7 +99,6 @@ import { Scheduler } from "./scheduler.ts";
 import { createTray, destroyTray, hasTray, refreshMenu, type TrayCommand } from "./tray.ts";
 import { registerScreenshotIpc } from "./ipc/screenshot.ts";
 import { destroyScreenshotOverlay, dismissStrayOverlay, isScreenshotOverlay, registerScreenshotShortcut, unregisterScreenshotShortcut, warmScreenshotOverlay } from "./screenshot.ts";
-import { Notification } from "electron";
 import { configureNotify } from "./notify.ts";
 
 /*
@@ -165,11 +164,7 @@ const BROWSER_PARTITION = "persist:ly-browser";
  * actually checked — see the note there on why comparing the raw one let `..` walk out.
  */
 function projectPath(target: string): string | null {
-	const allowedRoots = [
-		...(settings?.projects ?? []).map((project) => project.path),
-		lyraHome(),
-	];
-	return resolveInside(target, allowedRoots);
+	return resolveInside(target, (settings?.projects ?? []).map((project) => project.path));
 }
 
 /**
@@ -624,14 +619,12 @@ function sendToRenderer(command: TrayCommand): void {
 	reveal(() => getWindow()?.webContents.send("tray:command", command));
 }
 configureNotify({
-	reveal,
 	sendTrayCommand: (cmd) => sendToRenderer(cmd),
 	isSupported: () => Notification.isSupported(),
 	window: () => getWindow(),
 	appIcon: () => appIconPath(),
 	createNotification: (options) => new Notification(options),
 });
-
 
 app.on("window-all-closed", () => {
 	/*

@@ -165,7 +165,7 @@ export function GeneralSettings() {
         />
         <Row
           title="智能标题总结"
-          detail="在新会话首轮提问超过 12 个字符时，后台自动使用模型总结精简标题（优先 fast 模型）；关闭或字数较少时直接使用用户输入"
+          detail="自动精简长消息标题，优先使用 @fast，会产生模型用量。"
           control={
             <Toggle
               checked={settings.autoSummarizeTitle !== false}

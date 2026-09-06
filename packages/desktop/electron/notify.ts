@@ -52,7 +52,6 @@ export interface NotifyDeps {
 	isSupported(): boolean;
 	window(): WindowLike | null;
 	appIcon(): string | undefined;
-	reveal(then?: () => void): void;
 	sendTrayCommand(command: `open-session:${string}`): void;
 	createNotification(options: NotificationOptionsLike): NotificationInstance;
 }
@@ -61,7 +60,6 @@ let deps: NotifyDeps = {
 	isSupported: () => false,
 	window: () => null,
 	appIcon: () => undefined,
-	reveal: (_then) => {},
 	sendTrayCommand: (_cmd) => {},
 	createNotification: () => ({
 		show: () => {},
@@ -97,9 +95,8 @@ export function notifyTaskDone(details: TaskDoneDetails): void {
 	});
 
 	notification.on("click", () => {
-		deps.reveal(() => {
-			deps.sendTrayCommand(`open-session:${details.sessionId}`);
-		});
+		// The shared tray dispatcher reveals the window and waits for a cold renderer.
+		deps.sendTrayCommand(`open-session:${details.sessionId}`);
 	});
 
 	notification.show();

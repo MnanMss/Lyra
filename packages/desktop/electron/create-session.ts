@@ -18,7 +18,8 @@ export async function createStoredSession(
 	initial?: InitialPrompt,
 ): Promise<SessionSnapshot> {
 	const text = initial?.displayText ?? initial?.content.find((block) => block.type === "text")?.text ?? "";
-	const title = text.replace(/\s+/g, " ").trim().slice(0, 60) || (initial ? "图片消息" : "New session");
+	const referenceTitle = initial?.skillRef?.name ?? initial?.sessionRefs?.[0]?.title;
+	const title = (text || referenceTitle || "").replace(/\s+/g, " ").trim().slice(0, 60) || (initial ? "图片消息" : "New session");
 	let meta = await store.create(cwd, modelId || settings.defaultModelId || "", title);
 	const messages: Message[] = initial
 		? [

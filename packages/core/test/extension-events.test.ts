@@ -10,7 +10,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -64,17 +64,15 @@ test("每个声明得出来的事件，都有地方派发它", async () => {
 	 * 反过来（列出代码里派发了什么，断言它们在清单里）永远会通过——漏掉的那个事件不会出现在
 	 * 任何一边。只有从清单出发，才问得出「你声明了它，那它在哪儿发」。
 	 */
-	const { execSync } = await import("node:child_process");
 	/*
 	 * 两种派发都算：`dispatch` 是观察，`intercept` 是能否决的那种。
 	 *
 	 * 第一版只找 `dispatch`，于是把 `tool_call` 报成了漏掉的——而它恰恰是唯一一个从一开始
 	 * 就接好的。一个把对的说成错的检查，会让人把它关掉。
 	 */
-	const src = execSync("grep -rhoE '(dispatch|intercept)\\(\"[a-z_]+\"' packages/core/src --include='*.ts' || true", {
-		cwd: join(import.meta.dirname, "..", "..", ".."),
-		encoding: "utf8",
-	});
+	const root = join(import.meta.dirname, "..", "src");
+	const files = (await readdir(root, { recursive: true })).filter((file) => file.endsWith(".ts"));
+	const src = (await Promise.all(files.map((file) => readFile(join(root, file), "utf8")))).join("\n");
 	const dispatched = new Set([...src.matchAll(/(?:dispatch|intercept)\("([a-z_]+)"/g)].map((m) => m[1]));
 
 	const missing = ALL_EXTENSION_EVENTS.filter((event) => !dispatched.has(event));

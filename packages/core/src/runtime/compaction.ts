@@ -28,6 +28,7 @@ import { streamAssistant } from "../ai/index.ts";
 import { estimateTokens } from "../tokens.ts";
 import { dropUneventful, pruneToolResults, type ArtifactSink } from "./prune.ts";
 import { measureTotal } from "./context.ts";
+import { stripStaleHandles } from "./model-switch.ts";
 import type { AssistantMessage, Message, ModelConfig, ProviderConfig } from "../types.ts";
 
 /** Start compacting at this fraction of the context window. */
@@ -212,7 +213,7 @@ export function compactWith(
 	summarizer?: { provider: ProviderConfig; model: ModelConfig },
 ): Promise<Compaction | null> {
 	if (strategy) return strategy.compact(messages, model, provider, streamFn);
-	return compactIfNeeded(messages, model, provider, streamFn ?? streamAssistant, overhead, false, artifacts, summarizer);
+	return compactIfNeeded(messages, model, provider, streamFn ?? streamAssistant, overhead, false, artifacts, undefined, summarizer);
 }
 
 export async function compactIfNeeded(
@@ -251,13 +252,11 @@ export async function compactIfNeeded(
 	 * 「完整结果留在会话里」才第一次对模型成立——它读不到转录，读得到地址。
 	 */
 	artifacts?: ArtifactSink,
+	manual?: { instructions?: string; signal?: AbortSignal },
 	/**
-	 * 用于生成摘要的指定模型（来自 `@compact` 角色）。
-	 *
-	 * 未传或回退时，使用当前会话的模型与供应商生成摘要。
+	 * Selects the summarizer without changing the active model's compaction threshold or tail budget.
 	 */
 	summarizer?: { provider: ProviderConfig; model: ModelConfig },
-	manual?: { instructions?: string; signal?: AbortSignal },
 ): Promise<Compaction | null> {
 	/*
 	 * The provider's own count, not our estimate of it.
@@ -357,7 +356,11 @@ export async function compactIfNeeded(
 
 	const summaryModel = summarizer?.model ?? model;
 	const summaryProvider = summarizer?.provider ?? provider;
-	let summary = await summarize(older, summaryModel, summaryProvider, streamFn, force ? manual ?? {} : undefined);
+	// Provider reasoning handles cannot be replayed by a different summarizer.
+	const summaryHistory = summaryModel.id !== model.id || summaryProvider.id !== provider.id
+		? stripStaleHandles(older, older.length)
+		: older;
+	let summary = await summarize(summaryHistory, summaryModel, summaryProvider, streamFn, force ? manual ?? {} : undefined);
 	if (!summary) {
 		summary = fallbackSummary(older);
 	}

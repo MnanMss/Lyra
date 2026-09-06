@@ -175,6 +175,8 @@ export async function snapshot(session: AgentSession): Promise<SessionSnapshot> 
 			kind: request.kind,
 			title: request.title,
 			detail: request.detail,
+			options: request.options,
+			allowCustomInput: request.allowCustomInput,
 		})),
 	};
 }
