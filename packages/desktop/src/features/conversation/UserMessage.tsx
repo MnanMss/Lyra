@@ -173,7 +173,7 @@ export function UserMessage({
                   targetPath = matched?.path;
                 }
                 if (targetPath) {
-                  const fileName = targetPath.split(/[/\\\\]/).pop() || `${skillRef?.name} (SKILL.md)`;
+                  const fileName = targetPath.split(/[/\\]/).pop() || `${skillRef?.name} (SKILL.md)`;
                   void useOpenFile.getState().open({
                     path: targetPath,
                     name: fileName,
