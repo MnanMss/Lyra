@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { after, before, test } from "node:test";
@@ -9,9 +9,9 @@ import { seedInteractions } from "./interaction-fixture.ts";
 
 let app: RunningApp;
 let projectPath: string;
-const screenshots = join(tmpdir(), "lyra-pr55-ui");
+let screenshots: string;
 before(async () => {
-	await mkdir(screenshots, { recursive: true });
+	screenshots = await mkdtemp(join(tmpdir(), "lyra-pr55-ui-"));
 	app = await startApp({ port: 9615, seed: async (home) => {
 		// Synthetic transcripts use the real storage and renderer paths.
 		await seedInteractions(home);
@@ -31,10 +31,16 @@ before(async () => {
 		await writeFile(file, JSON.stringify(settings));
 	} });
 });
-after(async () => { await app?.stop(); });
+after(async () => {
+	await app?.stop();
+	if (screenshots) await rm(screenshots, { recursive: true, force: true });
+});
 
-async function point(selector: string, fraction = 0.5): Promise<{ x: number; y: number }> {
-	return app.evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw new Error('missing '+${JSON.stringify(selector)});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height*${fraction}};})()`);
+async function point(target: "source" | "target" | "project", fraction = 0.5): Promise<{ x: number; y: number }> {
+	const query = target === "source" ? `document.querySelector('[data-ly-row="qa-long"] > button')`
+		: target === "target" ? `document.querySelector('[data-ly-row="qa-short"]')`
+			: `document.querySelector('[class~="group/project"] > button[aria-expanded]')`;
+	return app.evaluate(`(()=>{const e=${query};if(!e)throw new Error('drag target missing');const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height*${fraction}};})()`);
 }
 async function move(at: { x: number; y: number }, dragging = false) {
 	await app.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...at, buttons: dragging ? 1 : 0, ...(dragging ? { button: "left" } : {}) });
@@ -42,8 +48,8 @@ async function move(at: { x: number; y: number }, dragging = false) {
 async function waitFor(expression: string): Promise<void> {
 	await app.evaluate(`new Promise((resolve,reject)=>{const deadline=performance.now()+5000;const check=()=>{if(${expression})resolve();else if(performance.now()<deadline)requestAnimationFrame(check);else reject(new Error('condition timed out'));};check();})`);
 }
-async function begin(source: string, target: string) {
-	const start = await point(source); const finish = await point(target, 0.8);
+async function begin() {
+	const start = await point("source"); const finish = await point("target", 0.8);
 	await move(start);
 	await app.send("Input.dispatchMouseEvent", { type: "mousePressed", button: "left", buttons: 1, clickCount: 1, ...start });
 	await move({ x: start.x, y: start.y + 7 }, true);
@@ -54,8 +60,6 @@ async function release(at: { x: number; y: number }) {
 	await app.send("Input.dispatchMouseEvent", { type: "mouseReleased", button: "left", buttons: 0, clickCount: 1, ...at });
 }
 const rows = () => app.evaluate<string[]>(`[...document.querySelectorAll('[data-ly-row]')].filter(e=>e.checkVisibility({visibilityProperty:true})).map(e=>e.dataset.lyRow)`);
-const source = '[data-ly-row="qa-long"] > button';
-const target = '[data-ly-row="qa-short"]';
 
 test("real mouse drag preserves other rows, suppresses navigation, and renders in both themes", async (t) => {
 	await waitFor(`document.querySelector('[data-ly-row="qa-third"]')`);
@@ -63,7 +67,7 @@ test("real mouse drag preserves other rows, suppresses navigation, and renders i
 	const current = await app.evaluate(`document.querySelector('[data-ly-row] [aria-current="page"]')?.closest('[data-ly-row]')?.dataset.lyRow ?? null`);
 	for (const theme of ["light", "dark"]) {
 		await app.evaluate(`window.lyra.settings.get().then(s=>window.lyra.settings.save({...s,appearance:{...s.appearance,theme:${theme === "light" ? '"light"' : '"dark"'}}}))`);
-		const finish = await begin(source, target);
+		const finish = await begin();
 		await waitFor(`document.querySelector('.ly-glass-solid.pointer-events-none.fixed')`);
 		const ghost = await app.evaluate<{ width: number; height: number; left: number; top: number; position: string; text: string }>(`(()=>{const e=document.querySelector('.ly-glass-solid.pointer-events-none.fixed');const r=e.getBoundingClientRect();return {width:r.width,height:r.height,left:r.left,top:r.top,position:getComputedStyle(e).position,text:e.textContent};})()`);
 		assert.equal(ghost.position, "fixed"); assert.equal(ghost.text, "qa-long");
@@ -78,11 +82,12 @@ test("real mouse drag preserves other rows, suppresses navigation, and renders i
 		assert.deepEqual(await rows(), ["qa-long", "qa-short", "qa-third"]);
 		t.diagnostic(JSON.stringify({ theme, ghost }));
 	}
-	await release(await begin(source, target));
+	await release(await begin());
 	await waitFor(`document.querySelector('[data-ly-row]')?.dataset.lyRow === 'qa-short'`);
 	assert.deepEqual(await rows(), ["qa-short", "qa-long", "qa-third"]);
 	assert.equal(await app.evaluate(`document.querySelector('[data-ly-row] [aria-current="page"]')?.closest('[data-ly-row]')?.dataset.lyRow ?? null`), current);
-	const stored = await app.evaluate<string[]>(`window.lyra.settings.get().then(s=>s.sessionOrder[${JSON.stringify(projectPath)}])`);
+	const order = await app.evaluate<Record<string, string[]>>(`window.lyra.settings.get().then(s=>s.sessionOrder)`);
+	const stored = order[projectPath];
 	assert.deepEqual(stored, ["qa-short", "qa-long", "qa-third"]);
 	await app.send("Page.reload");
 	await waitFor(`document.querySelector('[data-ly-row]')?.dataset.lyRow === 'qa-short'`);
@@ -90,16 +95,16 @@ test("real mouse drag preserves other rows, suppresses navigation, and renders i
 });
 
 test("project drag moves the whole group and does not collapse it", async () => {
-	const first = '[class~="group/project"] > button[aria-expanded]';
-	const headings = await app.evaluate<number>(`document.querySelectorAll(${JSON.stringify(first)}).length`);
+	const headingsQuery = `document.querySelectorAll('[class~="group/project"] > button[aria-expanded]')`;
+	const headings = await app.evaluate<number>(`${headingsQuery}.length`);
 	assert.equal(headings, 2);
-	const second = await app.evaluate<{ x: number; y: number }>(`(()=>{const r=document.querySelectorAll(${JSON.stringify(first)})[1].getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height*.8};})()`);
-	const start = await point(first);
+	const second = await app.evaluate<{ x: number; y: number }>(`(()=>{const r=${headingsQuery}[1].getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height*.8};})()`);
+	const start = await point("project");
 	await move(start);
 	await app.send("Input.dispatchMouseEvent", { type: "mousePressed", button: "left", buttons: 1, clickCount: 1, ...start });
 	await move({ x: start.x, y: start.y + 7 }, true); await move(second, true); await release(second);
-	await waitFor(`document.querySelector(${JSON.stringify(first)})?.textContent.includes('第二项目')`);
-	assert.equal(await app.evaluate(`document.querySelectorAll(${JSON.stringify(first)})[1].getAttribute('aria-expanded')`), "true");
+	await waitFor(`${headingsQuery}[0]?.textContent.includes('第二项目')`);
+	assert.equal(await app.evaluate(`${headingsQuery}[1].getAttribute('aria-expanded')`), "true");
 	assert.deepEqual(await rows(), ["qa-short", "qa-long", "qa-third"]);
 	const saved = await app.evaluate<string[]>(`window.lyra.settings.get().then(s=>s.projects.map(p=>p.path))`);
 	assert.equal(saved[1], projectPath);
