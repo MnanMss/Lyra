@@ -14,6 +14,7 @@ import { learnTool } from "./learn.ts";
 import { lspTool } from "./lsp.ts";
 import { ruleTool } from "./rule.ts";
 import { todoTool } from "./todo.ts";
+import { askUserTool } from "./ask-user.ts";
 import { webSearchTool } from "./search.ts";
 import { webFetchTool } from "./web.ts";
 import { writeTool } from "./write.ts";
@@ -59,6 +60,7 @@ function staticTools(): Tool[] {
 		webFetchTool,
 		webSearchTool,
 		previewTool,
+		askUserTool,
 	] as Tool[];
 }
 
@@ -78,6 +80,7 @@ export { hasRead, markRead, readTool } from "./read.ts";
 export { AGENTS_KEY, BUILTIN_AGENTS, taskTool, type AgentDefinition } from "./task.ts";
 export { previewTool } from "./preview.ts";
 export { readTodos, todoTool, TODOS_KEY, type TodoItem } from "./todo.ts";
+export { askUserTool } from "./ask-user.ts";
 export { ruleTool, RULES_KEY } from "./rule.ts";
 export { htmlToText, webFetchTool } from "./web.ts";
 export { webSearchTool } from "./search.ts";

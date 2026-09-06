@@ -118,7 +118,7 @@ export interface ToolContext {
 }
 
 export interface ApprovalRequest {
-	kind: "bash" | "write" | "edit" | "mcp" | "network";
+	kind: "bash" | "write" | "edit" | "mcp" | "network" | "interactive";
 	title: string;
 	detail: string;
 	/**
@@ -131,8 +131,9 @@ export interface ApprovalRequest {
 	reason?: string;
 	/** Command / path the approval applies to, used for "always allow" rules. */
 	subject: string;
+	/** Optional interactive options for user decision. */
+	options?: string[];
 }
-
 export type ApprovalDecision = "once" | "always" | "reject";
 
 export interface SubAgentInput {

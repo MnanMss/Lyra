@@ -137,6 +137,7 @@ export function sessionApprovalGate(deps: {
 		detail: ApprovalRequest["detail"];
 		reason?: string;
 		subject: string;
+		options?: string[];
 	}): Promise<void>;
 	alwaysAllow: Iterable<string>;
 }): ApprovalGate {
@@ -154,6 +155,7 @@ export function sessionApprovalGate(deps: {
 					detail: pending.request.detail,
 					...(pending.request.reason ? { reason: pending.request.reason } : {}),
 					subject: pending.request.subject,
+					...(pending.request.options ? { options: pending.request.options } : {}),
 				}),
 			// Persisting an "always" answer is the host's job; the settings are not ours to write.
 			remember: () => {},
