@@ -377,13 +377,13 @@ export class AgentSession {
 			history,
 			resolved.model,
 			resolved.provider,
-			summaryStream(this.streamFn, summarizer.provider, summarizer.model),
+			summaryStream(this.streamFn, { sessionId: this.meta.id, cwd: this.cwd }),
 			0,
 			true,
 			// 剪掉的原文存下来，占位标记里给出 `artifact://` 地址。
 			{ keep: (tool, content) => this.can.keepArtifact(tool, content) },
-			summarizer,
 			{ instructions, signal },
+			summarizer,
 		);
 		/*
 		 * Two different outcomes, and they used to say the same thing.

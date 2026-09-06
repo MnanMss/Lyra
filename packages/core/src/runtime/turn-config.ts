@@ -61,7 +61,7 @@ export interface TurnConfigDeps {
 	requestApproval(request: ApprovalRequest): Promise<ApprovalDecision>;
 	emit(event: AgentEvent): Promise<void>;
 	/** The session's stream override, in the shape compaction expects. */
-	summaryStream(provider: ProviderConfig): typeof streamAssistant | undefined;
+	summaryStream?: typeof streamAssistant;
 	/**
 	 * 压缩剪掉的原文往哪儿存，让 `artifact://` 能取回。
 	 *
@@ -148,7 +148,7 @@ export function buildTurnConfig(
 							// hosts that only want the answer — see `SubAgentOptions.registry`.
 							registry: deps.subAgents,
 							// So a delegated run compacts through the same model call this session does.
-							summaryStream: deps.summaryStream(deps.provider),
+							summaryStream: deps.summaryStream,
 							/*
 							 * 整棵派生树共用同一个闸门和同一条链。
 							 *
@@ -186,7 +186,7 @@ export function buildTurnConfig(
 					messages,
 					model,
 					deps.provider,
-					deps.summaryStream(summarizer.provider),
+					deps.summaryStream,
 					textTokens(systemPrompt) + toolTokens(turn.tools),
 					// 自动压缩剪掉的原文也存下来——它剪掉的量比手动压缩多得多。
 					deps.artifacts,
