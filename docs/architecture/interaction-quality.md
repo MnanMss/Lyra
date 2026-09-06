@@ -333,3 +333,12 @@ macOS 跳过；桌面构建、Markdown 链接检查和 `git diff --check` 通过
 实际应用截图包括 `agent-profiles-1280.png`、`agent-profiles-375.png`、
 `sidechat-main-history.png` 与 `sidechat-restored-edit.png`（目录见上文）。
 测试实例已退出，隔离 profile 已由测试清理；未调用真实付费供应商，未提交或发布代码。
+
+### 菜单滚动
+
+斜杠菜单只因键盘导航或检索结果变化主动露出选中项。鼠标悬停只改变选中项，不驱动列表滚动；
+滚轮移动列表时，同坐标的鼠标事件不抢回键盘选择。所有 Popover 与斜杠菜单共用菜单滚动样式，
+滚动条距圆角保留内边距，出现滚动条时给内容预留独立空间。
+
+`e2e/menu-scroll.test.ts` 在真实 Electron 中验证鼠标、滚轮、方向键和输入框的活动项，并测量
+深浅主题、375px 与桌面宽度下滚动条的首尾边距及内容间隔。
