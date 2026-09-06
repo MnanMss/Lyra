@@ -21,11 +21,8 @@
  * servers that deserve it.
  */
 
-import { createWriteStream } from "node:fs";
-import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
+import { mkdir, open, readdir, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import { parseChecksums, sha256, verify, type Verdict } from "../update-checksum.ts";
 
 /**
@@ -127,7 +124,7 @@ export class UpdateDownload {
 	 * The run in flight, so `pause` can wait for it to actually stop.
 	 *
 	 * Aborting a stream and observing the phase that follows are two different moments: the abort
-	 * rejects a pipeline, the rejection unwinds into the catch, and only there does the phase become
+	 * rejects a read, the rejection unwinds into the catch, and only there does the phase become
 	 * `paused`. A `pause()` that returned before that happened would leave the caller reading
 	 * `downloading` from a download that is already stopping — and the button drawn from it would
 	 * say the wrong thing until the next event, which for a paused download never comes.
@@ -199,29 +196,9 @@ export class UpdateDownload {
 		return verify(parseChecksums(text), basename(this.target.file), await sha256(this.partial));
 	}
 
-	/**
-	 * How many bytes are on disk, asked more than once when the answer is zero.
-	 *
-	 * The size is the authority — a counter in memory would survive an abort that the file did not,
-	 * and resuming from it would `Range` past bytes that were never written. But on Windows the
-	 * directory entry lags the write: `stat` right after aborting a stream reports the size from
-	 * before the last flush, and often reports 0.
-	 *
-	 * Belt and braces rather than the fix. The reason `pausing keeps what came down` was failing on
-	 * Windows turned out to be the write stream being destroyed with data still buffered — see the
-	 * note beside `pipeline`. This retry was written first, on the theory that `stat` was lagging,
-	 * and it did not help: the bytes genuinely were not there.
-	 *
-	 * Kept because the lag is real even though it was not this, and re-reading an answer of zero
-	 * costs nothing on the path where it is already zero.
-	 */
+	/** Resume only from bytes that survived the completed file write and close. */
 	private async have(): Promise<number> {
-		for (let attempt = 0; attempt < 5; attempt++) {
-			const size = (await stat(this.partial).catch(() => null))?.size ?? 0;
-			if (size > 0) return size;
-			await new Promise((resolve) => setTimeout(resolve, 10));
-		}
-		return 0;
+		return (await stat(this.partial).catch(() => null))?.size ?? 0;
 	}
 
 	/**
@@ -254,11 +231,11 @@ export class UpdateDownload {
 		}
 
 		const have = await this.have();
-		this.set({ at: "downloading", received: have, total: this.target.size });
 
 		const aborter = new AbortController();
 		this.aborter = aborter;
 		this.pausing = false;
+		this.set({ at: "downloading", received: have, total: this.target.size });
 
 		try {
 			await mkdir(dirname(this.partial), { recursive: true });
@@ -296,33 +273,21 @@ export class UpdateDownload {
 			let received = plan.from;
 			this.set({ at: "downloading", received, total });
 
-			const body = Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]);
-			body.on("data", (chunk: Buffer) => {
-				received += chunk.length;
-				// Emitted per chunk. The window throttles its own painting; throttling here would mean
-				// the last update before a pause is a stale number left on screen.
-				this.set({ at: "downloading", received, total });
-			});
-
-			/*
-			 * The write stream is held so that an abort can close it rather than destroy it.
-			 *
-			 * `pipeline` tears both ends down when the signal fires, and tearing down a write stream
-			 * discards whatever it has buffered — on Windows that was the entire pause, every time:
-			 * 20,000 bytes reported as received, a `.part` of zero bytes, and a resume that started
-			 * over. It looked like `stat` lagging (Windows updates a directory entry late, which is
-			 * a real thing) and it was not: the bytes were never written.
-			 *
-			 * Closing it instead flushes what is buffered first. The `catch` is for the abort itself,
-			 * which `pipeline` reports as an error on a path where it is the expected outcome.
-			 */
-			const sink = createWriteStream(this.partial, { flags: plan.append ? "a" : "w" });
+			const sink = await open(this.partial, plan.append ? "a" : "w");
+			const reader = response.body.getReader();
 			try {
-				await pipeline(body, sink);
-			} catch (error) {
-				// Let go of the reader, then let the writer finish with what it already has.
-				await new Promise<void>((resolve) => sink.end(() => resolve()));
-				throw error;
+				while (true) {
+					const chunk = await reader.read();
+					if (chunk.done) break;
+					// Finish each write before publishing progress; aborting the reader must not discard it.
+					await sink.writeFile(chunk.value);
+					received += chunk.value.byteLength;
+					this.set({ at: "downloading", received, total });
+				}
+				aborter.signal.throwIfAborted();
+			} finally {
+				reader.releaseLock();
+				await sink.close();
 			}
 
 			/*
@@ -364,6 +329,8 @@ export class UpdateDownload {
 			this.set({ at: "preparing", received: this.target.size, total: this.target.size });
 			return this.phase;
 		} catch (error) {
+			// A disk failure must also stop the response whose remaining bytes will no longer be read.
+			aborter.abort();
 			this.aborter = null;
 			const received = await this.have();
 			if (this.pausing) {
