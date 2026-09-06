@@ -575,7 +575,8 @@ export class AgentSession {
 			if (!this.log.meta.titleSetByUser) {
 				const userMessages = this.log.messages.filter((m) => m.role === "user");
 				if (userMessages.length === 1) {
-					await this.setTitleFromPrompt(userMessages[0].content, userMessages[0].displayText);
+					const first = userMessages[0];
+					await this.setTitleFromPrompt(first.content, first.displayText === "" ? first.skillRef?.name ?? first.sessionRefs?.[0]?.title ?? "" : first.displayText);
 				}
 			}
 			if (this.abortEpoch !== epoch) return;
@@ -660,7 +661,7 @@ export class AgentSession {
 		// Names the conversation after its opening line — unless it already has a name someone
 		// chose, which this must not overwrite. See `SessionMeta.titleSetByUser`.
 		if (!this.log.meta.titleSetByUser && this.log.messages.filter((m) => m.role === "user").length === 1) {
-			await this.setTitleFromPrompt(content, options.displayText);
+			await this.setTitleFromPrompt(content, options.displayText === "" ? options.skillRef?.name ?? options.sessionRefs?.[0]?.title ?? "" : options.displayText);
 		}
 
 		if (this.abortEpoch !== epoch) return;
@@ -839,7 +840,7 @@ export class AgentSession {
 		return this.approvals.request(request);
 	}
 
-	resolveApproval(requestId: string, decision: ApprovalDecision): boolean {
+	resolveApproval(requestId: string, decision: unknown): boolean {
 		return this.approvals.resolve(requestId, decision);
 	}
 

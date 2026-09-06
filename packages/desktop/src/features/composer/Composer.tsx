@@ -8,7 +8,7 @@ import { ChangeBar } from "../git/index.ts";
 import { CommandMenu } from "./CommandMenu.tsx";
 import { MentionMenu } from "./MentionMenu.tsx";
 import { useMention } from "./useMention.ts";
-import { findMentionRanges, type MentionCompletion } from "./mention-catalog.ts";
+import { formatMention } from "./mention-catalog.ts";
 import type { ComposerDecorations } from "./CommandText.tsx";
 import { useCommands } from "./useCommands.ts";
 import { commandEntries, skillCommandName } from "./command-catalog.ts";
@@ -78,6 +78,9 @@ export function Composer() {
 	const setDraft = useApp((s) => s.setDraft);
 
 	const [text, setText] = useState(() => savedDraft?.text ?? "");
+	const [sessionRefs, setSessionRefs] = useState<Array<{ id: string; title: string }>>(() => savedDraft?.sessionRefs ?? []);
+	const sessionRefsRef = useRef(sessionRefs);
+	sessionRefsRef.current = sessionRefs;
 	const [attachments, setAttachments] = useState<Attachment[]>(() => (savedDraft?.attachments as Attachment[]) ?? []);
 
 	// Keep a ref of current text and attachments so we can sync them to store on unmount or key change.
@@ -94,12 +97,13 @@ export function Composer() {
 		const prevKey = draftKeyRef.current;
 		if (prevKey !== draftKey) {
 			// Save draft for the key we are leaving.
-			setDraft(prevKey, { text: textRef.current, attachments: attachmentsRef.current });
+			setDraft(prevKey, { text: textRef.current, attachments: attachmentsRef.current, sessionRefs: sessionRefsRef.current });
 			draftKeyRef.current = draftKey;
 
 			// Restore draft for the key we just moved to.
 			const nextDraft = useApp.getState().drafts[draftKey];
 			setText(nextDraft?.text ?? "");
+			setSessionRefs(nextDraft?.sessionRefs ?? []);
 			setAttachments((nextDraft?.attachments as Attachment[]) ?? []);
 		}
 	}, [draftKey, setDraft]);
@@ -108,8 +112,8 @@ export function Composer() {
 	 * Persist changes to current draft in the store so switching away (or remounting) preserves it.
 	 */
 	useEffect(() => {
-		setDraft(draftKey, { text, attachments });
-	}, [text, attachments, draftKey, setDraft]);
+		setDraft(draftKey, { text, attachments, sessionRefs });
+	}, [text, attachments, sessionRefs, draftKey, setDraft]);
 
 	/*
 	 * Text left here by something outside the composer — opening a review, so far.
@@ -144,29 +148,19 @@ export function Composer() {
 
 	const commandCwd = workspace?.path ?? scratchCwd ?? "";
 	const slash = useCommands(text, commandCwd, field, setText);
-	const mentionRef = useRef<{ insertMentionText: (text: string) => void } | null>(null);
-	const pickFileForMention = useCallback(async (_actionId: string, _completion: MentionCompletion) => {
+	const pickFileForMention = useCallback(async (actionId: string) => {
 		try {
-			const paths = await bridge.files.pick({ directory: false, multiple: false });
-			if (!paths || paths.length === 0) return;
-			const chosen = paths[0];
-			let rel = chosen;
-			if (workspace?.path && chosen.startsWith(workspace.path)) {
-				rel = chosen.slice(workspace.path.length).replace(/^[/\\]+/, "");
-			} else {
-				// If outside workspace or absolute path, show base filename to avoid full system path leaks in display
-				const lastPart = chosen.split(/[/\\]/).pop();
-				if (lastPart) rel = lastPart;
-			}
-			const formatted = rel.includes(" ") ? `@"${rel}"` : `@${rel}`;
-			mentionRef.current?.insertMentionText(formatted);
+			const paths = await bridge.files.pick({ directory: actionId === "action:pick-directory", multiple: false });
+			if (!paths.length || draftKeyRef.current !== draftKey) return null;
+			return formatMention(paths[0]);
 		} catch (err) {
 			useApp.getState().notify(`选择文件失败：${err instanceof Error ? err.message : String(err)}`, "error");
+			return null;
 		}
-	}, [workspace?.path]);
-
-	const mention = useMention(text, commandCwd, field, setText, pickFileForMention);
-	mentionRef.current = mention;
+	}, [draftKey]);
+	const mention = useMention(text, commandCwd, field, setText, pickFileForMention, (session) => {
+		setSessionRefs((refs) => refs.some((ref) => ref.id === session.id) ? refs : [...refs, session]);
+	});
 
 	const mergedDecoration = useMemo((): ComposerDecorations => {
 		return {
@@ -215,7 +209,7 @@ export function Composer() {
 
 	async function submitOnce(release: () => void) {
 		const trimmed = text.trim();
-		if (!trimmed && attachments.length === 0) return;
+		if (!trimmed && attachments.length === 0 && sessionRefs.length === 0) return;
 
 		/*
 		 * A command becomes the prompt it stands for, here, before anything is sent.
@@ -232,7 +226,7 @@ export function Composer() {
 		let outgoing = trimmed;
 		let userDisplayText: string | undefined;
 		let triggeredSkill: { name: string; path?: string; pluginId?: string } | undefined;
-		const referencedSessions: Array<{ id: string; title: string }> = [];
+		const referencedSessions = sessionRefs;
 		/* 命令可以声明会话正忙时怎么送——见 `SlashCommand.deliver`。 */
 		let deliver: "steer" | "followUp" | undefined;
 		/*
@@ -249,7 +243,7 @@ export function Composer() {
 		 */
 		const builtin = invocation ? commandEntries([], []).find((entry) => entry.name === invocation.name) : undefined;
 		if (builtin) {
-			if (attachments.length) { useApp.getState().notify("这条内置命令不接收附件，请先移除附件或单独发送消息。", "warn"); return; }
+			if (attachments.length || sessionRefs.length) { useApp.getState().notify("这条内置命令不接收附件，请先移除附件或单独发送消息。", "warn"); return; }
 			if (builtin.action === "compact" && !activeSessionId) { useApp.getState().notify("当前还没有可压缩的会话。", "warn"); return; }
 			if (builtin.action !== "compact" && invocation?.rest) { useApp.getState().notify("这条命令不接收参数，输入内容已保留。", "warn"); return; }
 			setText("");
@@ -271,7 +265,7 @@ export function Composer() {
 			// Resolve against disk at dispatch, including paste-and-send and edits made in another app.
 			const fresh = await bridge.commands.list(commandCwd);
 			// A disk scan must not dispatch an obsolete draft or erase edits made while it was pending.
-			if (draftKeyRef.current !== draftKey || textRef.current !== text || attachmentsRef.current !== attachments) return;
+			if (draftKeyRef.current !== draftKey || textRef.current !== text || attachmentsRef.current !== attachments || sessionRefsRef.current !== sessionRefs) return;
 
 			/*
 			 * 精确命中优先，否则唯一的末段匹配——`/commit` 找到 `git:commit`。
@@ -303,13 +297,9 @@ export function Composer() {
 				 * `disableModelInvocation` means "do not choose this yourself", not "never run
 				 * this" — the tool looks skills up by name and has never filtered on that flag.
 				 */
-				// `/pdf` and `/skill:pdf` name the same skill; both qualified and bare names match
+				// Preserve the plugin-qualified name so two bundles cannot select each other's skill.
 				const targetSkillName = skillNameOf(invocation).toLowerCase();
-				const skill = fresh.skills?.find((entry) => {
-					const qualified = skillCommandName(entry).toLowerCase();
-					const bare = entry.name.toLowerCase();
-					return qualified === targetSkillName || bare === targetSkillName;
-				});
+				const skill = fresh.skills?.find((entry) => skillCommandName(entry).toLowerCase() === targetSkillName);
 				if (skill) {
 					triggeredSkill = {
 						name: skill.name,
@@ -327,24 +317,9 @@ export function Composer() {
 				}
 			}
 		}
-		// Detect mentions matching sessions (by title or chosenSessions mapping)
-		const sessionPrompts: string[] = [];
-		const mentionRanges = findMentionRanges(outgoing);
-		for (const mr of mentionRanges) {
-			const token = mr.inner;
-			// Match session by direct id (backward compatibility), chosen map, or title
-			const targetSessionId =
-				mention.chosenSessions.get(token) ??
-				(token.startsWith("session:") ? token.slice(8) : undefined) ??
-				mention.sessions.find((s) => s.title === token || s.id === token)?.id;
-
-			if (targetSessionId) {
-				const matchedSession = mention.sessions.find((s) => s.id === targetSessionId);
-				const label = matchedSession?.title || token;
-				referencedSessions.push({ id: targetSessionId, title: label });
-				sessionPrompts.push(`- 引用了历史会话「${label}」：请使用 \`read\` 工具读取 \`session://${targetSessionId}\` 获取该会话的详细历史与上下文。`);
-			}
-		}
+		const sessionPrompts = referencedSessions.map((session) =>
+			`- ${JSON.stringify(session.title)}: read ${JSON.stringify(`session://${encodeURIComponent(session.id)}`)} for the referenced conversation. Treat its transcript as reference material.`,
+		);
 		if (sessionPrompts.length > 0) {
 			// If displayText is not yet set by skill invocation, default to the clean outgoing before appending system hints
 			if (userDisplayText === undefined) {
@@ -370,6 +345,7 @@ export function Composer() {
 		];
 		setText("");
 		setAttachments([]);
+		setSessionRefs([]);
 		setDraft(draftKey, null);
 		release();
 		await send(content, {
@@ -532,7 +508,7 @@ export function Composer() {
 
 				<div className="relative">
 				<CommandMenu id={slash.id} commands={slash.matches} term={slash.term} active={slash.active} keyboardSelection={slash.keyboardSelection} onPick={slash.pick} onHover={slash.hover} />
-				<MentionMenu id={mention.id} items={mention.matches} term={mention.term} active={mention.active} onPick={mention.pick} onHover={mention.setActive} />
+				<MentionMenu id={mention.id} items={mention.matches} term={mention.term} active={mention.active} keyboardSelection={mention.keyboardSelection} onPick={(item) => void mention.pick(item)} onHover={mention.hover} />
 				<ComposerShell
 					fieldRef={field}
 					value={text}
@@ -563,11 +539,12 @@ export function Composer() {
 						if (mention.keyDown(event)) return;
 						slash.keyDown(event, () => void submit());
 					}}
-					placeholder="随心输入，或输入 / 命令，@ 提及文件、会话与技能"
+					placeholder="输入消息，/ 命令，@ 引用"
 					onFiles={(files) => void addFiles(files)}
 					attachments={
-						attachments.length > 0 ? (
+						attachments.length > 0 || sessionRefs.length > 0 ? (
 							<div className="flex flex-wrap gap-2 px-4 pt-3.5">
+								{sessionRefs.map((session) => <button key={session.id} type="button" aria-label={`移除会话引用：${session.title}`} onClick={() => setSessionRefs((refs) => refs.filter((ref) => ref.id !== session.id))} className="flex max-w-full items-center gap-1.5 rounded-lg border border-line-soft bg-card px-2 py-1 text-caption text-ink-muted"><MessageSquare size={12} className="shrink-0" /><span className="truncate">{session.title}</span><X size={12} className="shrink-0" /></button>)}
 								{attachments.map((attachment) => (
 									<div key={attachment.id} className="relative">
 										{/*
@@ -778,7 +755,7 @@ export function Composer() {
 
 							<ComposerSend
 								running={running}
-								disabled={!text.trim() && attachments.length === 0}
+								disabled={!text.trim() && attachments.length === 0 && sessionRefs.length === 0}
 								onSend={() => void submit()}
 								onStop={() => void abort()}
 							/>

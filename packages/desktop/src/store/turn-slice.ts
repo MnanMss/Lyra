@@ -183,11 +183,17 @@ export function turnSlice(set: Set, get: Get) {
     if (sessionId) await bridge.agent.abort(sessionId);
   },
 
-  async respondToApproval(id: string, decision: ApprovalDecision) {
-    const sessionId = get().activeSessionId;
+  async respondToApproval(id: string, decision: ApprovalDecision, ownerId?: string) {
+    const sessionId = ownerId ?? get().activeSessionId;
     if (!sessionId) return;
-    set({ approvals: get().approvals.filter((a) => a.id !== id) });
     await bridge.agent.approve(sessionId, id, decision);
+    set((state) => {
+      const cached = state.sessionCache[sessionId];
+      return {
+        ...(state.activeSessionId === sessionId ? { approvals: state.approvals.filter((request) => request.id !== id) } : {}),
+        ...(cached?.state ? { sessionCache: { ...state.sessionCache, [sessionId]: { ...cached, state: { ...cached.state, approvals: cached.state.approvals.filter((request) => request.id !== id) } } } } : {}),
+      };
+    });
   },
 
   /**

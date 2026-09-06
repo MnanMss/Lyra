@@ -39,30 +39,9 @@ export function UserMessage({
     .map((block) => block.text)
     .join("\n");
 
-  // Fallback to sanitizing injected text and detecting skill if not explicitly attached
-  let displayText = message.displayText;
-  let skillRef = message.skillRef;
-
-  if (!skillRef) {
-    const match = /使用\s*`([^`]+)`\s*(?:（来自插件\s*([^）]+)）)?\s*技能[。.]?/i.exec(rawText);
-    if (match) {
-      skillRef = {
-        name: match[1],
-        pluginId: match[2],
-      };
-    }
-  }
-
-  if (displayText === undefined) {
-    // Repeatedly strip all leading/embedded skill invocation phrases
-    displayText = rawText
-      .replace(/(?:使用\s*`[^`]+`\s*(?:（来自插件\s*[^）]+）)?\s*技能[。.]?\s*)+/gi, "")
-      .replace(/\n*\[上下文引用提示\][\s\S]*$/i, "")
-      .trim();
-  }
-
-  const hasCapsules = Boolean(skillRef || (message.sessionRefs && message.sessionRefs.length > 0));
-  const text = displayText || (hasCapsules ? "" : rawText);
+  const skillRef = message.skillRef;
+  const hasCapsules = Boolean(skillRef || message.sessionRefs?.length);
+  const text = message.displayText ?? rawText;
   const images = message.content.filter((block) => block.type === "image");
 
   const [editing, setEditing] = useState(false);
@@ -163,15 +142,9 @@ export function UserMessage({
               type="button"
               data-ly-tip="在侧边栏打开技能文件"
               onClick={async () => {
-                let targetPath = skillRef?.path;
-                if (!targetPath) {
-                  const cmdCwd = useApp.getState().workspace?.path ?? "";
-                  const list = await bridge.commands.list(cmdCwd).catch(() => null);
-                  const matched = list?.skills?.find(
-                    (s: SkillEntry) => s.name.toLowerCase() === skillRef?.name.toLowerCase()
-                  );
-                  targetPath = matched?.path;
-                }
+                const cmdCwd = useApp.getState().workspace?.path ?? useApp.getState().scratchCwd ?? "";
+                const list = await bridge.commands.list(cmdCwd).catch(() => null);
+                const targetPath = list?.skills?.find((skill: SkillEntry) => skill.name === skillRef.name && skill.pluginId === skillRef.pluginId)?.path;
                 if (targetPath) {
                   const fileName = targetPath.split(/[/\\]/).pop() || `${skillRef?.name} (SKILL.md)`;
                   void useOpenFile.getState().open({

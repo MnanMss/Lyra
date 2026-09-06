@@ -8,7 +8,7 @@ import { DEFAULT_SETTINGS } from "../src/config/settings.ts";
 import { AgentSession, type AgentSessionOptions } from "../src/runtime/session.ts";
 import { summarizeTitle } from "../src/runtime/title-summary.ts";
 import { SessionStore, type SessionMeta, type SessionRecordInput } from "../src/session/store.ts";
-import { emptyUsage, type AssistantMessage, type ModelConfig, type ProviderConfig } from "../src/types.ts";
+import { emptyUsage, type AssistantMessage, type ModelConfig, type ProviderConfig, type UserMessage } from "../src/types.ts";
 
 const model: ModelConfig = { id: "test/model", providerId: "test", modelId: "model", name: "Test", contextWindow: 128000, maxOutputTokens: 4096, supportsThinking: false, supportsImages: false, supportsTools: true };
 const provider: ProviderConfig = { id: "test", name: "Test", api: "openai-responses", apiKey: "test", baseUrl: "http://localhost", enabled: true, models: [model] };
@@ -217,3 +217,27 @@ test("title requests bound long prompts without splitting Unicode characters", a
 	assert.ok(sent.length < 10000, `title request has ${sent.length} characters`);
 	assert.doesNotMatch(sent, /\\ud[89ab][0-9a-f]{2}/i);
 });
+
+for (const resumed of [false, true]) {
+	for (const reference of [{ skillRef: { name: "review" } }, { sessionRefs: [{ id: "previous", title: "菜单滚动问题" }] }]) {
+		test(`${resumed ? "resumed" : "direct"} reference-only prompt keeps its visible reference title: ${JSON.stringify(reference)}`, async (t) => {
+			const root = await mkdtemp(join(tmpdir(), "ly-title-reference-"));
+			const store = new SessionStore(join(root, "sessions"));
+			const title = reference.skillRef?.name ?? reference.sessionRefs[0].title;
+			const message: UserMessage = { role: "user", content: [{ type: "text", text: "Injected reference instructions" }], timestamp: 1, displayText: "", ...reference };
+			let meta = await store.create(root, model.id, title);
+			if (resumed) {
+				meta = await store.append(meta, { type: "message", message });
+				meta = await store.append(meta, { type: "meta", meta: { ...meta, pendingPrompt: true } });
+			}
+			const session = new AgentSession({ cwd: root, store, meta, settings, streamFn: async () => reply("Done"), emit: () => {} });
+			t.after(async () => { await session.dispose(); await rm(root, { recursive: true, force: true }); });
+			if (resumed) {
+				session.restore([message]);
+				await session.resumePendingPrompt();
+			} else await session.prompt(message.content, { displayText: "", ...reference });
+			assert.equal(session.meta.title, title);
+			assert.equal((await store.load(meta.projectId, meta.id))?.meta.title, title);
+		});
+	}
+}

@@ -122,7 +122,7 @@ export const RPC: Record<string, Handler> = {
 		return null;
 	},
 	"agent.approve": async (deps, [sessionId, requestId, decision]) => {
-		deps.live(s(sessionId))?.resolveApproval(s(requestId), decision as never);
+		deps.live(s(sessionId))?.resolveApproval(s(requestId), decision);
 		return null;
 	},
 	"agent.setModel": async (deps, [sessionId, modelId]) => {

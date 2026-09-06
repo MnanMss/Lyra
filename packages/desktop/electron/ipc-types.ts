@@ -509,6 +509,7 @@ export interface LyraApi {
 			 * them, so the menu cannot offer something the agent does not have.
 			 */
 			skills: SkillEntry[];
+			agents?: Array<{ id: string; name: string; description: string }>;
 		}>;
 		/** Write a starter file and answer with its path, or say why it could not be written. */
 		create(
