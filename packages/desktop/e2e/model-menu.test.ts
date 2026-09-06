@@ -54,6 +54,8 @@ async function seed(home: string): Promise<void> {
 		join(home, "settings.json"),
 		JSON.stringify({
 			version: 1,
+			// Marquee assertions exercise normal motion regardless of the runner's OS preference.
+			appearance: { reduceMotion: "off" },
 			providers: [
 				{
 					id: "local",
@@ -239,6 +241,8 @@ test("a name too long for its row reads itself out when pointed at", async () =>
 		const other = row(${JSON.stringify(SHORT)});
 		return {
 			long: getComputedStyle(track).animationName,
+			reduceMotion: document.documentElement.dataset.reduceMotion,
+			systemReducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
 			hover: track.closest('[data-model]').matches(':hover'),
 			hit: document.elementFromPoint(${box.x}, ${box.y})?.closest('[data-model]')?.getAttribute('data-model'),
 			row: track.closest('[data-model]').getBoundingClientRect().toJSON(),
