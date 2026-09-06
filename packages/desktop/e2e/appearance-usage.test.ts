@@ -140,6 +140,8 @@ async function seed(home: string): Promise<void> {
 
 before(async () => {
 	app = await startApp({ port: 9493, seed });
+	// The CI display can clamp BrowserWindow below the widths this suite exercises.
+	await app.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 	project = join(app.home, "project");
 });
 
