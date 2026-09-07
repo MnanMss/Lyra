@@ -5,6 +5,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { startApp, closeListeningServer, stopProcessGroup, type RunningApp } from "./app.ts";
+import { cleanupFixture } from "./fixture-cleanup.ts";
 import { seedInteractions } from "./interaction-fixture.ts";
 import { startMobile } from "./mobile-app.ts";
 
@@ -81,7 +82,15 @@ before(async () => {
 	phone = await startMobile(desktop.home, { host: "127.0.0.1", port: PORT, token: TOKEN, platform: "darwin" }, 9705);
 	await until(phone, "!!document.querySelector('.ly-shell')", "mobile shell");
 });
-after(async () => { finish(); await phone?.stop(); await desktop?.stop(); await closeListeningServer(model); await stopProcessGroup(relay); });
+after(async () => {
+	await cleanupFixture(
+		() => finish(),
+		() => phone?.stop(),
+		() => desktop?.stop(),
+		() => closeListeningServer(model),
+		() => stopProcessGroup(relay),
+	);
+});
 
 test("mobile renderer preserves desktop tokens and fits phone, landscape and tablet viewports", async (t) => {
 	for (const [width, height] of [[320, 568], [375, 667], [390, 844], [430, 932], [844, 390], [768, 1024], [1024, 768]]) {

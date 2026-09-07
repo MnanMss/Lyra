@@ -4,6 +4,7 @@ import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 import { after, afterEach, before, test } from "node:test";
 import { startApp, closeListeningServer, type RunningApp } from "./app.ts";
+import { cleanupFixture } from "./fixture-cleanup.ts";
 import { seedInteractions } from "./interaction-fixture.ts";
 import { seedTrajectory } from "./trajectory-fixture.ts";
 
@@ -27,7 +28,7 @@ before(async () => {
 	const address = server.address(); assert.ok(address && typeof address !== "string");
 	app = await startApp({ port: 9618, seed: async home => { await seedInteractions(home, address.port); await seedTrajectory(home); } });
 });
-after(async () => { await app?.stop(); await closeListeningServer(server); });
+after(async () => { await cleanupFixture(() => app?.stop(), () => closeListeningServer(server)); });
 afterEach(async t => { if (!t.passed) { t.diagnostic(await trajectoryGeometry()); await shot("failure"); t.diagnostic(await app.evaluate(`document.body.innerText.slice(-7000)`)); } });
 
 async function trajectoryGeometry(): Promise<string> {

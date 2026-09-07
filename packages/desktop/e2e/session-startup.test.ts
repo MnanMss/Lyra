@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { after, afterEach, before, test, type TestContext } from "node:test";
 import type { SessionMeta } from "@lyra/core";
 import { closeListeningServer, startApp, type RunningApp } from "./app.ts";
+import { cleanupFixture } from "./fixture-cleanup.ts";
 import { seedInteractions } from "./interaction-fixture.ts";
 
 let app: RunningApp;
@@ -50,7 +51,7 @@ else if(q.method==='tools/list')reply({tools:[]});else reply({});});`);
 		await writeFile(file, JSON.stringify(settings));
 	} });
 });
-after(async () => { await app?.stop(); await closeListeningServer(server); });
+after(async () => { await cleanupFixture(() => app?.stop(), () => closeListeningServer(server)); });
 afterEach(async (t) => {
 	if (t.passed) return;
 	await shot("group-loading-failure");

@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, afterEach, before, test } from "node:test";
 import { closeListeningServer, startApp, type RunningApp } from "./app.ts";
+import { cleanupFixture } from "./fixture-cleanup.ts";
 import { seedInteractions } from "./interaction-fixture.ts";
 
 let app: RunningApp;
@@ -25,7 +26,7 @@ before(async () => {
 		if (req.method === "GET") {
 			// Controlled web fixture, exercised inside the real app's browser component.
 			res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-			res.end('<!doctype html><title>Browser QA</title><style>body{font:16px system-ui;margin:40px}button,input{font:inherit;padding:10px}main{height:1600px}</style><main><h1>浏览器交互测试页</h1><input id="name" aria-label="Name"><button id="add">增加</button><output id="count">0</output><p id="width"></p></main><script>add.onclick=()=>count.textContent=Number(count.textContent)+1;window.addEventListener("resize",()=>document.getElementById("width").textContent=innerWidth);</script>');
+			res.end('<!doctype html><title>Browser QA</title><style>body{font:16px system-ui;margin:40px}button,input{font:inherit;padding:10px}main{height:1600px}</style><main><h1>浏览器交互测试页</h1><input id="name" aria-label="Name"><button id="add">增加</button><output id="count">0</output><p id="width"></p></main><script>window.inputTrace=[];for(const type of ["mousedown","mouseup","focusin","blur","resize","error"]){window.addEventListener(type,e=>inputTrace.push({type,t:performance.now(),target:e.target.id||e.target.tagName,active:document.activeElement?.id||document.activeElement?.tagName,x:e.clientX,y:e.clientY,width:innerWidth,height:innerHeight,rect:document.getElementById("name").getBoundingClientRect().toJSON(),message:e.message}),true);}add.onclick=()=>count.textContent=Number(count.textContent)+1;window.addEventListener("resize",()=>document.getElementById("width").textContent=innerWidth);</script>');
 			return;
 		}
 		let raw = ""; req.on("data", (data) => { raw += data; });
@@ -61,12 +62,15 @@ before(async () => {
 		await writeFile(path, JSON.stringify(settings));
 	} });
 });
-after(async () => { await app?.stop(); await closeListeningServer(server); });
+after(async () => { await cleanupFixture(() => app?.stop(), () => closeListeningServer(server)); });
 afterEach(async (t) => {
 	if (!t.passed) {
 		t.diagnostic(await app.evaluate<string>("document.body.innerText.slice(-6000)"));
 		t.diagnostic(JSON.stringify({ step, results }, (key, value) => key === "data" && typeof value === "string" ? `[${value.length} bytes]` : value).slice(-16000));
 		t.diagnostic(JSON.stringify(await app.evaluate("window.lyra.browser.state()")));
+		t.diagnostic(JSON.stringify(await app.evaluate("document.querySelector('webview')?.executeJavaScript('window.inputTrace')")));
+		const artifact = process.env.LYRA_E2E_ARTIFACTS;
+		if (artifact) { await mkdir(artifact, { recursive: true }); const screenshot = await app.send<{ data: string }>("Page.captureScreenshot", { format: "png" }); await writeFile(join(artifact, `browser-failed-${t.name.replace(/\W/g, "-")}.png`), Buffer.from(screenshot.data, "base64")); }
 	}
 });
 async function until(expression: string) {

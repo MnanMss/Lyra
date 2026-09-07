@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { after, afterEach, before, test } from "node:test";
 import type { SessionSnapshot } from "../electron/ipc-types.ts";
 import { closeListeningServer, startApp, type RunningApp } from "./app.ts";
+import { cleanupFixture } from "./fixture-cleanup.ts";
 import { questionModel, REFERENCE_TITLE, seedQuestions } from "./mention-question-fixture.ts";
 
 let app: RunningApp;
@@ -29,9 +30,14 @@ before(async () => {
 });
 afterEach(async () => { if (app) await shot("mention-question-last-screen"); });
 after(async () => {
-	const directory = process.env.LYRA_E2E_ARTIFACTS;
-	if (directory) { await mkdir(directory, { recursive: true }); await writeFile(join(directory, "request-tails.json"), JSON.stringify(requests.map((request) => request.messages.slice(-3)), null, 2)); }
-	await app?.stop(); await closeListeningServer(server);
+	await cleanupFixture(
+		async () => {
+			const directory = process.env.LYRA_E2E_ARTIFACTS;
+			if (directory) { await mkdir(directory, { recursive: true }); await writeFile(join(directory, "request-tails.json"), JSON.stringify(requests.map((request) => request.messages.slice(-3)), null, 2)); }
+		},
+		() => app?.stop(),
+		() => closeListeningServer(server),
+	);
 });
 
 async function until(condition: string | (() => Promise<boolean>)) {

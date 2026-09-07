@@ -4,6 +4,7 @@ import { createServer, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { after, afterEach, before, test } from "node:test";
 import { closeListeningServer, startApp, type RunningApp } from "./app.ts";
+import { cleanupFixture } from "./fixture-cleanup.ts";
 import { seedInteractions } from "./interaction-fixture.ts";
 
 let app: RunningApp;
@@ -46,7 +47,7 @@ afterEach(async (t) => {
 		t.diagnostic(JSON.stringify(await app.evaluate(`({value:document.querySelector('textarea')?.value.slice(0,160),focus:document.activeElement?.tagName,menus:document.querySelectorAll('[role="option"]').length,body:document.querySelector('main')?.innerText.slice(-600)})`)));
 	}
 });
-after(async () => { await app?.stop(); await closeListeningServer(server); });
+after(async () => { await cleanupFixture(() => app?.stop(), () => closeListeningServer(server)); });
 
 async function frames(n = 20) {
 	await app.evaluate(`new Promise(resolve=>{let n=${n};const f=()=>--n?requestAnimationFrame(f):resolve();requestAnimationFrame(f);})`);

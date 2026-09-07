@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, afterEach, before, test } from "node:test";
 import { closeListeningServer, startApp, type RunningApp } from "./app.ts";
+import { cleanupFixture } from "./fixture-cleanup.ts";
 import { LONG_OPTIONS, LONG_QUESTION, questionModel, seedQuestions } from "./mention-question-fixture.ts";
 
 let app: RunningApp;
@@ -25,7 +26,7 @@ before(async () => {
 	await app.evaluate("document.fonts.ready");
 });
 afterEach(async () => { if (app) await shot("approval-question-last-screen"); });
-after(async () => { await app?.stop(); await closeListeningServer(server); });
+after(async () => { await cleanupFixture(() => app?.stop(), () => closeListeningServer(server)); });
 
 async function until(condition: () => Promise<boolean>) {
 	const deadline = Date.now() + 15_000;

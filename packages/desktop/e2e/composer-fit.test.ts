@@ -22,6 +22,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { closeListeningServer, startApp, type RunningApp } from "./app.ts";
+import { cleanupFixture } from "./fixture-cleanup.ts";
 
 import { MIN_NAME_WIDTH } from "../src/features/composer/fit.ts";
 
@@ -123,8 +124,7 @@ before(async () => {
 });
 
 after(async () => {
-	await app?.stop();
-	await closeListeningServer(model);
+	await cleanupFixture(() => app?.stop(), () => closeListeningServer(model));
 });
 
 // ---------------------------------------------------------------------------

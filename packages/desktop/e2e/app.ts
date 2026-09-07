@@ -50,22 +50,22 @@ export async function stopProcessGroup(
 	if (process.platform === "win32") {
 		// Node's child.kill only terminates the parent on Windows; Electron owns renderer/GPU children.
 		try {
-			await new Promise<void>((resolve, reject) => {
+			const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null; output: string }>((resolve, reject) => {
 				const killer = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"], timeout: 5_000 });
 				let output = "";
 				const record = (chunk: Buffer) => { output = (output + chunk.toString()).slice(-8_000); };
 				killer.stdout.on("data", record); killer.stderr.on("data", record);
 				killer.once("error", reject);
-				killer.once("close", (code, signal) => {
-					if (code !== 0 && child.exitCode === null && child.signalCode === null) {
-						reject(new Error(`taskkill failed for test process ${pid} (exit ${code}, signal ${signal}): ${output}`));
-					} else resolve();
-				});
+				killer.once("close", (code, signal) => resolve({ code, signal, output }));
 			});
+			// Windows queues each process exit independently; taskkill can close before the target's notification.
 			await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 1_000))]);
+			if (result.code !== 0 && child.exitCode === null && child.signalCode === null) {
+				throw new Error(`taskkill failed for test process ${pid} (exit ${result.code}, signal ${result.signal}): ${result.output}`);
+			}
 		} finally {
 			// A failed process-tree kill must still release the runner's own pipe handles.
-			child.stdout?.destroy(); child.stderr?.destroy(); child.unref();
+			child.stdin?.destroy(); child.stdout?.destroy(); child.stderr?.destroy(); child.unref();
 		}
 		return;
 	}
