@@ -12,6 +12,7 @@ import { test } from "node:test";
 
 import {
 	clampRect,
+	clampToolbar,
 	handlePoint,
 	hitHandle,
 	insideRect,
@@ -183,4 +184,42 @@ test("with room on both sides the bubble does not change where the bar goes", ()
 		toolbarPosition(roomy2, screen, toolbar, { height: 34 }),
 		toolbarPosition(roomy2, screen, toolbar),
 	);
+});
+
+/*
+ * A toolbar that has been dragged by hand, which stops following the selection.
+ *
+ * The automatic placement is right nearly always and wrong in the case it cannot see: the bar
+ * covering the part of the picture that is about to be annotated, or a second window the user is
+ * comparing against. Neither is on the screen the overlay can measure, so the answer is a handle
+ * and a rule about where the result may end up.
+ */
+test("a dragged toolbar stays on screen, with room above it for its bubble", () => {
+	const bubble = 48;
+	const put = (x: number, y: number) => clampToolbar({ x, y }, toolbar, screen, bubble);
+
+	// Somewhere ordinary: left exactly where it was put.
+	assert.deepEqual(put(300, 400), { x: 300, y: 400 });
+
+	// Dragged off the right and bottom edges: pulled back to the margin, keeping its whole width.
+	const corner = put(screen.width + 500, screen.height + 500);
+	assert.equal(corner.x, screen.width - toolbar.width - 12);
+	assert.equal(corner.y, screen.height - toolbar.height - 12);
+
+	// Dragged off the top: stopped where the bubble it opens still has somewhere to go. Without
+	// this the size and colour of the tool in hand are unreachable — the bubble opens upward.
+	assert.equal(put(300, -200).y, bubble);
+	assert.equal(put(-200, 300).x, 12);
+});
+
+test("a viewport too short for the toolbar keeps its top edge rather than its bottom", () => {
+	/*
+	 * Off the bottom is recoverable: the bar is still under the pointer that dragged it there, and
+	 * the grip is at its left end. Off the top is not — there is nothing above the screen to drag
+	 * it back from. So where the two bounds conflict, the low one wins.
+	 */
+	const tiny = { width: 200, height: 40 };
+	const at = clampToolbar({ x: 0, y: 0 }, toolbar, tiny, 48);
+	assert.ok(at.y >= 12, `顶部被推出了屏幕：${at.y}`);
+	assert.ok(at.x >= 12, `左边被推出了屏幕：${at.x}`);
 });

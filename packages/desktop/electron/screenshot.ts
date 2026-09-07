@@ -315,7 +315,19 @@ export function revealScreenshotOverlay(webContentsId: number): void {
  * showing and focusing a window belonging to an application that is not frontmost raises it within
  * that application, and leaves the application itself behind.
  */
-export function closeScreenshotOverlay(options?: { restoreFocus?: boolean; foreground?: boolean }): void {
+export function closeScreenshotOverlay(options?: {
+	restoreFocus?: boolean;
+	foreground?: boolean;
+	/**
+	 * Whether the whole application may go with the overlay.
+	 *
+	 * True by default, and false for exactly one caller: pinning. `app.hide()` hides *every* window
+	 * of the application, and pinning creates one a moment later — so the picture that was supposed
+	 * to stay on the desktop would be hidden along with the capture that produced it, milliseconds
+	 * after appearing, with no window left to bring it back through.
+	 */
+	stepAside?: boolean;
+}): void {
 	const cover = overlay && !overlay.isDestroyed() && overlay.isVisible() ? overlay : null;
 	// Before anything can return early: every path out of here ends the capture, and a flag left set
 	// by one of them would tell `dismissStrayOverlay` to keep its hands off the window forever.
@@ -352,6 +364,7 @@ export function closeScreenshotOverlay(options?: { restoreFocus?: boolean; foreg
 	const stepBack =
 		process.platform === "darwin" &&
 		options?.restoreFocus !== false &&
+		options?.stepAside !== false &&
 		!(options?.foreground ?? cameFromApp) &&
 		!cameFromApp;
 	captureLog("close: decided", { stepBack });
@@ -1137,6 +1150,53 @@ export async function finishScreenshot(dataUrl: string, settings?: ScreenshotSet
 	}
 
 	return { ok: true, filePath };
+}
+
+/**
+ * Write the capture to a file the user asked for, and say where it went.
+ *
+ * The difference from `finishScreenshot` is what an empty destination means. There, no save
+ * location configured means "do not keep a file" — the picture is going to the clipboard and the
+ * composer, and littering the disk with every capture is not wanted. Here the file *is* the errand,
+ * so an unset directory falls back to the desktop: pressing 下载 and being told nothing, with
+ * nothing to show for it, is the one outcome that cannot be right.
+ *
+ * The overlay is *not* closed here, unlike every other way a capture ends. The renderer has already
+ * faded the capture out by the time this is called and is holding 「已保存到…」 over the real
+ * desktop; it sends `cancel` when that message has been read. Closing the window from here would
+ * take the confirmation with it.
+ */
+export async function downloadScreenshot(
+	dataUrl: string,
+	settings?: ScreenshotSettings,
+): Promise<{ ok: boolean; filePath?: string; error?: string }> {
+	const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, "");
+	const buffer = Buffer.from(base64Data, "base64");
+
+	/*
+	 * Copied as well, when that is on.
+	 *
+	 * Downloading and copying are not alternatives — the reason to keep a file is to have it later,
+	 * and the next thing anybody does with a fresh screenshot is paste it. Doing both means the
+	 * button never has to be chosen between.
+	 */
+	if (settings?.copyToClipboard !== false) {
+		const img = nativeImage.createFromBuffer(buffer);
+		if (!img.isEmpty()) clipboard.writeImage(img);
+	}
+
+	try {
+		const saveDir = resolveSaveDirectory(settings?.downloadLocation, app.getPath("desktop"));
+		const filePath = join(saveDir, generateScreenshotFilename());
+		const { writeFile, mkdir } = await import("node:fs/promises");
+		await mkdir(saveDir, { recursive: true });
+		await writeFile(filePath, buffer);
+		captureLog("download: written", { filePath, bytes: buffer.length });
+		return { ok: true, filePath };
+	} catch (err) {
+		console.error("[screenshot] 下载截图失败:", err);
+		return { ok: false, error: err instanceof Error ? err.message : String(err) };
+	}
 }
 
 /**

@@ -15,7 +15,7 @@
  * retaken on every drag, and every mark on it would slide.
  */
 
-import { Check } from "lucide-react";
+import { Check, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ScreenshotSettings } from "@lyra/core";
 import {
@@ -27,6 +27,7 @@ import { ScreenshotLoupe, type LoupeReading } from "./ScreenshotLoupe.tsx";
 import { bridge } from "../../services/index.ts";
 import {
 	clampRect,
+	clampToolbar,
 	handlePoint,
 	hitHandle,
 	insideRect,
@@ -42,7 +43,15 @@ import {
 } from "./screenshot-geometry.ts";
 
 const HANDLE_GRAB = 10;
-const TOOLBAR_SIZE = { width: 660, height: 48 };
+/**
+ * A first guess at the bar's size, replaced by a measurement after the first paint.
+ *
+ * Only used to place it before it exists. It is deliberately close to the truth — the bar is now
+ * 48pt tall and about 800 wide with the two extra actions on it — because being wrong here puts the
+ * bar in the wrong place for one frame, and the eye is already following the pointer that just
+ * released the selection.
+ */
+const TOOLBAR_SIZE = { width: 800, height: 48 };
 const MIN_SELECTION = 10;
 /**
  * How wide the band around the selection's edge is that picks the whole region up.
@@ -65,9 +74,12 @@ const EDGE_GRAB = 14;
  *
  * A constant rather than a measurement: it is only needed to decide which side of the region the
  * toolbar goes on, that decision has to be made before the bubble exists, and the bubble is one
- * row of 22px controls in a 4px-padded box — a number that changes only if that row is redesigned.
+ * row of controls in a padded box — a number that changes only if that row is redesigned.
+ *
+ * 48 rather than the 34 it was: the capture bar uses the `large` metrics, whose bubble is a row of
+ * 28pt controls with 6pt of padding, plus the 8pt gap that separates it from the bar.
  */
-const PROPERTIES_HEIGHT = 34;
+const PROPERTIES_HEIGHT = 48;
 /**
  * How long the dimming takes to arrive, and to leave.
  *
@@ -85,6 +97,22 @@ const LEAVE_MS = 120;
  */
 const TOAST_MS = 700;
 const TOAST_FADE_MS = 200;
+
+/**
+ * What the confirmation over the desktop says once the capture itself has gone.
+ *
+ * One line, and deliberately not more. It carried the file's path for a while — the thinking being
+ * that a destination which is a setting genuinely varies, so the answer is worth showing — and the
+ * result was a paragraph in a box that had held two words: 「已保存到」 above a wrapped absolute
+ * path, twice the size of every other confirmation this overlay shows and slower to read than the
+ * thing it was confirming. Where the file went belongs in settings, where it was chosen.
+ */
+interface ToastMessage {
+	text: string;
+	/** Whether this is a failure, which gets a warning mark rather than a tick. */
+	failed?: boolean;
+}
+
 
 interface ScreenshotInit {
 	/**
@@ -169,6 +197,31 @@ export function ScreenshotOverlay() {
 	const [pointer, setPointer] = useState<Point | null>(null);
 	const [reading, setReading] = useState<LoupeReading | null>(null);
 	const [copied, setCopied] = useState(false);
+	/**
+	 * The confirmation that outlives the capture, or null.
+	 *
+	 * Was a boolean called `copied`, because taking a colour was the only thing that ended a capture
+	 * without delivering a picture. Downloading and pinning end the same way and have different
+	 * things to say — one of them a file path — so the state holds the message rather than implying
+	 * it. `copied` is still here, separately: the loupe shows its own 「已复制」 inline, which is a
+	 * different thing in a different place.
+	 */
+	const [toast, setToast] = useState<ToastMessage | null>(null);
+
+	/**
+	 * Where the user has put the toolbar, if they have moved it.
+	 *
+	 * Null means "wherever `toolbarPosition` says", which is the ordinary case and the good default:
+	 * the bar follows the region and ends up under the hand that drew it. This exists for when that
+	 * default is wrong — the bar lands on top of the very thing being annotated, which happens for a
+	 * region near the bottom of the screen, or over the part of the picture a caption is going on.
+	 *
+	 * In overlay coordinates, i.e. the same space as the selection.
+	 */
+	const [toolbarAtManual, setToolbarAtManual] = useState<Point | null>(null);
+	const [toolbarDragging, setToolbarDragging] = useState(false);
+	/** The press that started the current toolbar drag, and where the bar was when it did. */
+	const toolbarDrag = useRef<{ from: Point; origin: Point } | null>(null);
 
 	/** The toolbar's measured size, so it is kept on screen against what it really is. */
 	const [toolbarSize, setToolbarSize] = useState<{ width: number; height: number } | null>(null);
@@ -365,10 +418,22 @@ export function ScreenshotOverlay() {
 		setPointer(null);
 		setReading(null);
 		setCopied(false);
+		setToast(null);
 		setToastLeaving(false);
 		setEntered(false);
 		setLeaving(false);
 		leavingRef.current = false;
+		/*
+		 * The toolbar goes back to following the region.
+		 *
+		 * Where the user dragged it belongs to the capture it was dragged in: it was moved off
+		 * something specific on *that* screen, and the next capture is somewhere else entirely. A
+		 * remembered position would arrive over whatever this one is framing, for a reason nobody
+		 * could see.
+		 */
+		setToolbarAtManual(null);
+		setToolbarDragging(false);
+		toolbarDrag.current = null;
 	}, []);
 	useEffect(() => {
 		const cleanup = bridge.screenshot?.onInit((data: ScreenshotInit) => {
@@ -416,16 +481,21 @@ export function ScreenshotOverlay() {
 	 * So the two are separated. `leaving` takes the dimming, the loupe and the frozen picture away on
 	 * the same 120ms Escape uses; the toast lives outside that layer and is dismissed on its own
 	 * clock. In between, the window is still there — transparent, showing nothing but the message —
-	 * and `colourPicked` tells the main process to let presses through it, so the moment the screen
+	 * and `passThrough` tells the main process to let presses through it, so the moment the screen
 	 * looks normal it behaves normally too.
+	 *
+	 * Shared by the two other errands that end without delivering anything to Lyra: downloading the
+	 * picture and pinning it. All three want the same shape — the capture goes now, the answer stays
+	 * a beat — and the one thing that differs is what the answer says.
 	 */
-	const leaveWithToast = useCallback(() => {
+	const leaveWithToast = useCallback((message: ToastMessage, holdMs = TOAST_MS) => {
 		if (leavingRef.current) return;
 		leavingRef.current = true;
+		setToast(message);
 		setLeaving(true);
-		bridge.screenshot?.colourPicked?.();
-		setTimeout(() => setToastLeaving(true), LEAVE_MS + TOAST_MS);
-		setTimeout(() => bridge.screenshot?.cancel?.(), LEAVE_MS + TOAST_MS + TOAST_FADE_MS);
+		bridge.screenshot?.passThrough?.();
+		setTimeout(() => setToastLeaving(true), LEAVE_MS + holdMs);
+		setTimeout(() => bridge.screenshot?.cancel?.(), LEAVE_MS + holdMs + TOAST_FADE_MS);
 	}, []);
 
 	// Escape shortcut, and ⌘C while the loupe is reading a colour.
@@ -455,7 +525,7 @@ export function ScreenshotOverlay() {
 				void navigator.clipboard?.writeText(reading.hex).then(
 					() => {
 						setCopied(true);
-						leaveWithToast();
+						leaveWithToast({ text: "已复制色值" });
 					},
 					() => setCopied(false),
 				);
@@ -470,17 +540,22 @@ export function ScreenshotOverlay() {
 	 *
 	 * Read straight off the live canvas rather than through `render()` and a second decode: the
 	 * canvas is already exactly the picture that is wanted, minus everything outside the frame.
+	 *
+	 * Its own function because three buttons now want the same picture — 完成 delivers it to Lyra,
+	 * 下载 writes it to a folder, 置顶 leaves it on the desktop — and the cropping was written out
+	 * inside the first of them. Called before the fade in every case, so the picture is of the marks
+	 * rather than of them half faded out.
 	 */
-	const handleFinish = useCallback(() => {
+	const crop = useCallback((): string | null => {
 		const source = annotator.canvas.current;
-		if (!source || !selection || !initData) return;
+		if (!source || !selection || !initData) return null;
 
 		const scale = source.width / initData.bounds.width;
 		const out = document.createElement("canvas");
 		out.width = Math.max(1, Math.round(selection.width * scale));
 		out.height = Math.max(1, Math.round(selection.height * scale));
 		const ctx = out.getContext("2d");
-		if (!ctx) return;
+		if (!ctx) return null;
 
 		ctx.drawImage(
 			source,
@@ -494,10 +569,111 @@ export function ScreenshotOverlay() {
 			out.height,
 		);
 
-		// Rendered before the fade, so the picture is of the marks and not of them half faded out.
-		const png = out.toDataURL("image/png");
+		return out.toDataURL("image/png");
+	}, [annotator, selection, initData]);
+
+	const handleFinish = useCallback(() => {
+		const png = crop();
+		if (!png || !initData) return;
 		leaveThen(() => bridge.screenshot?.finish?.(png, initData.settings));
-	}, [annotator, selection, initData, leaveThen]);
+	}, [crop, initData, leaveThen]);
+
+	/**
+	 * Leave the region on the desktop as a window of its own.
+	 *
+	 * `at` is the selection put back into screen coordinates — the overlay's origin is the display's,
+	 * so the display's own offset is added back. The window opens exactly there, which is what makes
+	 * pinning read as the capture staying put rather than a new thing appearing somewhere.
+	 *
+	 * No toast. The picture *is* the confirmation, and it lands in the same place the frozen one was
+	 * standing: a message on top of it would say something the screen has already said.
+	 */
+	const handlePin = useCallback(() => {
+		const png = crop();
+		if (!png || !selection || !initData) return;
+		const at = {
+			x: Math.round(initData.bounds.x + selection.x),
+			y: Math.round(initData.bounds.y + selection.y),
+			width: Math.round(selection.width),
+			height: Math.round(selection.height),
+		};
+		leaveThen(() => void bridge.screenshot?.pin?.(png, at));
+	}, [crop, selection, initData, leaveThen]);
+
+	/**
+	 * Write the picture to the download directory, and confirm it in one line.
+	 *
+	 * The same shape as taking a colour, deliberately: the errand is finished, the capture goes at
+	 * once, and a short confirmation stays over the real desktop for a beat. Where the file went is
+	 * a setting the user chose; repeating it here made the box four times the size for information
+	 * nobody asked for at that moment.
+	 *
+	 * Awaited before anything is said, which is also how the colour works — a message that has to be
+	 * corrected afterwards is worse than one that arrives a few milliseconds later, and writing a PNG
+	 * to a local folder is a few milliseconds.
+	 */
+	const handleDownload = useCallback(() => {
+		const png = crop();
+		if (!png || !initData) return;
+		void bridge.screenshot?.download?.(png, initData.settings).then(
+			(result) => leaveWithToast(result?.ok ? { text: "已保存" } : { text: "保存失败", failed: true }),
+			() => leaveWithToast({ text: "保存失败", failed: true }),
+		);
+	}, [crop, initData, leaveWithToast]);
+
+	/**
+	 * Begin dragging the toolbar, from wherever it is now.
+	 *
+	 * Where it is now is read off the element rather than off `toolbarAt`, which is computed further
+	 * down this component — after the early return, so it cannot be reached from a hook up here. The
+	 * DOM has the same answer and cannot disagree with what is on screen.
+	 */
+	const startToolbarDrag = useCallback((event: React.PointerEvent) => {
+		const bar = (event.currentTarget as HTMLElement).closest("[data-screenshot-ui]") as HTMLElement | null;
+		if (!bar) return;
+		const box = bar.getBoundingClientRect();
+		event.preventDefault();
+		event.stopPropagation();
+		toolbarDrag.current = { from: { x: event.clientX, y: event.clientY }, origin: { x: box.left, y: box.top } };
+		setToolbarDragging(true);
+	}, []);
+
+	/*
+	 * The rest of the drag, on the window rather than on the handle.
+	 *
+	 * A pointer moving fast leaves a 20pt grip behind between two events, and a capture on the
+	 * element would have to be released on a page that is about to be torn down and rebuilt for the
+	 * next capture. Listening on the window for as long as the drag lasts has neither problem.
+	 */
+	useEffect(() => {
+		if (!toolbarDragging) return;
+		const size = toolbarSize ?? TOOLBAR_SIZE;
+		const move = (event: PointerEvent) => {
+			const drag = toolbarDrag.current;
+			if (!drag) return;
+			// Kept on screen, with room above it for the properties bubble. See `clampToolbar`.
+			setToolbarAtManual(
+				clampToolbar(
+					{ x: drag.origin.x + event.clientX - drag.from.x, y: drag.origin.y + event.clientY - drag.from.y },
+					size,
+					{ width: window.innerWidth, height: window.innerHeight },
+					PROPERTIES_HEIGHT,
+				),
+			);
+		};
+		const end = () => {
+			toolbarDrag.current = null;
+			setToolbarDragging(false);
+		};
+		window.addEventListener("pointermove", move);
+		window.addEventListener("pointerup", end);
+		window.addEventListener("pointercancel", end);
+		return () => {
+			window.removeEventListener("pointermove", move);
+			window.removeEventListener("pointerup", end);
+			window.removeEventListener("pointercancel", end);
+		};
+	}, [toolbarDragging, toolbarSize]);
 
 	// Selection pointer events
 	const handlePointerDown = (e: React.PointerEvent) => {
@@ -698,9 +874,24 @@ export function ScreenshotOverlay() {
 	 * unconditionally costs a few pixels of gap in the rare case nothing opens, and keeps the bar
 	 * still.
 	 */
-	const toolbarAt = selection
+	const placed = selection
 		? toolbarPosition(selection, bounds, { ...TOOLBAR_SIZE, ...toolbarSize }, { height: PROPERTIES_HEIGHT })
 		: null;
+	/*
+	 * Where the user put it, if they moved it; otherwise where it belongs.
+	 *
+	 * The automatic placement is right nearly always — the bar follows the region and lands under the
+	 * hand that drew it — and wrong in the case it cannot see: the bar is over the part of the
+	 * picture that is about to be annotated, or over a second window the user is comparing against.
+	 * There is no rule that fixes that, because the thing it must not cover is not on the screen the
+	 * overlay can measure. So it is draggable, and a bar that has been dragged stops following.
+	 *
+	 * The side is still derived rather than kept, because the bubble must open away from the edge it
+	 * is nearest: dragged to the top of the screen, a bubble opening upwards would be off it.
+	 */
+	const toolbarAt: (Point & { side: "above" | "below" | "over" }) | null = toolbarAtManual
+		? { ...toolbarAtManual, side: toolbarAtManual.y >= PROPERTIES_HEIGHT ? "above" : "below" }
+		: placed;
 
 	return (
 		<div
@@ -713,7 +904,16 @@ export function ScreenshotOverlay() {
 			 */
 			data-window-count={initData.windows?.length ?? 0}
 			data-capture="active"
-			style={{ cursor, WebkitUserDrag: "none" } as React.CSSProperties}
+			/*
+			 * While the bar is being dragged, the whole screen says so.
+			 *
+			 * The grip carries `cursor: grabbing` and that is not enough on its own: the pointer
+			 * leaves it within a few pixels of the drag starting, and everywhere it goes next has a
+			 * cursor of its own — `crosshair` outside the region, `not-allowed` where nothing is
+			 * allowed. So the hand would close on the handle and then turn back into a crosshair for
+			 * the rest of the gesture, which reads as the drag having been dropped.
+			 */
+			style={{ cursor: toolbarDragging ? "grabbing" : cursor, WebkitUserDrag: "none" } as React.CSSProperties}
 			/*
 			 * A press-and-move here is a selection, never a drag of the page.
 			 *
@@ -933,7 +1133,17 @@ export function ScreenshotOverlay() {
 				<div
 					ref={measureToolbar}
 					data-screenshot-ui
-					className="pointer-events-auto absolute z-[120]"
+					/*
+					 * `cursor-default`, and it is a bug fix rather than a tidy-up.
+					 *
+					 * The bar floats *outside* the selection, and everything outside a selection that
+					 * already exists carries `not-allowed` — the rule that says a press out there does
+					 * nothing. The cursor is inherited, so the bar inherited it too: the pointer arrived
+					 * on a row of live buttons wearing the 🚫 that means "this does nothing". Reported
+					 * exactly that way. The bar is the one thing out here that *is* allowed, so it says
+					 * so, and its children say what they are individually.
+					 */
+					className="pointer-events-auto absolute z-[120] cursor-default"
 					style={{ left: toolbarAt.x, top: toolbarAt.y }}
 					onPointerDown={(e) => e.stopPropagation()}
 				>
@@ -941,6 +1151,20 @@ export function ScreenshotOverlay() {
 						annotator={annotator}
 						onCancel={handleCancel}
 						onSave={handleFinish}
+						onPin={handlePin}
+						onDownload={handleDownload}
+						onGrab={startToolbarDrag}
+						grabbing={toolbarDragging}
+						/*
+						 * Bigger here than in the image viewer, and the reason is where it is standing.
+						 *
+						 * This bar floats over a frozen desktop with no window around it, at a position
+						 * that moves with every selection, and it is aimed at while the hand is still
+						 * travelling from the drag that made the region. 24pt buttons are fine in a
+						 * window whose chrome tells you where things are; out here they are the report
+						 * this answers — 「截图控件尺寸实在是太小了」.
+						 */
+						size="large"
 						canReplace={false}
 						saveLabel="完成"
 						cancelLabel="取消"
@@ -952,26 +1176,30 @@ export function ScreenshotOverlay() {
 						 * of the very region being annotated.
 						 */
 						propertiesSide={toolbarAt?.side === "below" ? "below" : "above"}
-						className="pointer-events-auto relative flex items-center gap-0.5 rounded-xl border border-white/12 bg-[#1c1c1e]/92 px-1.5 py-1 shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-xl transition-[opacity,transform] duration-[var(--ly-t-base)] ease-out"
+						// Position, background and shadow only: spacing comes from `size`, or the two
+						// would drift the first time either was changed. See `AnnotateToolbar`.
+						className="pointer-events-auto relative flex items-center border border-white/12 bg-[#1c1c1e]/92 shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-xl transition-[opacity,transform] duration-[var(--ly-t-base)] ease-out"
 					/>
 				</div>
 			)}
 			</div>
 
 			{/*
-			 * "Copied", in the middle of the screen — and deliberately outside the layer above.
+			 * The answer, in the middle of the screen — and deliberately outside the layer above.
 			 *
-			 * Everything in that layer is the capture, and the capture leaves the instant a colour is
-			 * taken, on the same 120ms Escape uses. This does not: the value is on the clipboard and
-			 * the message is the answer, so it stays a beat longer over the real desktop and then goes
-			 * on its own. Inside the fading layer it left *with* the capture, which meant the whole
-			 * overlay had to be held up for most of a second first so it could be read at all.
+			 * Everything in that layer is the capture, and the capture leaves the instant one of these
+			 * errands is finished, on the same 120ms Escape uses. This does not: the colour is on the
+			 * clipboard, or the file is on the disk, and the message is what says so — it stays a beat
+			 * longer over the real desktop and then goes on its own. Inside the fading layer it left
+			 * *with* the capture, which meant the whole overlay had to be held up for most of a second
+			 * first so it could be read at all.
 			 *
 			 * Centred rather than beside the pointer because by now the pointer is not where the user
 			 * is looking.
 			 */}
-			{copied && (
+			{toast && (
 				<div
+					data-screenshot-toast
 					className="pointer-events-none absolute inset-0 flex items-center justify-center"
 					style={{
 						opacity: toastLeaving ? 0 : 1,
@@ -979,8 +1207,8 @@ export function ScreenshotOverlay() {
 					}}
 				>
 					<div className="flex animate-[ly-tool-in_var(--ly-t-base)_ease-out] flex-col items-center gap-2 rounded-2xl bg-black/75 px-9 py-7 text-white shadow-[0_10px_40px_rgba(0,0,0,0.45)] backdrop-blur-md">
-						<Check size={44} strokeWidth={2.2} />
-						<span className="text-label">已复制色值</span>
+						{toast.failed ? <TriangleAlert size={44} strokeWidth={2.2} /> : <Check size={44} strokeWidth={2.2} />}
+						<span className="text-label">{toast.text}</span>
 					</div>
 				</div>
 			)}

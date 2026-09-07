@@ -206,6 +206,15 @@ export interface ScreenshotSettings {
 	shortcut?: string;
 	/** Directory where screenshots are saved. If empty, saves to ~/Desktop or scratch directory. */
 	saveLocation?: string;
+	/**
+	 * Where the capture toolbar's download button writes to.
+	 *
+	 * Separate from `saveLocation`, which is the automatic copy every finished capture leaves behind
+	 * — most people want that off. This is the deliberate one: the button says 下载 and the file has
+	 * to appear somewhere the user can find without being told, so an empty value means the desktop
+	 * rather than nothing at all.
+	 */
+	downloadLocation?: string;
 	/** Whether to show the screenshot button in the composer input area (default false). */
 	showInComposer?: boolean;
 	/** Whether to automatically copy the screenshot image to clipboard after capture. */
@@ -220,6 +229,7 @@ export const DEFAULT_SCREENSHOT_SETTINGS: ScreenshotSettings = {
 	enabled: true,
 	shortcut: "Alt+A",
 	saveLocation: "",
+	downloadLocation: "",
 	showInComposer: false,
 	copyToClipboard: true,
 	insertIntoComposer: false,

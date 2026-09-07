@@ -718,6 +718,23 @@ export interface LyraApi {
 		start(settings?: ScreenshotSettings): Promise<void>;
 		finish(dataUrl: string, settings?: ScreenshotSettings): Promise<{ ok: boolean; filePath?: string }>;
 		cancel(): Promise<void>;
+		/**
+		 * Write the capture to the download directory and end the capture.
+		 *
+		 * Separate from `finish` because an unset destination means the opposite thing: there, no
+		 * save location means "keep no file"; here the file is the errand, so it falls back to the
+		 * desktop. Returns where it went, which is what the confirmation says.
+		 */
+		download(dataUrl: string, settings?: ScreenshotSettings): Promise<{ ok: boolean; filePath?: string; error?: string }>;
+		/**
+		 * Leave the region on screen as a small always-on-top window, and end the capture.
+		 *
+		 * `at` is where the region was, in screen coordinates, so the window opens exactly over the
+		 * frozen picture it replaces — which is what makes it read as the capture staying put.
+		 */
+		pin(dataUrl: string, at?: { x: number; y: number; width: number; height: number }): Promise<{ ok: boolean }>;
+		/** How many pinned pictures are on screen. For tests; nothing in the app reads it. */
+		pinnedCount(): Promise<number>;
 		pickDirectory(): Promise<string | null>;
 		onInit(
 			handler: (payload: {
@@ -762,13 +779,17 @@ export interface LyraApi {
 		 */
 		painted(): void;
 		/**
-		 * A colour has been taken and the capture is leaving, but the confirmation is not.
+		 * The capture is over on screen, but the window is not down yet.
 		 *
-		 * The overlay stays up for another moment showing nothing but 「已复制色值」 over the real
-		 * desktop; this makes it click-through for that moment, so the screen behaves normally the
-		 * instant it looks normal. `cancel` follows once the message has faded.
+		 * Three things end this way — a colour taken, a picture downloaded, a picture pinned — and
+		 * each leaves a confirmation up for a moment over the real desktop after the frozen one has
+		 * gone. This makes the window click-through for that moment, so the screen behaves normally
+		 * the instant it looks normal. `cancel` follows once the message has faded.
+		 *
+		 * It was called `colourPicked`, back when picking a colour was the only thing that finished
+		 * without delivering a picture.
 		 */
-		colourPicked(): void;
+		passThrough(): void;
 		/** The window is on screen — from here a fade has frames to run in. Returns an unsubscribe. */
 		onShown(handler: () => void): () => void;
 		/**
@@ -782,6 +803,31 @@ export interface LyraApi {
 		onHidden(handler: () => void): () => void;
 		/** Report a measurement into the capture log, for diagnosing what a recording only hints at. */
 		debug(what: string, detail: Record<string, unknown>): void;
+	};
+	/**
+	 * What a pinned picture's own window can do, which is very little on purpose.
+	 *
+	 * It receives one image, says when it has drawn it, and closes itself. There is no id in any of
+	 * these: the window that sent the message is the window it is about, which is the same trick the
+	 * capture overlay uses and for the same reason — a page cannot then ask about another one.
+	 */
+	pinnedShot: {
+		/**
+		 * This window's picture, asked for by the window itself.
+		 *
+		 * Pulled rather than pushed: the component behind this is loaded on demand, so a message sent
+		 * when the document finished loading arrives before anything is listening and is dropped —
+		 * which showed up as a correctly sized, correctly placed, completely empty window.
+		 */
+		request(): Promise<{ dataUrl: string; width: number; height: number } | null>;
+		/** The picture is on the screen: the window may be shown. */
+		ready(): void;
+		/** The close button. Destroys this window. */
+		close(): void;
+		/** A drag has begun: remember where the window is now. */
+		dragStart(): void;
+		/** How far the pointer has moved since `dragStart`, in screen points. */
+		dragMove(dx: number, dy: number): void;
 	};
 	index: {
 		stats(cwd: string): Promise<{ exists: boolean; builtAt?: number; files?: number; symbols?: number; bytes?: number }>;

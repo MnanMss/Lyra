@@ -226,15 +226,40 @@ const extras: DeepPartial<LyraApi> = {
 		// visible. Until then its surface may still be rebuilding, and a rebuilding surface shows
 		// stretched. See `reveal` in `screenshot.ts`.
 		painted: () => ipcRenderer.send("screenshot:painted"),
-		// "A colour was taken" — the capture is visually over, so let presses through while the
-		// confirmation is still up. See `overlayPassedThrough`.
-		colourPicked: () => ipcRenderer.send("screenshot:colourPicked"),
+		// The capture is visually over — a colour taken, a file downloaded, a picture pinned — so let
+		// presses through while the confirmation is still up. See `overlayPassedThrough`.
+		passThrough: () => ipcRenderer.send("screenshot:passThrough"),
 		// And the end of one: the window is off screen and the page can let go of the picture.
 		onHidden: (handler: () => void) => {
 			const listener = () => handler();
 			ipcRenderer.on("screenshot:hidden", listener);
 			return () => ipcRenderer.removeListener("screenshot:hidden", listener);
 		},
+	},
+	/*
+	 * A pinned picture's own window, which is a different page in the same document.
+	 *
+	 * Its own group rather than more methods on `screenshot`, because none of it is about capturing
+	 * anything: by the time a page uses this, the capture is over and what is left is a small window
+	 * holding an image. The sender identifies which one, so nothing here takes an id.
+	 */
+	pinnedShot: {
+		// `request` is generated from the contract like every other invoke — only the sends are here.
+		//
+		// "The picture is drawn" — the window is created hidden and shown by this, so what appears is
+		// never an empty transparent rectangle with a shadow round it.
+		ready: () => ipcRenderer.send("pin:ready"),
+		close: () => ipcRenderer.send("pin:close"),
+		/*
+		 * Dragging, as a remembered origin and a delta against it.
+		 *
+		 * Absolute positions would race: the window moves between the page reading the pointer and
+		 * the main process acting on it, so each message would be computed against a position that
+		 * has already changed and the window would drift away under the hand. The origin is taken
+		 * once, at `dragStart`, and every `dragMove` is measured from that.
+		 */
+		dragStart: () => ipcRenderer.send("pin:dragStart"),
+		dragMove: (dx: number, dy: number) => ipcRenderer.send("pin:dragMove", dx, dy),
 	},
 };
 
