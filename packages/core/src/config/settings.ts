@@ -372,6 +372,10 @@ export interface Settings {
 	 * and running eight at once is what is not — each carries its own context and its own model
 	 * calls. The number reaches the prompt too: a queue is invisible from the inside, and a model
 	 * that reads the wait as slowness responds by dispatching more.
+	 *
+	 * 这是天花板，不是每一轮实际的宽度：推理等级会在它底下再收一道（中档减半，低档只放一个），
+	 * 因为「派一个子代理划不划算」本来就取决于这一轮值多少钱。只收不放——把等级拉满也不会越过
+	 * 这里写的数字。见 `runtime/delegation.ts`。
 	 */
 	maxConcurrentSubAgents: number;
 	/**

@@ -80,6 +80,41 @@ test("GPT-5.6 and its ultra tier keep the levels they actually have", () => {
 	assert.ok(ids("gpt-5.6-ultra").includes("ultra"), "ultra 变体应该有 ultra");
 });
 
+test("GPT-6-astra 拿到它自己那六档，而不是兜底的四档", () => {
+	/*
+	 * 上线那天它落在最后那条兜底规则上，于是一个有六档的模型被画成了四档——`xhigh`、`max`、
+	 * `ultra` 在菜单里根本不存在，而 `medium` 被当成了默认，比厂商自己的默认高一档。
+	 */
+	for (const id of ["gpt-6-astra", "gpt-6-astra-pro", "gpt-6-astra-fast", "openai/gpt-6-astra", "azure/gpt-6-astra", "openai-gpt-6-astra-pro"]) {
+		assert.deepEqual(ids(id), ["off", "low", "medium", "high", "xhigh", "max", "ultra"], `${id} 的档位不对`);
+	}
+});
+
+test("GPT-6-astra 的默认是低，不是中", () => {
+	// 厂商自己的选择：这一族的 low 已经相当于别家的 medium，上面几档是要额外花钱的。
+	const options = resolveModelThinkingOptions(model("gpt-6-astra"));
+	assert.equal(options.find((option) => option.isDefault)?.id, "low");
+	assert.equal(options.filter((option) => option.isDefault).length, 1, "只能有一个默认");
+	// 一个过期的选择要落回这个默认，而不是别的集合的默认。
+	assert.equal(resolveReasoningEffort("nonexistent-level", model("gpt-6-astra")), "low");
+});
+
+test("GPT-6-astra 不给 minimal——它的接口没有这一档", () => {
+	assert.ok(!ids("gpt-6-astra").includes("minimal"));
+	assert.equal(resolveReasoningEffort("minimal", model("gpt-6-astra")), "low", "选了不存在的档要落回默认");
+});
+
+test("每一档 GPT-6-astra 都原样送到线上", () => {
+	for (const option of resolveModelThinkingOptions(model("gpt-6-astra"))) {
+		assert.equal(resolveReasoningEffort(option.id, model("gpt-6-astra")), option.id === "off" ? undefined : option.id);
+	}
+});
+
+test("GPT-6 家族里没见过的成员仍然走保守那一组", () => {
+	// 只认已经发版、档位已知的那一支；凭版本号猜能力，正是 `minimal` 当年跑到 Gemini 上的原因。
+	assert.deepEqual(ids("gpt-6-nebula"), GEMINI_SAFE);
+});
+
 test("a bare version number in some other model's name is not a GPT match", () => {
 	// `id.includes("5.6")` matched this and handed it GPT-5.6's levels.
 	assert.ok(!ids("llama-5.6b").includes("max"), "llama-5.6b 不该被当成 GPT-5.6");

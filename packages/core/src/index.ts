@@ -237,6 +237,7 @@ export {
 	STANDARD_5_LEVEL_OPTIONS,
 	GPT_5_6_STANDARD_OPTIONS,
 	GPT_5_6_SOL_OPTIONS,
+	GPT_6_ASTRA_OPTIONS,
 	FAST_3_LEVEL_OPTIONS,
 } from "./ai/thinking-options.ts";
 export { lastPassAt, PASS_INTERVAL_MS, runMemoryPass, shouldRunPass } from "./runtime/memory-pass.ts";

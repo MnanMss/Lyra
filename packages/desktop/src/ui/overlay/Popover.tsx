@@ -113,6 +113,30 @@ export interface PopoverProps {
 	className?: string;
 	/** Lands on the scrolling body, for surfaces that pad their own content. */
 	bodyClassName?: string;
+	/**
+	 * A list of rows, or one thing.
+	 *
+	 * `menu` is the inset every menu here wants: rounded corners need room, a row must not run
+	 * under the scrollbar, and softened edges say the list continues past them. All three are
+	 * wrong for a surface holding a single panel that paints its own background — a diff, whose
+	 * code colour then stopped 25px short of the card's right edge and 6px short of its top, with
+	 * the glass showing through the gap. The panel reads as inset in a card it does not fill.
+	 *
+	 * `panel` hands the whole body to the content and lets the overlay thumb float over it, which
+	 * is what an overlay scrollbar is for.
+	 */
+	surface?: "menu" | "panel";
+	/**
+	 * Hover handed to the surface as a whole, for popovers that open on hover.
+	 *
+	 * Their callers used to hang these on whatever they passed as `header` and `children`, which
+	 * left the border, the scroller's own margins, the scrollbar's strip and its thumb outside the
+	 * handlers: a pointer that crossed into the popover at any of them was still, as far as the
+	 * caller could tell, outside it — and the pending close ran. Grabbing the scrollbar of a hover
+	 * preview dismissed it.
+	 */
+	onMouseEnter?: () => void;
+	onMouseLeave?: () => void;
 }
 
 const GAP = 8;
@@ -187,6 +211,9 @@ export function Popover({
 	label,
 	className = "",
 	bodyClassName = "",
+	surface: kind = "menu",
+	onMouseEnter,
+	onMouseLeave,
 }: PopoverProps) {
 	const ref = useRef<HTMLDivElement>(null);
 	const [style, setStyle] = useState<React.CSSProperties>({
@@ -388,8 +415,16 @@ export function Popover({
 				 *
 				 * Only when *both* sides fail. With room on either side the menu still hangs off the
 				 * cursor, which is where the pointer expects to find it.
+				 *
+				 * And only for a menu. Sliding into the window means landing on top of the trigger,
+				 * which for a list of actions is harmless — you are about to pick one and it will be
+				 * gone. A panel is not picked from: the file-change preview would come to rest over
+				 * the card it is previewing, over the 「撤销」 and 「审核」 that card exists to offer.
+				 * It already scrolls, so the honest answer for it is to take the taller side and be
+				 * shorter, which the ceiling below works out on its own.
 				 */
 				shifted =
+					kind === "menu" &&
 					!fitsAbove &&
 					!fitsBelow &&
 					box.height + MARGIN * 2 <= window.innerHeight;
@@ -452,7 +487,11 @@ export function Popover({
 			observer.disconnect(); cancelAnimationFrame(frame);
 			window.removeEventListener("resize", schedule); window.removeEventListener("scroll", onScroll, true);
 		};
-	}, [anchor, align, placement, width, maxHeight]);
+	}, [anchor, align, placement, width, maxHeight, kind]);
+
+	// Which modal layer this popover itself sits on — read here because the press-outside test below
+	// needs it, and used again for the z-index it is drawn at.
+	const overlayDepth = useContext(OverlayDepth);
 
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
@@ -488,6 +527,23 @@ export function Popover({
 				target instanceof Element ? target.closest("[data-ly-popover]") : null;
 			if (within && Number(within.getAttribute("data-ly-popover")) > self.depth)
 				return;
+			/*
+			 * Nor is a press on a modal this popover raised.
+			 *
+			 * Same relationship as the one above, through the other kind of surface: choosing a model
+			 * mid-conversation asks 「确定要中途切换模型吗？」, and that question is a dialog portalled to
+			 * `<body>` — so `contains` says the 「确认切换」 button is outside the menu, and the menu
+			 * dismissed itself under the question it had just asked. The confirmation is rendered *by*
+			 * the menu, so it went with it, and the answer was thrown away 10ms before it was due to
+			 * be acted on. Nothing on screen said the switch had not happened.
+			 *
+			 * Compared by depth rather than merely detected, for the same reason popovers are: a menu
+			 * opened *inside* a dialog must still close when that dialog is clicked. Only a modal
+			 * stacked above this popover's own layer is one it could have raised.
+			 */
+			const modal =
+				target instanceof Element ? target.closest("[data-ly-overlay]") : null;
+			if (modal && Number(modal.getAttribute("data-ly-overlay")) > overlayDepth) return;
 			dismiss();
 		};
 		window.addEventListener("keydown", onKey, true);
@@ -496,11 +552,10 @@ export function Popover({
 			window.removeEventListener("keydown", onKey, true);
 			window.removeEventListener("mousedown", onPointerDown, true);
 		};
-	}, [anchor, dismiss, self]);
+	}, [anchor, dismiss, self, overlayDepth]);
 
 	// Frosted: every surface a menu opens over paints a background of its own for it to blur.
 	const surface = "ly-glass";
-	const overlayDepth = useContext(OverlayDepth);
 
 	/*
 	 * Rendered into `<body>`, not where it was written.
@@ -525,6 +580,8 @@ export function Popover({
 				// How deeply nested this one is, for the press-outside test above — the only way a
 				// portalled sibling can tell an ancestor from an unrelated surface.
 				data-ly-popover={self.depth}
+				onMouseEnter={onMouseEnter}
+				onMouseLeave={onMouseLeave}
 				style={{ ...style, zIndex: 60 + overlayDepth * 20 + (overlayDepth ? 10 : 0) }}
 				/*
 				 * Above everything, including the side panel.
@@ -548,8 +605,18 @@ export function Popover({
 				 * a native bar; making it the surface's job is what makes the answer the same everywhere.
 				 */}
 				<Scroller
-					className="ly-menu-scroll min-h-0 flex-auto"
+					className={`${kind === "menu" ? "ly-menu-scroll " : ""}min-h-0 flex-auto`}
 					contentClassName={`overflow-x-hidden ${bodyClassName}`}
+					/*
+					 * A panel ends where the card ends.
+					 *
+					 * The fade says "the list carries on past this edge", which is true of a menu and
+					 * false of a diff: its own bottom rows and its sideways scrollbar were dissolving
+					 * into a card that stops right there, and a scrollbar you can half-see reads as a
+					 * rendering fault rather than as a boundary. The rounded clip is the boundary.
+					 */
+					top={kind === "menu" ? "fade" : "none"}
+					bottom={kind === "menu" ? "fade" : "none"}
 				>
 					{children}
 				</Scroller>

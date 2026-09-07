@@ -39,6 +39,7 @@ import type { SessionCapabilities } from "./session-capabilities.ts";
 import type { SessionLog } from "./session-log.ts";
 import { SUBAGENTS_KEY } from "../resources/handlers.ts";
 import { DEFAULT_MAX_DEPTH } from "./dispatch-guard.ts";
+import { delegationConcurrency } from "./delegation.ts";
 import { withEnvironment } from "../prompt/environment.ts";
 import { readPromptOverride } from "../prompt/overrides.ts";
 import { offerRuleFromCorrection } from "./rule-offer.ts";
@@ -228,7 +229,18 @@ async function assembleTurn(input: TurnInputs): Promise<{ config: AgentRunConfig
 			scratchDir: input.scratchDir,
 				rules: can.rules,
 				resources: can.resources.schemes(),
-				dispatchLimits: { maxConcurrent: settings.maxConcurrentSubAgents, maxDepth: DEFAULT_MAX_DEPTH },
+				/*
+				 * 说出去的数字必须跟真正拦人的那个一样。
+				 *
+				 * 闸门按推理等级收窄（见 `delegation.ts`），提示词却照着设置里的天花板说，那就是
+				 * 把「派八个会排队」换成了「派四个会排队」——同一个看不见的队列，只是这次是提示词
+				 * 自己告诉模型的一个假数。
+				 */
+				thinking: input.thinking ?? settings.thinking,
+				dispatchLimits: {
+					maxConcurrent: delegationConcurrency(settings.maxConcurrentSubAgents, input.thinking ?? settings.thinking),
+					maxDepth: DEFAULT_MAX_DEPTH,
+				},
 				identityOverride: await readPromptOverride(cwd, "identity"),
 				guidelinesOverride: await readPromptOverride(cwd, "guidelines"),
 		}),
