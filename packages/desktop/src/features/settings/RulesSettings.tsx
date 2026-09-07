@@ -146,13 +146,7 @@ export function RulesSettings({ filter = "" }: { filter?: string }) {
 			{slow ? (
 				<SkeletonList count={5} label="正在读取规则" />
 			) : data === null ? null : live.length === 0 ? (
-				<EmptyHint>
-					这个项目还没有规则。
-					<br />
-					在 <span className="font-mono">.lyra/rules/</span> 里新建一个 <span className="font-mono">.md</span>，
-					写上 frontmatter 就是一条——有 <span className="font-mono">condition</span> 的是流规则，
-					有 <span className="font-mono">description</span> 的进规则库。
-				</EmptyHint>
+				<EmptyHint>{needle ? "没有匹配的规则" : "暂无可用规则"}</EmptyHint>
 			) : (
 				<Card>
 					{live.map((rule) => {

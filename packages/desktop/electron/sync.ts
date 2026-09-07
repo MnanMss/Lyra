@@ -10,8 +10,23 @@ import { type SessionStorage } from "@lyra/core";
 import { workspaceInfo } from "./workspace-info.ts";
 import { applySettings, onSettingsChanged, settings } from "./app-settings.ts";
 import type { SyncStatus } from "./ipc-types.ts";
-import { activateSession, createSession, abortSession, disposeSession, promptSession, getOrCreateSession, sessions, snapshot, touchSession } from "./session-hub.ts";
+import { editSessionMessage, activateSession, createSession, abortSession, disposeSession, promptSession, getOrCreateSession, sessions, snapshot, touchSession } from "./session-hub.ts";
 import { SyncServer } from "./sync-server.ts";
+import { listCommands } from "./commands-service.ts";
+import { listReadableFiles, readReadableFile, resolveReadablePath } from "./file-read-service.ts";
+import { generalScratchDir, scratchRoots } from "./scratch.ts";
+import {
+	sideChatAbort,
+	sideChatAsk,
+	sideChatEditAndResend,
+	sideChatReset,
+	sideChatState,
+	sideChatSetModel,
+	tasksCancel,
+	tasksDismiss,
+	tasksList,
+	tasksResume,
+} from "./side-chat-service.ts";
 
 let syncServer: SyncServer | null = null;
 /** Whether the settings listener is already attached; see `startSync`. */
@@ -34,6 +49,14 @@ let readStore: () => SessionStorage = () => {
 	throw new Error("sync used before configure()");
 };
 
+/** A phone may browse only files inside projects already opened on the desktop. */
+function phoneProjectPath(target: string): Promise<string | null> {
+	return resolveReadablePath(
+		target,
+		[...settings().projects.map((project) => project.path), ...scratchRoots()],
+	);
+}
+
 export async function startSync(): Promise<SyncStatus> {
 	if (!syncServer) {
 		syncServer = new SyncServer({
@@ -45,10 +68,26 @@ export async function startSync(): Promise<SyncStatus> {
 			activate: (projectId, id) => activateSession(projectId, id),
 			create: createSession,
 			prompt: promptSession,
+			editMessage: editSessionMessage,
 			abort: abortSession,
 			dispose: disposeSession,
 			snapshot: (session) => snapshot(session),
 			touch: (id) => touchSession(id),
+			sideChatState,
+	sideChatSetModel,
+			sideChatAsk,
+			sideChatEditAndResend,
+			sideChatAbort: async (id) => void sideChatAbort(id),
+			sideChatReset,
+			tasksList: async (id) => tasksList(id),
+			tasksCancel: async (id, taskId) => tasksCancel(id, taskId),
+			tasksDismiss: async (id, taskId) => tasksDismiss(id, taskId),
+			tasksResume: async (id, taskId) => tasksResume(id, taskId),
+			commandsList: (cwd) => listCommands(cwd, settings()),
+			filesList: async (dir) => listReadableFiles(await phoneProjectPath(dir)),
+			filesRead: async (path) => readReadableFile(await phoneProjectPath(path), true),
+			scratchRoots: async () => scratchRoots(),
+			generalScratch: generalScratchDir,
 			resolveSession: activateSession,
 			createSession: (cwd, modelId) => getOrCreateSession(cwd, modelId),
 		});

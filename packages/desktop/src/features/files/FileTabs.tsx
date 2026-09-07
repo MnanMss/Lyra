@@ -119,7 +119,7 @@ export function FileTabs() {
 				onScroll={markEdges}
 				role="tablist"
 				aria-label="打开的文件"
-				className="ly-fade-tail flex h-7 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-line px-1"
+				className="ly-file-tabs ly-fade-tail flex h-7 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-line px-1"
 			>
 				{tabs.map((tab) => {
 					const current = tab.path === open;
@@ -129,7 +129,7 @@ export function FileTabs() {
 							key={tab.path}
 							data-file-tab={tab.path}
 							onContextMenu={(event) => menu.show(event, tab)}
-							className={`group/tab flex h-[22px] shrink-0 items-center gap-1 rounded-md pr-0.5 pl-2 transition-colors duration-[var(--ly-t-quick)] ${
+							className={`ly-file-tab group/tab flex h-[22px] shrink-0 items-center gap-1 rounded-md pr-0.5 pl-2 transition-colors duration-[var(--ly-t-quick)] ${
 								current
 									? "bg-card-hover text-ink"
 									// 指到哪个标签哪个就亮起来——不然一排文件名里看不出鼠标停在谁身上。
@@ -165,6 +165,7 @@ export function FileTabs() {
 							) : null}
 							<button
 								type="button"
+								data-ly-hover-reveal
 								aria-label={`关闭 ${tab.name}`}
 								onClick={() => closeOne(tab.path)}
 								className={`rounded p-0.5 transition-opacity duration-[var(--ly-t-quick)] hover:bg-elevated ${

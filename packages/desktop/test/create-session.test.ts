@@ -33,15 +33,36 @@ test("a persisted opening message is consumed once and abort can cancel its star
 		const store = new SessionStore(join(root, "sessions"));
 		const saved = await createStoredSession(store, DEFAULT_SETTINGS, root, "", { content: [{ type: "text", text: "opening" }] });
 		const events: AgentEvent[] = [];
+		const endStarted = Promise.withResolvers<void>();
+		const endWritten = Promise.withResolvers<void>();
+		const openingWritten = Promise.withResolvers<void>();
+		const releaseEnd = Promise.withResolvers<void>();
+		const append = store.append.bind(store);
+		store.append = async (meta, record) => {
+			if (record.type === "event" && record.event.type === "agent_end") { endStarted.resolve(); await releaseEnd.promise; }
+			const next = await append(meta, record);
+			if (record.type === "meta" && !record.meta.pendingPrompt) openingWritten.resolve();
+			if (record.type === "event" && record.event.type === "agent_end") endWritten.resolve();
+			return next;
+		};
 		const session = new AgentSession({ cwd: root, store, settings: { ...DEFAULT_SETTINGS, providers: [] }, meta: saved.meta, emit: (event) => { events.push(event); } });
 		session.restore(saved.messages);
 		const first = session.resumePendingPrompt();
 		assert.equal(session.running, true, "the disk-write interval is already busy");
 		assert.equal(session.resumePendingPrompt(), first);
 		session.abort();
+		let settled = false;
+		void first.then(() => { settled = true; });
+		try {
+			await endStarted.promise;
+			await openingWritten.promise;
+			await new Promise<void>(resolve => setImmediate(resolve));
+			assert.equal(settled, false, "startup cannot finish while its cancellation record is still being written");
+		} finally { releaseEnd.resolve(); await first; await endWritten.promise; }
 		await first;
 		assert.equal(session.running, false);
 		assert.equal(events.some((event) => event.type === "notice"), false, "no provider was reached after cancellation");
+		assert.ok(events.some(event => event.type === "agent_end" && event.reason === "aborted"));
 		assert.equal((await store.load(saved.meta.projectId, saved.meta.id))?.messages.length, 1);
 		assert.equal((await store.load(saved.meta.projectId, saved.meta.id))?.meta.pendingPrompt, undefined);
 		await session.dispose();

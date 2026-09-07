@@ -38,6 +38,7 @@ const BUILTIN_PANELS: PanelDefinition[] = [
 		label: "文件",
 		icon: Folder,
 		shortcut: "⌘P",
+		mobile: true,
 		unavailable: needsWorkspace,
 		/*
 		 * To the left of the file, and narrower than it.
@@ -68,6 +69,7 @@ const BUILTIN_PANELS: PanelDefinition[] = [
 		label: "文件内容",
 		icon: FileText,
 		shortcut: "⌥⌘P",
+		mobile: true,
 		unavailable: needsWorkspace,
 		/*
 		 * Under the tree, not beside it.
@@ -106,6 +108,7 @@ const BUILTIN_PANELS: PanelDefinition[] = [
 		label: "子 Agent",
 		icon: Bot,
 		shortcut: "⌥⌘A",
+		mobile: true,
 		unavailable: needsSession,
 		render: SubAgentPanel,
 	},
@@ -114,6 +117,7 @@ const BUILTIN_PANELS: PanelDefinition[] = [
 		label: "侧边聊天",
 		icon: MessageCirclePlus,
 		shortcut: "⌥⌘S",
+		mobile: true,
 		unavailable: needsSession,
 		render: SideChat,
 	},
@@ -131,12 +135,13 @@ const BUILTIN_PANELS: PanelDefinition[] = [
 		render: TerminalPane,
 		header: TerminalTabs,
 	},
-	{ kind: "tasks", label: "任务", icon: ListTodo, shortcut: "⌘J", render: TaskPanel },
+	{ kind: "tasks", label: "任务", icon: ListTodo, shortcut: "⌘J", mobile: true, render: TaskPanel },
 	{
 		kind: "trajectory",
 		label: "轨迹",
 		icon: History,
 		shortcut: "⌘L",
+		mobile: true,
 		unavailable: needsSession,
 		render: TrajectoryPanel,
 	},

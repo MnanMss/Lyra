@@ -20,7 +20,7 @@
 import { join } from "node:path";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import type { Settings } from "../config/settings.ts";
-import { resolveModelRef } from "../config/model-roles.ts";
+import { agentProfile, resolveModelRef } from "../config/model-roles.ts";
 import { resolveModel } from "../config/settings.ts";
 import type { streamAssistant } from "../ai/index.ts";
 import { streamAssistant as realStream } from "../ai/index.ts";
@@ -68,7 +68,7 @@ export function shouldRunPass(settings: Settings, lastRunAt: number | null, now 
 function passModel(settings: Settings): { provider: ProviderConfig; model: ModelConfig } | null {
 	const fallback = resolveModel(settings, settings.defaultModelId ?? "");
 	if (fallback) return resolveModelRef(settings, "@fast", fallback);
-	const fast = settings.modelRoles?.fast;
+	const fast = agentProfile(settings, "fast").modelId;
 	return fast ? resolveModel(settings, fast) : null;
 }
 

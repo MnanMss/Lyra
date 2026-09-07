@@ -20,9 +20,10 @@ import type { Message } from "../types.ts";
  *
  * The log is meant to answer "what did the model actually see, and why did it do that" long after
  * the run — so anything that changes the model's input, or that happened out of view, is kept.
- * Everything else is live-only: progress chatter, rendered once and gone.
+ * Token deltas and repeated partial output stay live-only; execution boundaries and nested
+ * transcripts survive without bloating the model history.
  */
-const PERSISTED_EVENTS = new Set<AgentEvent["type"]>(["command_status", "compacted", "context", "subagent", "subagent_done"]);
+const PERSISTED_EVENTS = new Set<AgentEvent["type"]>(["command_status", "compacted", "context", "subagent", "subagent_done", "subagent_message", "subagent_event", "agent_start", "agent_end", "turn_start", "tool_start", "request", "approval_request", "retry", "notice", "rule_triggered"]);
 
 export class SessionLog {
 	/**
@@ -58,6 +59,7 @@ export class SessionLog {
 	 * the log — and in the right position, after the turn they interrupted.
 	 */
 	private committed = new WeakSet<Message>();
+	private readonly nestedCommitted = new Map<string, WeakSet<Message>>();
 
 	/** What the last recorded context looked like, so an unchanged one is not written twice. */
 	private lastContext: string | null = null;
@@ -88,6 +90,12 @@ export class SessionLog {
 	 * none of it can be recovered from the messages alone, so it is written as it happens.
 	 */
 	async emit(event: AgentEvent): Promise<void> {
+		if (event.type === "subagent_message") {
+			let seen = this.nestedCommitted.get(event.id);
+			if (!seen) { seen = new WeakSet(); this.nestedCommitted.set(event.id, seen); }
+			if (seen.has(event.message)) return;
+			seen.add(event.message);
+		}
 		if (event.type === "command_status") {
 			const at = this.commandRuns.findIndex((run) => run.id === event.command.id);
 			if (at < 0) this.commandRuns.push(event.command); else this.commandRuns[at] = event.command;
@@ -105,13 +113,13 @@ export class SessionLog {
 	 * way to build a prompt and forget to record it. Unchanged context is not re-recorded: a
 	 * hundred-turn run would otherwise carry a hundred copies of the same system prompt.
 	 */
-	async recordContext(systemPrompt: string, toolNames: string[], skillNames: string[]): Promise<string> {
+	async recordContext(systemPrompt: string, toolNames: string[], skillNames: string[], schemas?: import("../types/tool.ts").ToolSpec[]): Promise<string> {
 		const tools = [...toolNames].sort();
 		const skills = [...skillNames].sort();
-		const fingerprint = `${systemPrompt}\0${tools.join(",")}\0${skills.join(",")}`;
+		const fingerprint = `${systemPrompt}\0${tools.join(",")}\0${skills.join(",")}\0${JSON.stringify(schemas)}`;
 		if (fingerprint === this.lastContext) return systemPrompt;
 		this.lastContext = fingerprint;
-		await this.emit({ type: "context", systemPrompt, tools, skills });
+		await this.emit({ type: "context", systemPrompt, tools, skills, ...(schemas ? { schemas } : {}) });
 		return systemPrompt;
 	}
 

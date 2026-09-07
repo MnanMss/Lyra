@@ -525,7 +525,7 @@ test("the tree and the file are a pair: stacked together, side by side full scre
 	const beside = await app.evaluate<Record<string, { left: number; top: number; width: number; height: number }>>(`(() => {
 		const out = {};
 		for (const el of document.querySelectorAll("[data-dock-pane]")) {
-			if (getComputedStyle(el).display === "none") continue;
+			if (!el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
 			const b = el.getBoundingClientRect();
 			out[el.dataset.dockPane] = { left: b.left, top: b.top, width: b.width, height: b.height };
 		}
@@ -553,7 +553,7 @@ test("the tree and the file are a pair: stacked together, side by side full scre
 		let left = Infinity;
 		let right = -Infinity;
 		for (const el of document.querySelectorAll("[data-dock-pane]")) {
-			if (getComputedStyle(el).display === "none") continue;
+			if (!el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
 			visible.push(el.dataset.dockPane);
 			const b = el.getBoundingClientRect();
 			width[el.dataset.dockPane] = b.width;
@@ -583,7 +583,7 @@ test("the tree and the file are a pair: stacked together, side by side full scre
 	// And back.
 	await app.evaluate(maximise);
 	const restored = await app.evaluate<string[]>(`
-		[...document.querySelectorAll("[data-dock-pane]")].filter((el) => getComputedStyle(el).display !== "none").map((el) => el.dataset.dockPane)
+		[...document.querySelectorAll("[data-dock-pane]")].filter((el) => el.checkVisibility({ opacityProperty: true, visibilityProperty: true })).map((el) => el.dataset.dockPane)
 	`);
 	assert.ok(restored.includes("conversation"), "the conversation is back");
 });
@@ -614,7 +614,7 @@ test("the boundary inside a maximised pair can still be dragged", async () => {
 		app.evaluate<Record<string, number>>(`(() => {
 			const out = {};
 			for (const el of document.querySelectorAll("[data-dock-pane]")) {
-				if (getComputedStyle(el).display === "none") continue;
+				if (!el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
 				out[el.dataset.dockPane] = el.getBoundingClientRect().width;
 			}
 			return out;
@@ -713,7 +713,7 @@ test("dragged apart, the pair is two ordinary panes again", async (t) => {
 
 	const order = await app.evaluate<string[]>(`
 		[...document.querySelectorAll("[data-dock-pane]")]
-			.filter((el) => getComputedStyle(el).display !== "none")
+			.filter((el) => el.checkVisibility({ opacityProperty: true, visibilityProperty: true }))
 			.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)
 			.map((el) => el.dataset.dockPane)
 	`);
@@ -741,7 +741,7 @@ test("dragged apart, the pair is two ordinary panes again", async (t) => {
 	})()`);
 
 	const visible = await app.evaluate<string[]>(`
-		[...document.querySelectorAll("[data-dock-pane]")].filter((el) => getComputedStyle(el).display !== "none").map((el) => el.dataset.dockPane)
+		[...document.querySelectorAll("[data-dock-pane]")].filter((el) => el.checkVisibility({ opacityProperty: true, visibilityProperty: true })).map((el) => el.dataset.dockPane)
 	`);
 	assert.deepEqual(visible, ["file"], "so full screen is just the one pane");
 

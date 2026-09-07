@@ -62,7 +62,7 @@ export function keyboardInset(viewport: Viewport | undefined, windowHeight: numb
  * gets that for free, where a snapshot in an object literal would quietly go stale.
  */
 export interface KeyboardHost {
-	viewport?: (Viewport & {
+	visualViewport?: (Viewport & {
 		addEventListener(type: string, handler: () => void): void;
 		removeEventListener(type: string, handler: () => void): void;
 	}) | null;
@@ -84,7 +84,7 @@ export interface KeyboardTarget {
  * unmount so a window that stops being a phone keeps a keyboard's worth of padding forever.
  */
 export function watchKeyboard(host: KeyboardHost, target: KeyboardTarget): () => void {
-	const viewport = host.viewport;
+	const viewport = host.visualViewport;
 	if (!viewport) return () => {};
 
 	const update = () => {

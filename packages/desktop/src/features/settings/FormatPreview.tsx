@@ -18,6 +18,7 @@
  *     anything else it would not be a preview of anything.
  */
 
+import { Textarea } from "../../ui/inputs/NativeField.tsx";
 import { macKeyboard } from "../../ui/keyboard.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, RotateCcw, Wand2 } from "lucide-react";
@@ -198,7 +199,7 @@ export function FormatPreview({ options }: { options: FormattingSettings }) {
 						 * `caretColor` is stated because the text itself is transparent and an inherited
 						 * caret would be too. Spellcheck off: this is code.
 						 */}
-						<textarea
+						<Textarea
 							ref={area}
 							value={code}
 							onChange={(event) => {

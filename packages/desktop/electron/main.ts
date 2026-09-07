@@ -53,7 +53,6 @@ import {
 	type ToolRegistry,
 } from "@lyra/core";
 import {
-	broadcastSideChat,
 	browsers,
 	configureHub,
 	getOrCreateSession,
@@ -68,12 +67,17 @@ import { registerFormatIpc } from "./ipc/format.ts";
 import { rescueLegacyWorkspaces } from "./scratch.ts";
 import { applySettings, loadAppSettings, onSettingsChanged } from "./app-settings.ts";
 import { registerServicesIpc } from "./ipc/services.ts";
+import { registerDeliveryIpc } from "./ipc/delivery.ts";
+import { registerRunningServicesIpc } from "./ipc/running-services.ts";
+import { registerBrowserIpc } from "./ipc/browser.ts";
+import { browserSkill } from "./browser-skill.ts";
 import { registerWorkspaceIpc } from "./ipc/workspace.ts";
 import { workspaceInfo } from "./workspace-info.ts";
+import { observeSessionStorage } from "./session-storage.ts";
+import { broadcastSessionChange } from "./session-hub.ts";
 import { configureSync, startSync, stopSync, syncStatusSource } from "./sync.ts";
 import { fetchEndpointModels, idleSyncStatus, testProvider } from "./providers.ts";
 import { registerSessionsIpc } from "./ipc/sessions.ts";
-import { ensureLiveSession } from "./session-hub.ts";
 import {
 	appIconPath,
 	applyNativeAppearance,
@@ -426,10 +430,11 @@ app.whenReady().then(async () => {
 	useLlmRegistry(kernel.require<LlmRegistry>(LLM));
 	useToolRegistry(kernel.require<ToolRegistry>(TOOLS));
 	useSandbox(kernel.require<Sandbox>(SANDBOX));
-	store = kernel.require<SessionStorage>(STORAGE);
+	store = observeSessionStorage(kernel.require<SessionStorage>(STORAGE), broadcastSessionChange);
 	useCompaction(kernel.require<CompactionStrategy>(COMPACTION));
 	useApprovalPolicy(kernel.require<ApprovalPolicy>(APPROVAL));
 	useSkillRegistry(kernel.require<SkillRegistry>(SKILLS));
+	kernel.require<SkillRegistry>(SKILLS).register([browserSkill()]);
 	useScheduler(kernel.require<TaskScheduler>(SCHEDULER));
 	useAgentLoop(kernel.require<AgentLoop>(LOOP));
 	useTurnPipeline(kernel.require<TurnPipeline>(SESSION).all());
@@ -444,6 +449,7 @@ app.whenReady().then(async () => {
 	onSettingsChanged(async (next) => {
 		settings = next;
 		applyNativeAppearance();
+		refreshMenu();
 		registerScreenshotShortcut(
 			() => settings,
 			() => {
@@ -682,6 +688,9 @@ app.on("before-quit", async () => {
 });
 
 function registerIpc(): void {
+	registerDeliveryIpc(() => getWindow(), () => store);
+	registerRunningServicesIpc(() => getWindow());
+	registerBrowserIpc(() => getWindow(), () => settings.browser ?? {});
 	registerWorkspaceIpc({ workspaceInfo });
 
 	registerWindowIpc();
@@ -692,9 +701,9 @@ function registerIpc(): void {
 		saveSettings: async (next) => void (await applySettings(next)),
 	});
 
-	registerSideChatIpc({ sideChats, sessions, settings: () => settings, ensureSession: (id: string) => ensureLiveSession(id), broadcastSideChat });
+	registerSideChatIpc();
 
-	registerFilesIpc({ projectPath });
+	registerFilesIpc({ projectRoots: () => (settings?.projects ?? []).map((project) => project.path) });
 	registerFileOpsIpc({ projectPath });
 	registerFormatIpc({ projectPath, projectRoot });
 

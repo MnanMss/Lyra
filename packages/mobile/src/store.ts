@@ -81,4 +81,4 @@ export const useMobile = create<MobileState>((set) => ({
 	},
 }));
 
-export { pingDesktop, pingRelay, originOf, type Connection } from "./connection.ts";
+export { appUrlOf, pingDesktop, pingRelay, originOf, type Connection } from "./connection.ts";

@@ -17,6 +17,7 @@
 
 import { Folder, MessageSquare } from "lucide-react";
 import { useLayout } from "../../app/layout.tsx";
+import { useI18n, type MessageKey } from "../../i18n/index.ts";
 
 export type SidebarTab = "projects" | "chats";
 
@@ -27,9 +28,9 @@ export type SidebarTab = "projects" | "chats";
  * kinds of thing rather than two views of the same conversations. A folder and a message say the
  * arrangement — filed, or spoken — in a form you do not have to read.
  */
-export const SIDEBAR_TABS: { value: SidebarTab; label: string; Icon: typeof Folder }[] = [
-	{ value: "projects", label: "项目", Icon: Folder },
-	{ value: "chats", label: "聊天", Icon: MessageSquare },
+export const SIDEBAR_TABS: { value: SidebarTab; labelKey: MessageKey; Icon: typeof Folder }[] = [
+	{ value: "projects", labelKey: "sidebar.projects", Icon: Folder },
+	{ value: "chats", labelKey: "sidebar.chats", Icon: MessageSquare },
 ];
 
 /**
@@ -84,6 +85,7 @@ export function SidebarTabs({
 	trailing?: React.ReactNode;
 }) {
 	const { compact } = useLayout();
+	const { t } = useI18n();
 	const index = Math.max(0, SIDEBAR_TABS.findIndex((option) => option.value === tab));
 
 	return (
@@ -113,7 +115,7 @@ export function SidebarTabs({
 			 * same control was a different size in every window. Its size is a property of what is
 			 * written on it. The buttons go to the far end on their own; see `ml-auto` below.
 			 */}
-			<div role="tablist" aria-label="侧边栏分区" className="ly-tabs relative flex min-w-0 rounded-lg p-[3px]">
+			<div role="tablist" aria-label={t("sidebar.sections")} className="ly-tabs relative flex min-w-0 rounded-lg p-[3px]">
 				{/*
 				 * One fill that moves, rather than a fill per tab that appears and disappears.
 				 *
@@ -129,8 +131,9 @@ export function SidebarTabs({
 					className="ly-tabs-knob ly-freeze absolute inset-y-[3px] left-[3px] rounded-md transition-transform duration-[var(--ly-t-base)] ease-[var(--ly-e-out)]"
 					style={{ width: "calc(50% - 3px)", transform: `translateX(${index * 100}%)` }}
 				/>
-				{SIDEBAR_TABS.map(({ value, label, Icon }) => {
+				{SIDEBAR_TABS.map(({ value, labelKey, Icon }) => {
 					const current = value === tab;
+					const label = t(labelKey);
 					return (
 						<button
 							key={value}

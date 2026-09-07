@@ -568,6 +568,7 @@ interface TurnResult {
 }
 
 async function streamTurn(config: AgentRunConfig, context: LlmContext, emit: AgentEventSink): Promise<TurnResult> {
+	await emit({ type: "request", provider: config.provider.id, model: config.model.modelId, thinking: config.thinking, messageCount: context.messages.length });
 	if (config.streamFn) {
 		const message = await config.streamFn(context, config);
 		await emit({ type: "message_start", message });

@@ -1,0 +1,132 @@
+import { ChartNoAxesCombined, RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { entryKey, SOURCE_LABEL, type Entry } from "@lyra/core/trajectory-view";
+import { Popover } from "../../../ui/overlay/Popover.tsx";
+import { IconButton } from "../../../ui/primitives/IconButton.tsx";
+import { draggedRange, LANE_HEIGHT, timelineDomain, timelineHit, timelineLane, timelineTime, type TimeRange } from "./timeline-geometry.ts";
+export type { TimeRange } from "./timeline-geometry.ts";
+
+const HEIGHT = LANE_HEIGHT * 3;
+const hint = "点击查看记录 · 拖选范围 · 方向键浏览，Enter 查看";
+const offset = (ms: number) => ms < 1000 ? `${Math.round(ms)}ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${(ms / 60_000).toFixed(1)}m`;
+
+/** Preview the brush locally; committing it once keeps the ledger still under the pointer. */
+export const TraceTimeline = memo(function TraceTimeline({ entries, range, selected, onRange, onSelect }: {
+	entries: Entry[]; range: TimeRange | null; selected: string | null;
+	onRange: (range: TimeRange | null) => void; onSelect: (entry: Entry) => void;
+}) {
+	const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+	const canvas = useRef<HTMLCanvasElement>(null);
+	const drag = useRef<number | null>(null);
+	const [draft, setDraft] = useState<TimeRange | null>(null);
+	const [view, setView] = useState<TimeRange | null>(null);
+	const [hover, setHover] = useState<Entry | undefined>();
+	const [preview, setPreview] = useState<string | null>(null);
+	const points = useMemo(() => entries.filter(entry => entry.source === "request" || entry.source === "tool-call" || entry.source === "compaction" || entry.source === "subagent" || entry.source === "assistant" && !entry.linkedSeqs?.length), [entries]);
+	const domain = useMemo(() => timelineDomain(points), [points]);
+	const shown = view ?? domain;
+	const brush = draft ?? range;
+	const current = points.findIndex(entry => entryKey(entry) === (preview ?? selected));
+	const activeEntry = points[Math.max(0, current)];
+	const described = hover ?? (preview ? activeEntry : undefined);
+	const close = () => {
+		if (canvas.current?.closest("[data-trace-timeline]")?.contains(document.activeElement)) anchor?.focus({ preventScroll: true });
+		drag.current = null; setDraft(null); setHover(undefined); setPreview(null); setAnchor(null);
+	};
+	const reset = () => { setView(null); setDraft(null); onRange(null); };
+	const zoom = (factor: number) => {
+		const span = Math.min(domain.end - domain.start, Math.max(1, (shown.end - shown.start) * factor));
+		const at = brush ? (brush.start + brush.end) / 2 : (shown.start + shown.end) / 2;
+		const start = Math.max(domain.start, Math.min(domain.end - span, at - span / 2));
+		setView(span === domain.end - domain.start ? null : { start, end: start + span });
+	};
+	useEffect(() => { if (anchor) canvas.current?.focus({ preventScroll: true }); }, [anchor]);
+	useEffect(() => {
+		const el = canvas.current; if (!el) return;
+		const paint = () => {
+			const width = el.clientWidth; if (!width) return;
+			const dpr = devicePixelRatio, style = getComputedStyle(el);
+			const color = (token: string) => style.getPropertyValue(`--color-${token}`).trim();
+			el.width = Math.round(width * dpr); el.height = HEIGHT * dpr;
+			const ctx = el.getContext("2d"); if (!ctx) return;
+			ctx.scale(dpr, dpr);
+			const x = (time: number) => (time - shown.start) / (shown.end - shown.start) * width;
+			for (const entry of points) {
+				const left = x(entry.startedAt ?? entry.ts), right = Math.max(left + 2, x(entry.finishedAt ?? entry.startedAt ?? entry.ts));
+				if (right < 0 || left > width) continue;
+				const lane = timelineLane(entry), y = lane * LANE_HEIGHT + 3;
+				ctx.fillStyle = entry.status === "error" ? color("danger") : lane === 1 ? color("ok") : lane === 2 ? color("violet") : color("info");
+				ctx.globalAlpha = brush && ((entry.finishedAt ?? entry.startedAt ?? entry.ts) < brush.start || (entry.startedAt ?? entry.ts) > brush.end) ? 0.18 : 0.65;
+				ctx.fillRect(Math.max(0, left), y, Math.min(width, right) - Math.max(0, left), 10);
+				if (entryKey(entry) === (preview ?? selected) || entry === hover) {
+					ctx.globalAlpha = 1; ctx.strokeStyle = color("ink"); ctx.lineWidth = 1.5;
+					ctx.strokeRect(Math.max(1, left), y - 1, Math.max(3, Math.min(width - 1, right) - Math.max(1, left)), 12);
+				}
+			}
+			if (brush) {
+				const left = Math.max(0, x(brush.start)), right = Math.min(width, x(brush.end));
+				ctx.globalAlpha = 0.12; ctx.fillStyle = color("info"); ctx.fillRect(left, 0, right - left, HEIGHT);
+				ctx.globalAlpha = 0.9; ctx.fillRect(left, 0, 1.5, HEIGHT); ctx.fillRect(right - 1.5, 0, 1.5, HEIGHT);
+			}
+		};
+		paint(); const observer = new ResizeObserver(paint); observer.observe(el);
+		const theme = new MutationObserver(paint); theme.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-theme"] });
+		return () => { observer.disconnect(); theme.disconnect(); };
+	}, [points, shown, brush, selected, hover, preview, anchor]);
+	const point = (el: HTMLCanvasElement, clientX: number, clientY: number) => { const bounds = el.getBoundingClientRect(); return { x: clientX - bounds.left, y: clientY - bounds.top, width: bounds.width }; };
+	return <>
+		<IconButton label="时间概览" icon={<ChartNoAxesCombined size={15} />} active={Boolean(range || anchor)} onClick={event => anchor ? close() : setAnchor(event.currentTarget)} />
+		{anchor && <Popover anchor={anchor} onClose={close} align="end" width="panel" role="dialog" label="时间概览"><div className="px-3 py-2" data-trace-timeline>
+		<div className="flex h-6 items-center gap-1 text-caption text-ink-faint">
+			<span className="mr-auto">{brush ? `${offset(brush.start - domain.start)} – ${offset(brush.end - domain.start)}` : "拖选时间范围"}</span>
+			<IconButton size="sm" label="放大时间范围" icon={<ZoomIn size={12} />} onClick={() => zoom(0.5)} disabled={shown.end - shown.start <= 1} />
+			<IconButton size="sm" label="缩小时间范围" icon={<ZoomOut size={12} />} onClick={() => zoom(2)} disabled={!view} />
+			{(range || view) && <IconButton size="sm" label="重置时间范围" icon={<RotateCcw size={12} />} onClick={reset} />}
+		</div>
+		<div className="flex items-start gap-2">
+			<div aria-hidden className="flex w-7 shrink-0 flex-col text-caption text-ink-faint" style={{ lineHeight: `${LANE_HEIGHT}px` }}><span>模型</span><span>工具</span><span>协作</span></div>
+			<canvas ref={canvas} className="block min-w-0 flex-1 touch-none rounded bg-card/30 outline-offset-2 focus-visible:outline-2 focus-visible:outline-accent" style={{ height: HEIGHT }} tabIndex={0} role="slider" aria-label={hint} aria-valuemin={0} aria-valuemax={Math.max(0, points.length - 1)} aria-valuenow={Math.max(0, current)} aria-valuetext={activeEntry ? `#${activeEntry.seq} ${SOURCE_LABEL[activeEntry.source]} ${activeEntry.summary}` : undefined} data-ly-tip={described ? `#${described.seq} ${SOURCE_LABEL[described.source]} · ${described.summary}\n${described.durationMs === undefined ? "未记录耗时" : offset(described.durationMs)}` : hint}
+				onPointerDown={event => { if (event.button !== 0) return; drag.current = point(event.currentTarget, event.clientX, event.clientY).x; event.currentTarget.setPointerCapture(event.pointerId); }}
+				onPointerMove={event => {
+					const { x, y, width } = point(event.currentTarget, event.clientX, event.clientY);
+					if (drag.current !== null) setDraft(draggedRange(drag.current, x, width, shown));
+					else setHover(timelineHit(points, x, y, width, shown));
+				}}
+				onPointerLeave={() => setHover(undefined)}
+				onPointerUp={event => {
+					const start = drag.current; drag.current = null; setDraft(null); if (start === null) return;
+					const { x, y, width } = point(event.currentTarget, event.clientX, event.clientY);
+					const next = draggedRange(start, x, width, shown);
+					if (next) onRange(next);
+					else {
+						const near = timelineHit(points, x, y, width, shown);
+						if (near) { onSelect(near); close(); }
+						else if (points.length) {
+							const time = timelineTime(x, width, shown);
+							const closest = points.reduce((a, b) => Math.abs((a.startedAt ?? a.ts) - time) <= Math.abs((b.startedAt ?? b.ts) - time) ? a : b);
+							onSelect(closest); close();
+						}
+					}
+				}}
+				onPointerCancel={() => { drag.current = null; setDraft(null); }}
+				onKeyDown={event => {
+					if (event.key === "Enter" && points.length) {
+						event.preventDefault(); event.stopPropagation();
+						if (!event.repeat) { onSelect(points[Math.max(0, current)]); close(); }
+						return;
+					}
+					if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) || !points.length) return;
+					event.preventDefault(); event.stopPropagation();
+					const next = event.key === "Home" ? 0 : event.key === "End" ? points.length - 1 : Math.max(0, Math.min(points.length - 1, current + (event.key === "ArrowLeft" ? -1 : 1)));
+					const entry = points[next], start = entry.startedAt ?? entry.ts, end = entry.finishedAt ?? start;
+					setPreview(entryKey(entry));
+					if (view && (end < shown.start || start > shown.end)) {
+						const span = shown.end - shown.start, left = Math.max(domain.start, Math.min(domain.end - span, start - span / 2));
+						setView({ start: left, end: left + span });
+					}
+				}} />
+		</div>
+		<div aria-hidden className="mt-0.5 flex justify-between pl-9 text-caption text-ink-faint tabular-nums"><span>{offset(shown.start - domain.start)}</span><span>{offset(shown.end - domain.start)}</span></div>
+	</div></Popover>}
+	</>;
+});

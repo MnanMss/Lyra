@@ -15,8 +15,8 @@ test("a local skill scan cannot report an empty catalogue before it answers", as
 	const view = await mount(h(PluginsView));
 	try {
 		await click(view.all<HTMLButtonElement>("header button").find((button) => button.textContent === "技能")!);
-		assert.doesNotMatch(view.text(), /还没有技能|没有匹配的技能/);
+		assert.doesNotMatch(view.text(), /暂无技能|没有匹配的技能/);
 		await act(async () => { finish({ plugins: [], mcpBundles: [], skills: [], skillDiagnostics: [], shadowedSkills: [], pluginDiagnostics: [] }); });
-		assert.match(view.text(), /还没有技能/);
+		assert.match(view.text(), /暂无技能/);
 	} finally { await view.unmount(); }
 });

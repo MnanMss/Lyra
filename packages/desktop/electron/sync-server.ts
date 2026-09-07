@@ -6,10 +6,12 @@
  * `AgentSession`, so a turn started on the desktop can be watched and steered from the phone
  * and vice versa.
  *
- * Transport: HTTP for request/response, WebSocket for live agent events. Auth is a bearer
- * token the user pairs once; the server only listens on the LAN.
+ * Transport: the current mobile bridge uses one WebSocket for RPC and live events; HTTP remains
+ * for renderer assets, pairing probes and older clients. Auth is a bearer token the user pairs
+ * once; the server only listens on the LAN unless the user adds a reverse proxy or relay.
  */
 
+import type { SessionChange } from "./ipc-shapes.ts";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { networkInterfaces } from "node:os";
 import { randomUUID, timingSafeEqual } from "node:crypto";
@@ -18,7 +20,8 @@ import type { AgentEvent, AgentSession, SessionStorage, Settings, ThinkingLevel,
 import type { SyncStatus } from "./ipc-types.ts";
 import { allowedMethods, callRpc, type RpcDeps } from "./sync-rpc.ts";
 import { RelayLink, relaySocketUrl } from "./sync-relay.ts";
-import { serveApp } from "./sync-app.ts";
+import { readAppAsset, serveApp } from "./sync-app.ts";
+import { settingsForPhone } from "./phone-settings.ts";
 
 export interface SyncServerDeps {
 	getSettings(): Settings;
@@ -39,10 +42,26 @@ export interface SyncServerDeps {
 	activate(projectId: string, sessionId: string): Promise<AgentSession | null>;
 	create: RpcDeps["create"];
 	prompt: RpcDeps["prompt"];
+	editMessage: RpcDeps["editMessage"];
 	abort: RpcDeps["abort"];
 	dispose: RpcDeps["dispose"];
 	snapshot(session: AgentSession): Promise<unknown>;
 	touch(sessionId: string): void;
+	sideChatState: RpcDeps["sideChatState"];
+	sideChatSetModel: RpcDeps["sideChatSetModel"];
+	sideChatAsk: RpcDeps["sideChatAsk"];
+	sideChatEditAndResend: RpcDeps["sideChatEditAndResend"];
+	sideChatAbort: RpcDeps["sideChatAbort"];
+	sideChatReset: RpcDeps["sideChatReset"];
+	tasksList: RpcDeps["tasksList"];
+	tasksCancel: RpcDeps["tasksCancel"];
+	tasksDismiss: RpcDeps["tasksDismiss"];
+	tasksResume: RpcDeps["tasksResume"];
+	commandsList: RpcDeps["commandsList"];
+	filesList: RpcDeps["filesList"];
+	filesRead: RpcDeps["filesRead"];
+	scratchRoots: RpcDeps["scratchRoots"];
+	generalScratch: RpcDeps["generalScratch"];
 }
 
 export class SyncServer {
@@ -95,8 +114,9 @@ export class SyncServer {
 		this.wss = new WebSocketServer({ noServer: true });
 
 		server.on("upgrade", (request, socket, head) => {
-			const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
-			if (url.pathname !== "/ws" || !this.authorize(url.searchParams.get("token"))) {
+			const target = request.url ?? "/";
+			const url = URL.canParse(target, "http://localhost") ? new URL(target, "http://localhost") : null;
+			if (!url || url.pathname !== "/ws" || !this.authorize(url.searchParams.get("token"))) {
 				/*
 				 * The refusal is a courtesy, and the socket may already be gone.
 				 *
@@ -108,7 +128,7 @@ export class SyncServer {
 				 */
 				socket.on("error", () => {});
 				try {
-					socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+					socket.write(`HTTP/1.1 ${url ? "401 Unauthorized" : "400 Bad Request"}\r\n\r\n`);
 				} catch {}
 				socket.destroy();
 				return;
@@ -203,10 +223,26 @@ export class SyncServer {
 			activate: (projectId, id) => this.deps.activate(projectId, id),
 			create: this.deps.create,
 			prompt: this.deps.prompt,
+			editMessage: this.deps.editMessage,
 			abort: this.deps.abort,
 			dispose: this.deps.dispose,
 			snapshot: (session) => this.deps.snapshot(session),
 			touch: (id) => this.deps.touch(id),
+			sideChatState: this.deps.sideChatState,
+			sideChatSetModel: this.deps.sideChatSetModel,
+			sideChatAsk: this.deps.sideChatAsk,
+			sideChatEditAndResend: this.deps.sideChatEditAndResend,
+			sideChatAbort: this.deps.sideChatAbort,
+			sideChatReset: this.deps.sideChatReset,
+			tasksList: this.deps.tasksList,
+			tasksCancel: this.deps.tasksCancel,
+			tasksDismiss: this.deps.tasksDismiss,
+			tasksResume: this.deps.tasksResume,
+			commandsList: this.deps.commandsList,
+			filesList: this.deps.filesList,
+			filesRead: this.deps.filesRead,
+			scratchRoots: this.deps.scratchRoots,
+			generalScratch: this.deps.generalScratch,
 		};
 	}
 
@@ -222,13 +258,34 @@ export class SyncServer {
 	 * this connection is the phone's only one, and an exception in a message handler takes it down.
 	 */
 	private async onSocketMessage(ws: WebSocket, raw: unknown): Promise<void> {
-		let message: { type?: unknown; id?: unknown; method?: unknown; args?: unknown };
+		let message: { type?: unknown; id?: unknown; method?: unknown; args?: unknown; path?: unknown };
 		try {
 			message = JSON.parse(String(raw)) as typeof message;
 		} catch {
 			return;
 		}
-		if (message.type !== "rpc" || typeof message.id !== "string") return;
+		if (message.type === "ping") {
+			if (ws.readyState === 1) ws.send(JSON.stringify({ type: "pong" }));
+			return;
+		}
+		if (typeof message.id !== "string") return;
+
+		if (message.type === "asset_request" && typeof message.path === "string") {
+			const asset = await readAppAsset(message.path);
+			if (ws.readyState === 1) {
+				ws.send(JSON.stringify({
+					type: "asset_response",
+					id: message.id,
+					status: asset.status,
+					contentType: asset.contentType,
+					cacheControl: asset.cacheControl,
+					bodyBase64: asset.body.toString("base64"),
+				}));
+			}
+			return;
+		}
+
+		if (message.type !== "rpc") return;
 
 		const method = typeof message.method === "string" ? message.method : "";
 		const args = Array.isArray(message.args) ? message.args : [];
@@ -245,6 +302,10 @@ export class SyncServer {
 		this.send(JSON.stringify({ type: "agent_event", sessionId, event }));
 	}
 
+	broadcastSideChat(sessionId: string, event: import("@lyra/core").SideChatUpdate): void {
+		this.send(JSON.stringify({ type: "side_chat_event", sessionId, event }));
+	}
+
 	/**
 	 * Tell the phone the settings changed.
 	 *
@@ -256,8 +317,12 @@ export class SyncServer {
 	 * The whole object, not a diff. It is small, it is sent rarely, and a diff would need the two
 	 * ends to agree on how to apply one.
 	 */
+	broadcastSessionChange(change: SessionChange): void {
+		this.send(JSON.stringify({ type: "session_changed", change }));
+	}
+
 	broadcastSettings(settings: Settings): void {
-		this.send(JSON.stringify({ type: "settings_changed", settings }));
+		this.send(JSON.stringify({ type: "settings_changed", settings: settingsForPhone(settings) }));
 	}
 
 	/** To every client still connected. A closing socket is not an error worth reporting. */
@@ -293,7 +358,13 @@ export class SyncServer {
 	// -------------------------------------------------------------------------
 
 	private async handleHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {
-		const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+		// Neither routing nor authentication needs the caller-controlled Host header.
+		const target = req.url ?? "/";
+		if (!URL.canParse(target, "http://localhost")) {
+			res.writeHead(400).end();
+			return;
+		}
+		const url = new URL(target, "http://localhost");
 		const send = (status: number, body: unknown) => {
 			res.writeHead(status, { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": "*" });
 			res.end(JSON.stringify(body));

@@ -16,6 +16,7 @@ import { useLayout } from "../layout.tsx";
 import { MenuBody, MenuItem, MenuLabel, Popover, usePopover } from "../../ui/overlay/Popover.tsx";
 import { TOOLBAR_BUTTON, ToolbarButton, WindowControls } from "./WindowControls.tsx";
 import { WINDOW_HEADER_HEIGHT } from "../../../shared/window-chrome.ts";
+import { onPhone } from "../../services/host.ts";
 
 /*
  * The update chip used to have a slot of its own here, just past the sidebar toggle.
@@ -76,6 +77,7 @@ const QUICK: PanelKind[] = ["terminal", "browser", "review"];
 export function PanelMenu() {
 	const menu = usePopover();
 	const definitions = usePanelDefinitions();
+	const phone = onPhone();
 	const tree = useDock((s) => s.tree);
 	const open = useDock((s) => s.open);
 	const close = useDock((s) => s.close);
@@ -85,7 +87,7 @@ export function PanelMenu() {
 	return (
 		<>
 			<div className="flex items-center gap-0.5">
-				{QUICK.map((kind) => {
+				{(phone ? (["tasks", "chat"] as PanelKind[]) : QUICK).map((kind) => {
 					const def = definitions.find((entry) => entry.kind === kind);
 					// Absent rather than disabled when it cannot be opened: a row of greyed buttons
 					// is a row of things you have to read before you can ignore them. The menu still
@@ -94,7 +96,7 @@ export function PanelMenu() {
 					return (
 						<ToolbarButton
 							key={kind}
-							label={`${def.label} ${def.shortcut}`}
+							label={phone ? def.label : `${def.label} ${def.shortcut}`}
 							active={has(tree, kind)}
 							onClick={() => toggle(kind)}
 						>
@@ -131,7 +133,7 @@ export function PanelMenu() {
 								<MenuItem
 									key={def.kind}
 									icon={<def.icon size={13.5} strokeWidth={1.8} />}
-									hint={def.shortcut}
+									hint={phone ? undefined : def.shortcut}
 									// A tick, not a highlight: this is a set of things that are either
 									// in the window or not, and every row is independently either.
 									trailing={shown ? <Check size={13} strokeWidth={2.2} className="shrink-0 text-ink" /> : undefined}

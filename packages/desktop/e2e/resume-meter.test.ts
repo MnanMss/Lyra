@@ -19,6 +19,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { closeListeningServer, startApp, type RunningApp } from "./app.ts";
+import { cleanupFixture } from "./fixture-cleanup.ts";
 
 let app: RunningApp;
 let model: Server;
@@ -168,9 +169,11 @@ before(async () => {
 });
 
 after(async () => {
-	await app?.stop();
-	for (const res of open) res.destroy();
-	await closeListeningServer(model);
+	await cleanupFixture(
+		() => app?.stop(),
+		() => { for (const res of open) res.destroy(); },
+		() => closeListeningServer(model),
+	);
 });
 
 // ---------------------------------------------------------------------------

@@ -14,14 +14,21 @@ import { Popover, type Anchor } from "../../ui/overlay/Popover.tsx";
 import { RollingText } from "../../ui/motion/RollingText.tsx";
 import { useApp } from "../../store/index.ts";
 import { sessionThinking } from "../../lib/thinking.ts";
+import { useI18n, type MessageKey } from "../../i18n/index.ts";
 
-export function effortLabel(level: ThinkingLevel, model?: ModelConfig | null): string {
+type Translate = (key: MessageKey) => string;
+
+export function effortLabel(level: ThinkingLevel, model?: ModelConfig | null, t?: Translate): string {
 	const options = resolveModelThinkingOptions(model);
-	if (options.length === 0) return "关闭";
-	return options.find((l: ThinkingOption) => l.id === level)?.label ?? options.find((l: ThinkingOption) => l.isDefault)?.label ?? "中";
+	if (options.length === 0 || level === "off") return t?.("thinking.off") ?? "关闭";
+	const selected = options.find((option: ThinkingOption) => option.id === level)
+		?? options.find((option: ThinkingOption) => option.isDefault)
+		?? options[0];
+	return localizeThinkingOption(selected, model?.thinkingOptions === undefined, t).label;
 }
 
 export function EffortMenu({ anchor, onClose }: { anchor: Anchor; onClose: () => void }) {
+	const { t } = useI18n();
 	const settings = useApp((s) => s.settings);
 	const setThinking = useApp((s) => s.setThinking);
 	const meta = useApp((s) => s.meta);
@@ -32,7 +39,9 @@ export function EffortMenu({ anchor, onClose }: { anchor: Anchor; onClose: () =>
 		.find((m) => m.id === (meta?.modelId ?? settings.defaultModelId));
 	const supported = model?.supportsThinking !== false;
 
-	const options: ThinkingOption[] = resolveModelThinkingOptions(model);
+	const options: ThinkingOption[] = resolveModelThinkingOptions(model).map((option) =>
+		localizeThinkingOption(option, model?.thinkingOptions === undefined, t),
+	);
 	const level = sessionThinking(meta, settings);
 
 	let index = options.findIndex((l) => l.id === level);
@@ -41,7 +50,9 @@ export function EffortMenu({ anchor, onClose }: { anchor: Anchor; onClose: () =>
 		index = defaultIdx !== -1 ? defaultIdx : 0;
 	}
 
-	const current = options[index];
+	const current = options.length > 0 && level === "off"
+		? options.find((option) => option.id === "off") ?? { id: "off", label: t("thinking.off"), detail: t("thinking.disabledDetail") }
+		: options[index];
 	const atMax = options.length > 0 && index === options.length - 1;
 
 	const set = (nextIndex: number) => {
@@ -62,17 +73,17 @@ export function EffortMenu({ anchor, onClose }: { anchor: Anchor; onClose: () =>
 	};
 
 	return (
-		<Popover anchor={anchor} onClose={onClose} placement="top" align="center" width="default" role="group" label="推理强度">
+		<Popover anchor={anchor} onClose={onClose} placement="top" align="center" width="default" role="group" label={t("thinking.title")}>
 			<div className="px-3 py-2.5">
 				<div className="flex items-center gap-1.5">
-					<span className="text-label text-ink-muted">推理强度</span>
+					<span className="text-label text-ink-muted">{t("thinking.title")}</span>
 					<span className="text-label font-medium" style={{ color: atMax ? "var(--color-violet)" : "var(--color-info)" }}>
-						<RollingText>{supported && current ? current.label : "不支持"}</RollingText>
+						<RollingText>{supported && current ? current.label : t("thinking.unsupported")}</RollingText>
 					</span>
 					<div className="flex-1" />
 					<button
 						type="button"
-						data-ly-tip="各档位说明"
+						data-ly-tip={t("thinking.help")}
 						onClick={() => setShowHelp((v) => !v)}
 						className={`transition-colors ${showHelp ? "text-ink" : "text-ink-faint hover:text-ink"}`}
 					>
@@ -81,8 +92,8 @@ export function EffortMenu({ anchor, onClose }: { anchor: Anchor; onClose: () =>
 				</div>
 
 				<div className="mt-2 mb-1.5 flex items-center justify-between text-detail text-ink-faint">
-					<span>更快</span>
-					<span>更聪明</span>
+					<span>{t("thinking.faster")}</span>
+					<span>{t("thinking.smarter")}</span>
 				</div>
 
 				<DotSlider
@@ -99,7 +110,7 @@ export function EffortMenu({ anchor, onClose }: { anchor: Anchor; onClose: () =>
 				 */}
 				<p className="mt-2 h-[34px] text-detail leading-relaxed text-ink-faint">
 					<RollingText rollKey={supported && current ? current.id : "unsupported"} className="block">
-						{supported && current ? current.detail : "当前模型不支持推理，这项设置不会生效。"}
+						{supported && current ? current.detail : t("thinking.unsupportedDetail")}
 					</RollingText>
 				</p>
 
@@ -110,7 +121,7 @@ export function EffortMenu({ anchor, onClose }: { anchor: Anchor; onClose: () =>
 				 * something narrower — anyone who turned it up expecting every conversation to
 				 * follow has no way to find that out except by discovering it later.
 				 */}
-				<p className="text-caption text-ink-faint">{meta ? "只作用于当前会话" : "作为新会话的默认档位"}</p>
+				<p className="text-caption text-ink-faint">{meta ? t("thinking.currentOnly") : t("thinking.newDefault")}</p>
 
 				{/*
 				 * Kept mounted and unfolded, so it closes the same way it opens. Rendered
@@ -128,13 +139,52 @@ export function EffortMenu({ anchor, onClose }: { anchor: Anchor; onClose: () =>
 									<span className="flex-1">{entry.detail}</span>
 								</div>
 							))}
-							<p className="pt-1">供应商对推理档位的支持不一；「关闭」始终显式要求不要推理。</p>
+							<p className="pt-1">{t("thinking.providerSupport")}</p>
 						</div>
 					</div>
 				</div>
 			</div>
 		</Popover>
 	);
+}
+
+function localizeThinkingOption(option: ThinkingOption, builtin: boolean, t?: Translate): ThinkingOption {
+	if (!builtin || !t) return option;
+	const labelKey = thinkingLabelKey(option.id);
+	const detailKey = thinkingDetailKey(option.id);
+	return {
+		...option,
+		label: labelKey ? t(labelKey) : option.label,
+		detail: detailKey ? t(detailKey) : option.detail,
+	};
+}
+
+function thinkingLabelKey(level: ThinkingLevel): MessageKey | null {
+	switch (level) {
+		case "off": return "thinking.off";
+		case "minimal": return "thinking.minimal";
+		case "low": return "thinking.low";
+		case "medium": return "thinking.medium";
+		case "high": return "thinking.high";
+		case "xhigh": return "thinking.xhigh";
+		case "max": return "thinking.max";
+		case "ultra": return "thinking.ultra";
+		default: return null;
+	}
+}
+
+function thinkingDetailKey(level: ThinkingLevel): MessageKey | null {
+	switch (level) {
+		case "off": return "thinking.detail.off";
+		case "minimal": return "thinking.detail.minimal";
+		case "low": return "thinking.detail.low";
+		case "medium": return "thinking.detail.medium";
+		case "high": return "thinking.detail.high";
+		case "xhigh": return "thinking.detail.xhigh";
+		case "max": return "thinking.detail.max";
+		case "ultra": return "thinking.detail.ultra";
+		default: return null;
+	}
 }
 
 const COLUMNS = 19;

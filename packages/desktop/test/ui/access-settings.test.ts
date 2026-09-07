@@ -19,7 +19,7 @@ test("AccessSettings renders empty hint when alwaysAllow is empty", async () => 
 	});
 
 	const view = await mount(h(AccessSettings));
-	assert.match(view.text(), /还没有。批准弹窗上点「始终允许」就会记在这里/);
+	assert.match(view.text(), /暂无「始终允许」记录/);
 	await view.unmount();
 });
 

@@ -47,12 +47,12 @@ after(() => {
 
 /** A client that records everything it is sent, so assertions read as a transcript. */
 /** `port` 只有需要一个干净 server 的测试会传——见「限流只挡新房间」那条。 */
-function client(room: string, role: "host" | "guest", port = PORT) {
+function client(room: string, role: "host" | "guest" | "desktop" | "mobile", port = PORT, assetKey?: string) {
 	const received: string[] = [];
 	const socket = new WebSocket(`ws://127.0.0.1:${port}`);
 	const ready = new Promise<void>((resolve, reject) => {
 		socket.once("open", () => {
-			socket.send(JSON.stringify({ type: "hello", room, role }));
+			socket.send(JSON.stringify({ type: "hello", room, role, assetKey }));
 			resolve();
 		});
 		socket.once("error", reject);
@@ -202,6 +202,43 @@ test("the health endpoint answers, for a deployment to point a check at", async 
 	assert.equal(response.status, 200);
 	const body = (await response.json()) as { app: string };
 	assert.equal(body.app, "lyra-relay");
+});
+
+test("renderer assets are fetched through the paired desktop only", async () => {
+	const token = "renderer-tunnel";
+	const room = roomFor(token);
+	const assetKey = createHash("sha256").update(`lyra-assets\0${room}`).digest("hex");
+	const desktop = client(room, "desktop", PORT, assetKey);
+	await desktop.ready;
+	await desktop.until((lines) => lines.some((line) => line.includes("waiting")), "waiting");
+
+	const responsePromise = fetch(`http://127.0.0.1:${PORT}/app/${assetKey}/assets/app.js`);
+	await desktop.until((lines) => lines.some((line) => line.includes("asset_request")), "asset_request");
+	const request = desktop.received
+		.map((line) => JSON.parse(line) as { type?: string; id?: string; path?: string })
+		.find((message) => message.type === "asset_request");
+	assert.equal(request?.path, "/app/assets/app.js");
+
+	desktop.send(JSON.stringify({
+		type: "asset_response",
+		id: request?.id,
+		status: 200,
+		contentType: "text/javascript; charset=utf-8",
+		cacheControl: "public, max-age=31536000, immutable",
+		bodyBase64: Buffer.from("console.log('relay renderer')").toString("base64"),
+	}));
+
+	const response = await responsePromise;
+	assert.equal(response.status, 200);
+	assert.equal(response.headers.get("content-type"), "text/javascript; charset=utf-8");
+	assert.equal(await response.text(), "console.log('relay renderer')");
+	desktop.close();
+});
+
+test("an unknown renderer capability does not reveal whether a room exists", async () => {
+	const unknown = createHash("sha256").update("unknown-assets").digest("hex");
+	const response = await fetch(`http://127.0.0.1:${PORT}/app/${unknown}/`);
+	assert.equal(response.status, 404);
 });
 
 test("建房太频繁会被限流，而不是把服务拖垮", async () => {

@@ -22,7 +22,7 @@ import type { Settings } from "./settings.ts";
  * 这也是 `@lyra/core/model-roles` 这个子入口存在的原因：它自己就是浏览器安全的。
  */
 import { resolveModel } from "./models.ts";
-import { normalizeSubAgentProfiles } from "./sub-agent-profiles.ts";
+import { normalizeSubAgentProfiles, type SubAgentProfile } from "./sub-agent-profiles.ts";
 
 export { availableModels } from "./models.ts";
 export { normalizeSubAgentProfiles, type SubAgentProfile } from "./sub-agent-profiles.ts";
@@ -46,6 +46,24 @@ export const ROLE_DESCRIPTIONS: Record<ModelRole, string> = {
 	 */
 	review: "最好指到另一个模型家族——同家族模型的盲点是相关的，让它审自己写的代码，它会同意自己",
 };
+
+/** Local profiles supersede legacy role bindings, including settings displayed before migration. */
+export function agentProfile(settings: Settings, name: string): SubAgentProfile {
+	const profile = normalizeSubAgentProfiles(settings.subAgentProfiles)[name];
+	const role = MODEL_ROLES.find((candidate) => candidate === name);
+	const legacy = role ? settings.modelRoles?.[role] : undefined;
+	return { ...(legacy ? { modelId: legacy } : {}), ...profile };
+}
+
+export function withAgentProfile(settings: Settings, name: string, profile: SubAgentProfile): Settings {
+	const subAgentProfiles = { ...settings.subAgentProfiles };
+	if (profile.modelId || profile.thinking) subAgentProfiles[name] = profile;
+	else delete subAgentProfiles[name];
+	const modelRoles = { ...settings.modelRoles };
+	const role = MODEL_ROLES.find((candidate) => candidate === name);
+	if (role) delete modelRoles[role];
+	return { ...settings, subAgentProfiles, modelRoles };
+}
 
 /** `@fast`, `@deep:high`, or a plain model id. */
 export interface ParsedModelRef {
@@ -98,10 +116,14 @@ export function resolveModelRef(
 
 	for (const candidate of refs) {
 		const parsed = parseModelRef(candidate);
-		const id = parsed.role ? settings.modelRoles?.[parsed.role] : parsed.id;
-		if (!id) continue;
+		const profile = parsed.role ? agentProfile(settings, parsed.role) : undefined;
+		const id = parsed.role ? profile?.modelId : parsed.id;
+		if (!id) {
+			if (profile?.thinking) return { ...fallback, thinking: profile.thinking, via: candidate };
+			continue;
+		}
 		const found = resolveModel(settings, id);
-		if (found) return { ...found, thinking: parsed.thinking, via: candidate };
+		if (found) return { ...found, thinking: profile?.thinking ?? parsed.thinking, via: candidate };
 	}
 
 	return { ...fallback, via: "会话当前的模型" };
@@ -115,7 +137,7 @@ export function resolveModelRef(
  */
 export function roleStatus(settings: Settings): { role: ModelRole; id?: string; resolves: boolean }[] {
 	return MODEL_ROLES.map((role) => {
-		const id = settings.modelRoles?.[role];
+		const id = agentProfile(settings, role).modelId;
 		return { role, id, resolves: id ? resolveModel(settings, id) !== null : false };
 	});
 }
@@ -126,7 +148,7 @@ export function resolveSubAgentModel(
 	definition: { name: string; model?: string | string[] },
 	fallback: { provider: ProviderConfig; model: ModelConfig },
 ): RoleResolution & { thinking: ThinkingLevel } {
-	const profile = normalizeSubAgentProfiles(settings.subAgentProfiles)[definition.name];
+	const profile = agentProfile(settings, definition.name);
 	const explicit = profile?.modelId ? resolveModel(settings, profile.modelId) : null;
 	if (profile?.modelId && !explicit) throw new Error(`子智能体 ${definition.name} 指定的模型 ${profile.modelId} 不可用，请在设置 → 子智能体中重新选择。`);
 	const chosen = explicit ? { ...explicit, via: profile?.modelId ?? "", thinking: undefined } : resolveModelRef(settings, definition.model, fallback);

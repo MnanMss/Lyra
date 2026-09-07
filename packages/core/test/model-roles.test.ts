@@ -9,7 +9,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseModelRef, resolveModelRef, roleStatus } from "../src/config/model-roles.ts";
+import { agentProfile, withAgentProfile, parseModelRef, resolveModelRef, roleStatus } from "../src/config/model-roles.ts";
 import { DEFAULT_SETTINGS, type Settings } from "../src/config/settings.ts";
 import type { ModelConfig, ProviderConfig } from "../src/types.ts";
 
@@ -42,6 +42,13 @@ function settings(roles?: Settings["modelRoles"]): Settings {
 }
 
 const FALLBACK = { provider: PROVIDER, model: model("p/session") };
+
+test("legacy role models survive profiles that previously only supplied reasoning", () => {
+	const old = { ...settings({ review: "p/other-family" }), subAgentProfiles: { review: { thinking: "high" } } };
+	assert.deepEqual(agentProfile(old, "review"), { modelId: "p/other-family", thinking: "high" });
+	assert.equal(resolveModelRef(old, "@review", FALLBACK).model.id, "p/other-family");
+	assert.deepEqual(agentProfile(withAgentProfile(old, "review", { thinking: "high" }), "review"), { thinking: "high" });
+});
 
 // ---------------------------------------------------------------------------
 // Parsing
@@ -133,4 +140,18 @@ test("a role pointing nowhere is reported as not resolving", () => {
 	assert.equal(status.find((s) => s.role === "fast")?.resolves, false);
 	assert.equal(status.find((s) => s.role === "deep")?.resolves, true);
 	assert.equal(status.find((s) => s.role === "review")?.id, undefined);
+});
+
+test("agent profiles migrate legacy roles once and clearing cannot resurrect an old binding", () => {
+	const old = settings({ fast: "p/small", compact: "p/big" });
+	assert.equal(agentProfile(old, "fast").modelId, "p/small");
+	const next = withAgentProfile(old, "fast", { modelId: "p/big", thinking: "high" });
+	assert.equal(next.modelRoles?.fast, undefined);
+	assert.equal(resolveModelRef(next, "@fast:low", FALLBACK).thinking, "high");
+	assert.equal(resolveModelRef(next, "@fast", FALLBACK).model.id, "p/big");
+	const cleared = withAgentProfile(next, "fast", {});
+	assert.equal(resolveModelRef(cleared, "@fast", FALLBACK).model.id, FALLBACK.model.id);
+	assert.equal(agentProfile(cleared, "compact").modelId, "p/big");
+	const compact = withAgentProfile(old, "compact", { modelId: "p/small" });
+	assert.equal(resolveModelRef(compact, "@compact", FALLBACK).model.id, "p/small");
 });

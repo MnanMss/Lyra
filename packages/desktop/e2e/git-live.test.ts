@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { after, before, test } from "node:test";
 import { closeListeningServer, startApp, type RunningApp } from "./app.ts";
+import { cleanupFixture } from "./fixture-cleanup.ts";
 
 const exec = promisify(execFile);
 
@@ -119,9 +120,11 @@ before(async () => {
 });
 
 after(async () => {
-	await app?.stop();
-	for (const res of open) res.destroy();
-	await closeListeningServer(model);
+	await cleanupFixture(
+		() => app?.stop(),
+		() => { for (const res of open) res.destroy(); },
+		() => closeListeningServer(model),
+	);
 });
 
 const shell = () => app.evaluate<string>(`(document.body?.innerText ?? "")`);

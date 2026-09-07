@@ -595,26 +595,14 @@ function Empty({
 	if (scope === "personal") {
 		return (
 			<p className="py-16 text-center text-label leading-relaxed text-ink-faint">
-				{kind === "mcp" ? (
-					<>
-						这台机器上没有自己放的 MCP 服务。
-						<br />
-						手动配一个不用装包：去设置 › MCP，填命令或地址就行。
-					</>
-				) : (
-					<>
-						这台机器上没有自己放的插件。
-						<br />
-						去插件市场装一个，或者把自己的插件目录放进 ~/.lyra/plugins。
-					</>
-				)}
+				{kind === "mcp" ? "暂无本地 MCP 服务，可在设置中添加" : "暂无本地插件"}
 			</p>
 		);
 	}
 	return (
 		<div className="py-16 text-center">
 			<p className="text-label leading-relaxed text-ink-faint">
-				{sources === 0 ? "还没有添加任何插件市场。" : `这些市场里一个${noun}也没有。`}
+				{sources === 0 ? "尚未添加插件市场" : `市场中暂无${noun}`}
 			</p>
 			<button
 				type="button"
@@ -642,7 +630,7 @@ function SkillList({ skills, needle }: { skills: Skill[]; needle: string }) {
 	if (filtered.length === 0) {
 		return (
 			<p className="py-16 text-center text-label text-ink-faint">
-				<RollingText>{needle ? "没有匹配的技能" : "还没有技能。装一个插件，或者往技能目录里放一份 SKILL.md。"}</RollingText>
+				<RollingText>{needle ? "没有匹配的技能" : "暂无技能"}</RollingText>
 			</p>
 		);
 	}

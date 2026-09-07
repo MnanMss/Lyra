@@ -18,31 +18,32 @@ import {
 import { Scroller } from "../../ui/scroll/Scroller.tsx";
 import { Overlay } from "../../ui/overlay/Overlay.tsx";
 import { useApp } from "../../store/index.ts";
+import { useI18n, type MessageKey } from "../../i18n/index.ts";
 
 const MODES: {
 	value: PermissionMode;
 	icon: typeof Hand;
-	title: string;
-	detail: string;
+	titleKey: MessageKey;
+	detailKey: MessageKey;
 	danger?: boolean;
 }[] = [
 	{
 		value: "ask",
 		icon: Hand,
-		title: "请求批准",
-		detail: "编辑文件和访问网络时始终询问",
+		titleKey: "composer.permissionAsk",
+		detailKey: "permission.askDetail",
 	},
 	{
 		value: "auto",
 		icon: SquareTerminal,
-		title: "帮我批准",
-		detail: "仅对检测到的风险操作请求批准",
+		titleKey: "composer.permissionAuto",
+		detailKey: "permission.autoDetail",
 	},
 	{
 		value: "full",
 		icon: CircleAlert,
-		title: "完全访问权限",
-		detail: "可不受限制地访问网络和你电脑上的任何文件",
+		titleKey: "general.fullAccess",
+		detailKey: "permission.fullDetail",
 		danger: true,
 	},
 ];
@@ -61,6 +62,7 @@ export function PermissionPicker({
 	anchor: Anchor;
 	onClose: () => void;
 }) {
+	const { t } = useI18n();
 	const settings = useApp((s) => s.settings);
 	const saveSettings = useApp((s) => s.saveSettings);
 	const current = settings?.permissionMode ?? "auto";
@@ -81,10 +83,10 @@ export function PermissionPicker({
 					placement="top"
 					align="start"
 					width="wide"
-					label="权限模式"
+					label={t("permission.mode")}
 				>
 					<MenuBody>
-						<MenuLabel>应如何批准 Lyra 操作？</MenuLabel>
+						<MenuLabel>{t("permission.question")}</MenuLabel>
 						{MODES.map((mode) => (
 							<MenuItem
 								key={mode.value}
@@ -95,7 +97,7 @@ export function PermissionPicker({
 										className={mode.danger ? "text-danger" : undefined}
 									/>
 								}
-								detail={mode.detail}
+								detail={t(mode.detailKey)}
 								selected={current === mode.value}
 								trailing={
 									current === mode.value ? (
@@ -124,7 +126,7 @@ export function PermissionPicker({
 								{/* Full access keeps its colour even though every other row is plain ink: it is
 						    the one setting that must never be quietly on. */}
 								<span className={mode.danger ? "text-danger" : undefined}>
-									{mode.title}
+									{t(mode.titleKey)}
 								</span>
 							</MenuItem>
 						))}
@@ -135,23 +137,23 @@ export function PermissionPicker({
 			{confirming && (
 				<Overlay onClose={() => { setConfirming(false); onClose(); }} returnFocus={anchor instanceof HTMLElement ? anchor : undefined} width={480}>{(dismiss) => <>
 					<Scroller contentClassName="p-6">
-						<h2 className="flex items-center gap-2.5 text-body font-semibold text-ink"><TriangleAlert size={20} className="shrink-0 text-danger" />开启完全访问权限？</h2>
-						<p className="mt-3 text-label leading-relaxed text-ink-muted">Lyra 将直接执行操作，不再逐项请求批准。</p>
+						<h2 className="flex items-center gap-2.5 text-body font-semibold text-ink"><TriangleAlert size={20} className="shrink-0 text-danger" />{t("permission.confirmTitle")}</h2>
+						<p className="mt-3 text-label leading-relaxed text-ink-muted">{t("permission.confirmSummary")}</p>
 						<div className="mt-4 divide-y divide-line-soft rounded-2xl bg-card px-4">
 							{[
-								{ icon: <Folder size={23} className="text-accent" />, title: "文件和文件夹", detail: "读写、上传或删除此电脑上的文件，不限于当前项目。" },
-								{ icon: <Terminal size={23} className="text-ink-muted" />, title: "终端与 Git", detail: "运行命令、安装软件、更改系统设置与 Git 历史。" },
-								{ icon: <Globe size={23} className="text-accent" />, title: "网络与插件", detail: "访问网络、发送数据及调用已连接的工具。" },
+								{ icon: <Folder size={23} className="text-accent" />, title: t("permission.files"), detail: t("permission.filesDetail") },
+								{ icon: <Terminal size={23} className="text-ink-muted" />, title: t("permission.terminal"), detail: t("permission.terminalDetail") },
+								{ icon: <Globe size={23} className="text-accent" />, title: t("permission.network"), detail: t("permission.networkDetail") },
 							].map((item) => <div key={item.title} className="flex items-center gap-3 py-3"><span className="shrink-0">{item.icon}</span><div><p className="text-label font-medium text-ink">{item.title}</p><p className="mt-0.5 text-detail leading-relaxed text-ink-muted">{item.detail}</p></div></div>)}
 						</div>
-						<p className="mt-4 text-detail leading-relaxed text-ink-faint">可能造成数据丢失或泄露。可随时切回「帮我批准」。</p>
+						<p className="mt-4 text-detail leading-relaxed text-ink-faint">{t("permission.risk")}</p>
 						<div className="mt-5 flex items-center justify-end gap-2">
 							<button
 								type="button"
 								onClick={() => dismiss()}
 								className="ly-dialog-action ly-dialog-action-secondary"
 							>
-								取消
+								{t("common.cancel")}
 							</button>
 							<button
 								type="button"
@@ -160,7 +162,7 @@ export function PermissionPicker({
 								}}
 								className="ly-dialog-action ly-dialog-action-danger font-medium"
 							>
-								确认开启
+								{t("permission.confirmEnable")}
 							</button>
 						</div>
 					</Scroller>

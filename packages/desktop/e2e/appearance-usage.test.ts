@@ -311,8 +311,8 @@ test("the usage page reports what is in the logs", async () => {
 
 	assert.equal(page.heading, "使用统计");
 	const joined = page.tiles.join(" | ");
-	assert.match(joined, /tokens 用量/, "the token tile is there");
-	assert.match(joined, /当前连续天数/, "and the streak tile");
+	assert.match(joined, /已处理 Token/, "the token metric is there");
+	assert.match(joined, /缓存命中/, "and the cache metric");
 	// 3000 input + 300 output across the two seeded replies.
 	assert.match(joined, /3,300|3\.3k/, `the seeded 3,300 tokens are reported: ${joined}`);
 	assert.ok(page.hasBars, "the daily chart drew bars with numbers on them");

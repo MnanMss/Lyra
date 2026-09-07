@@ -16,13 +16,13 @@ import type {
 	ProviderConfig,
 	RequestOptions,
 	StreamEvent,
-	ThinkingLevel,
 	Usage,
 } from "../types.ts";
 import { emptyUsage } from "../types.ts";
 import { computeCost } from "../utils/pricing.ts";
 import { fetchWithRetry, isRetryableError, retryStream, toolCallId } from "./retry.ts";
 import { parseToolArguments, readSse } from "../utils/sse.ts";
+import { resolveReasoningEffort } from "./thinking-options.ts";
 
 const THINKING_BUDGET: Record<string, number> = {
 	minimal: 1024,
@@ -57,8 +57,13 @@ async function* streamAnthropic(
 		timestamp: startTime,
 	};
 
-	const thinkingEnabled = model.supportsThinking && options.thinking && options.thinking !== "off";
+	const effort = resolveReasoningEffort(options.thinking, model);
+	const thinkingEnabled = effort !== undefined;
 	const maxTokens = options.maxTokens ?? model.maxOutputTokens;
+	const budget = effort ? model.thinkingOptions?.find((option) => option.id === effort)?.budgetTokens ?? THINKING_BUDGET[effort] : undefined;
+	if (thinkingEnabled && (!Number.isInteger(budget) || budget === undefined || budget < 1024 || maxTokens <= 1024)) {
+		throw new Error(`Model ${model.modelId}: thinking level "${effort}" requires budgetTokens >= 1024 and maxOutputTokens > 1024.`);
+	}
 
 	const body: Record<string, unknown> = {
 		model: model.modelId,
@@ -82,7 +87,7 @@ async function* streamAnthropic(
 			? {
 					thinking: {
 						type: "enabled",
-						budget_tokens: Math.min(THINKING_BUDGET[options.thinking as Exclude<ThinkingLevel, "off">], maxTokens - 1),
+						budget_tokens: budget === undefined ? undefined : Math.min(budget, maxTokens - 1),
 					},
 				}
 			: (options.temperature !== undefined ? { temperature: options.temperature } : {})),

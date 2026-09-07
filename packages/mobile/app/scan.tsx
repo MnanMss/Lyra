@@ -3,9 +3,10 @@ import { useRouter } from "expo-router";
 import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, Linking, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { pingDesktop } from "../src/connection";
+import { pingDesktop, pingRelay } from "../src/connection";
 import { parsePairingCode } from "../src/pairing";
 import { useMobile } from "../src/store";
+import { mobileTranslator } from "../src/i18n";
 
 /**
  * Point the camera at the desktop, and be connected.
@@ -22,6 +23,7 @@ import { useMobile } from "../src/store";
  * movement of the wrist.
  */
 export default function ScanScreen() {
+	const t = mobileTranslator();
 	const router = useRouter();
 	const insets = useSafeAreaInsets();
 	const pair = useMobile((s) => s.pair);
@@ -61,10 +63,13 @@ export default function ScanScreen() {
 				return;
 			}
 
-			setState({ kind: "checking", text: "正在连接…" });
-			const { host, port, tls } = parsed.connection;
-			if (!(await pingDesktop(host, port, tls))) {
-				setState({ kind: "error", text: `连不上 ${host}:${port}，检查两台设备是否在同一网络` });
+			setState({ kind: "checking", text: t("scan.connecting") });
+			const { host, port, tls, relay, token } = parsed.connection;
+			const reachable = relay
+				? await pingRelay(host, port, Boolean(tls), token)
+				: await pingDesktop(host, port, tls);
+			if (!reachable) {
+				setState({ kind: "error", text: t("scan.unreachable", { address: `${host}:${port}` }) });
 				setTimeout(() => {
 					busy.current = false;
 					setState({ kind: "idle" });
@@ -73,7 +78,7 @@ export default function ScanScreen() {
 			}
 
 			if (!(await pair(parsed.connection))) {
-				setState({ kind: "error", text: "令牌被拒绝，请在桌面端重新生成二维码" });
+				setState({ kind: "error", text: t("scan.rejected") });
 				setTimeout(() => {
 					busy.current = false;
 					setState({ kind: "idle" });
@@ -83,7 +88,7 @@ export default function ScanScreen() {
 
 			router.replace("/desk");
 		},
-		[pair, router],
+		[pair, router, t],
 	);
 
 	if (!permission) {
@@ -97,9 +102,9 @@ export default function ScanScreen() {
 	if (!permission.granted) {
 		return (
 			<View className="flex-1 items-center justify-center bg-shell px-8" style={{ paddingBottom: insets.bottom }}>
-				<Text className="text-center text-[15px] font-medium text-ink">需要相机权限</Text>
+				<Text className="text-center text-[15px] font-medium text-ink">{t("scan.permission")}</Text>
 				<Text className="mt-2 text-center text-[13px] leading-6 text-ink-muted">
-					扫描桌面端「移动端同步」页面上的二维码，就能一步完成配对。相机只用于这一件事。
+					{t("scan.permissionDetail")}
 				</Text>
 				<Pressable
 					onPress={() => {
@@ -117,11 +122,11 @@ export default function ScanScreen() {
 					className="mt-6 rounded-xl bg-ink px-5 py-3 active:opacity-85"
 				>
 					<Text className="text-[14px] font-medium text-shell">
-						{permission.canAskAgain ? "允许使用相机" : "去系统设置里开启"}
+						{permission.canAskAgain ? t("scan.allow") : t("scan.settings")}
 					</Text>
 				</Pressable>
 				<Pressable onPress={() => router.replace("/pair")} className="mt-3 px-5 py-2.5 active:opacity-70">
-					<Text className="text-[13px] text-ink-muted">改用手动输入</Text>
+					<Text className="text-[13px] text-ink-muted">{t("scan.manual")}</Text>
 				</Pressable>
 			</View>
 		);
@@ -172,8 +177,8 @@ export default function ScanScreen() {
 							</View>
 						) : (
 							<Text className="text-center text-[14px] leading-6 text-white/85">
-								对准桌面端的二维码{"\n"}
-								<Text className="text-[12.5px] text-white/60">设置 → 移动端同步</Text>
+								{t("scan.aim")}{"\n"}
+								<Text className="text-[12.5px] text-white/60">{t("scan.path")}</Text>
 							</Text>
 						)}
 					</View>
@@ -184,7 +189,7 @@ export default function ScanScreen() {
 						onPress={() => router.replace("/pair")}
 						className="items-center rounded-xl border border-white/25 py-3 active:bg-white/10"
 					>
-						<Text className="text-[14px] text-white">扫不了？手动输入地址</Text>
+						<Text className="text-[14px] text-white">{t("scan.manualAddress")}</Text>
 					</Pressable>
 				</View>
 			</CameraView>

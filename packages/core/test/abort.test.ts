@@ -79,4 +79,7 @@ test("aborting ends the turn even when a tool never returns", async () => {
 		new Promise((resolve) => setTimeout(() => resolve("hung"), 5000)),
 	]);
 	assert.equal(finished, "ended", "the turn ended rather than waiting on the tool");
+	const result = (await run).messages.find(message => message.role === "toolResult");
+	assert.ok(result?.role === "toolResult");
+	assert.deepEqual(result.details, { cancelled: true }, "the durable result distinguishes a user stop from a tool failure");
 });

@@ -46,6 +46,8 @@ export function bridgeScript(connection: Connection): string {
 	const room = connection.relay ? roomFor(connection.token) : null;
 
 	return `(() => {
+	if (window.__lyraBridgeInstalled) return;
+	window.__lyraBridgeInstalled = true;
 	const ORIGIN = ${JSON.stringify(origin)};
 	const SOCKET = ${JSON.stringify(socketUrl)};
 	/** Non-null when this connection goes through a relay; see the note where it is computed. */
@@ -53,7 +55,16 @@ export function bridgeScript(connection: Connection): string {
 	const TOKEN = ${JSON.stringify(connection.token)};
 
 	/** Listeners for each kind of push the desktop sends. */
-	const subscribers = { agent: new Set(), sideChat: new Set(), settings: new Set(), sync: new Set() };
+	const subscribers = { agent: new Set(), sideChat: new Set(), settings: new Set(), sessions: new Set(), sync: new Set() };
+	let connectionStatus = "connecting";
+	let everConnected = false;
+	const reportConnection = (next) => {
+		if (next === connectionStatus) return;
+		connectionStatus = next;
+		for (const fn of subscribers.sync) fn(next);
+		window.ReactNativeWebView?.postMessage(JSON.stringify({ type: "connection", status: next }));
+		try { window.dispatchEvent(new CustomEvent("lyra:connection", { detail: next })); } catch {}
+	};
 
 	/*
 	 * One socket, reopened for as long as the page lives.
@@ -64,15 +75,31 @@ export function bridgeScript(connection: Connection): string {
 	 */
 	let socket = null;
 	let backoff = 500;
+	let reconnectTimer = null;
+	let probeTimer = null;
+	const clearProbe = () => { clearTimeout(probeTimer); probeTimer = null; };
+	const scheduleReconnect = () => {
+		if (reconnectTimer !== null) return;
+		reconnectTimer = setTimeout(() => {
+			reconnectTimer = null;
+			connect();
+		}, backoff);
+		backoff = Math.min(backoff * 2, 10000);
+	};
 	function connect() {
+		if (socket) return;
+		clearTimeout(reconnectTimer);
+		reconnectTimer = null;
+		reportConnection(everConnected ? "reconnecting" : "connecting");
 		try {
 			socket = new WebSocket(SOCKET);
 		} catch {
-			setTimeout(connect, backoff);
+			scheduleReconnect();
 			return;
 		}
+		const current = socket;
 		socket.onopen = () => {
-			backoff = 500;
+			if (socket !== current) return;
 			/*
 			 * A relay wants to be told which room before anything else, and closes a socket that
 			 * says nothing within ten seconds. Queued calls wait for the far end to actually be
@@ -80,10 +107,11 @@ export function bridgeScript(connection: Connection): string {
 			 */
 			// Straight down the socket rather than through send(): the hello is what *makes* the
 			// link usable, so it cannot wait for the link to be usable.
-			if (ROOM) socket.send(JSON.stringify({ type: "hello", room: ROOM }));
-			else flush();
+			if (ROOM) socket.send(JSON.stringify({ type: "hello", room: ROOM, role: "mobile" }));
+			else connected();
 		};
 		socket.onmessage = (event) => {
+			if (socket !== current) return;
 			let message;
 			try { message = JSON.parse(event.data); } catch { return; }
 			/*
@@ -91,23 +119,37 @@ export function bridgeScript(connection: Connection): string {
 			 * means the desktop has arrived and anything queued can go.
 			 */
 			if (message.type === "waiting") return;
-			if (message.type === "ready") { linked = true; flush(); return; }
+			if (message.type === "ready") { connected(); return; }
+			if (message.type === "peer-left") {
+				linked = false;
+				if (everConnected) rejectPending("连接已断开，请重试");
+				reportConnection("reconnecting");
+				return;
+			}
+			if (message.type === "pong") { clearProbe(); return; }
 			if (message.type === "rpc_result") {
 				settle(message);
 			} else if (message.type === "agent_event") {
 				for (const fn of subscribers.agent) fn({ sessionId: message.sessionId, event: message.event });
+			} else if (message.type === "side_chat_event") {
+				for (const fn of subscribers.sideChat) fn({ sessionId: message.sessionId, event: message.event });
+			} else if (message.type === "session_changed") {
+				for (const fn of subscribers.sessions) fn(message.change);
 			} else if (message.type === "settings_changed") {
 				for (const fn of subscribers.settings) fn(message.settings);
 			}
 		};
 		socket.onclose = () => {
+			if (socket !== current) return;
+			clearProbe();
 			socket = null;
 			// A new socket has to claim the room again before anything can be sent through it.
-			linked = !ROOM;
-			setTimeout(connect, backoff);
-			backoff = Math.min(backoff * 2, 10000);
+			linked = false;
+			if (everConnected) rejectPending("连接已断开，请重试");
+			reportConnection(everConnected ? "reconnecting" : "connecting");
+			scheduleReconnect();
 		};
-		socket.onerror = () => { try { socket && socket.close(); } catch {} };
+		socket.onerror = () => { if (socket === current) current.close(); };
 	}
 	connect();
 
@@ -129,23 +171,49 @@ export function bridgeScript(connection: Connection): string {
 	 * socket is open to the relay, and a frame sent into a room the desktop has not joined is
 	 * dropped by it, not held. So a relayed link is only usable once the relay says ready.
 	 */
-	let linked = !ROOM;
+	let linked = false;
+
+	function connected() {
+		clearProbe();
+		linked = true;
+		everConnected = true;
+		backoff = 500;
+		reportConnection("connected");
+		flush();
+	}
 
 	function flush() {
 		const queued = waiting;
 		waiting = [];
-		for (const frame of queued) send(frame);
+		for (const entry of queued) {
+			if (pending.has(entry.id)) send(entry);
+		}
 	}
 
-	function send(frame) {
-		if (linked && socket && socket.readyState === 1) socket.send(frame);
-		else waiting.push(frame);
+	function send(entry) {
+		if (linked && socket && socket.readyState === 1) socket.send(entry.frame);
+		else waiting.push(entry);
+	}
+
+	function removeWaiting(id) {
+		waiting = waiting.filter((entry) => entry.id !== id);
+	}
+
+	function rejectPending(reason) {
+		const entries = [...pending.entries()];
+		pending.clear();
+		waiting = [];
+		for (const [, entry] of entries) {
+			clearTimeout(entry.timer);
+			entry.reject(new Error(reason));
+		}
 	}
 
 	function settle(message) {
 		const entry = pending.get(message.id);
 		if (!entry) return;
 		pending.delete(message.id);
+		removeWaiting(message.id);
 		clearTimeout(entry.timer);
 		if (message.ok) { entry.resolve(message.value); return; }
 		/*
@@ -172,6 +240,10 @@ export function bridgeScript(connection: Connection): string {
 	function rpc(method, args) {
 		return new Promise((resolve, reject) => {
 			const id = "r" + ++nextId;
+			if (everConnected && !linked && isMutation(method)) {
+				reject(new Error("连接已断开，请重试"));
+				return;
+			}
 			/*
 			 * A call that never comes back has to fail eventually. Without this a dropped socket
 			 * leaves the renderer with a promise that never settles — a spinner that never stops,
@@ -179,15 +251,60 @@ export function bridgeScript(connection: Connection): string {
 			 */
 			const timer = setTimeout(() => {
 				pending.delete(id);
+				removeWaiting(id);
 				reject(new Error("桌面端没有响应"));
 			}, 20000);
 			pending.set(id, { resolve, reject, timer });
-			send(JSON.stringify({ type: "rpc", id, method, args }));
+			send({ id, frame: JSON.stringify({ type: "rpc", id, method, args }) });
 		});
 	}
 
+	const READ_METHODS = new Set([
+		"git.scratchRoots", "git.generalScratch", "settings.get", "sessions.list", "sessions.open", "sessions.transcript", "sessions.trajectory", "sessions.trajectoryChanges",
+		"sessions.contextBreakdown", "sessions.capabilities", "workspace.info", "subAgents.list",
+		"subAgents.detail", "sideChat.state", "tasks.list", "commands.list", "files.list", "files.read",
+	]);
+	const isMutation = (method) => !READ_METHODS.has(method);
+	window.__lyraProbe = () => {
+		if (!socket) connect();
+		if (!socket || probeTimer !== null) return;
+		const current = socket;
+		// OS sleep can leave an OPEN socket whose peer no longer exists.
+		probeTimer = setTimeout(() => {
+			if (socket !== current) return;
+			current.onclose();
+			current.close();
+		}, 5000);
+		if (current.readyState === 1) current.send(JSON.stringify({ type: "ping" }));
+	};
+	const heartbeat = () => setTimeout(() => { window.__lyraProbe(); heartbeat(); }, 15000);
+	heartbeat();
+
 	const call = (method) => (...args) => rpc(method, args);
 	const subscribe = (set) => (handler) => { set.add(handler); return () => set.delete(handler); };
+	const nativePending = new Map();
+	let nextNativeId = 0;
+	const nativeCall = (method, value) => new Promise((resolve, reject) => {
+		if (!window.ReactNativeWebView) {
+			reject(new Error("原生桥接不可用"));
+			return;
+		}
+		const id = "n" + ++nextNativeId;
+		const timer = setTimeout(() => {
+			nativePending.delete(id);
+			reject(new Error("原生操作没有响应"));
+		}, 5000);
+		nativePending.set(id, { resolve, reject, timer });
+		window.ReactNativeWebView.postMessage(JSON.stringify({ type: "native_request", id, method, value }));
+	});
+	window.__lyraNativeResult = (id, ok, value) => {
+		const entry = nativePending.get(id);
+		if (!entry) return;
+		nativePending.delete(id);
+		clearTimeout(entry.timer);
+		if (ok) entry.resolve(value);
+		else entry.reject(new Error(typeof value === "string" ? value : "原生操作失败"));
+	};
 	/** For the many methods that exist only on the desktop: answer nothing, immediately. */
 	const absent = () => Promise.resolve(null);
 	const absentList = () => Promise.resolve([]);
@@ -342,19 +459,21 @@ export function bridgeScript(connection: Connection): string {
 			reveal: absent,
 		},
 		sessions: {
+			onChanged: subscribe(subscribers.sessions),
 			list: call("sessions.list"),
 			create: call("sessions.create"),
 			open: call("sessions.open"),
 			transcript: call("sessions.transcript"),
-			trajectory: absentList,
-			fork: absent,
+			trajectory: call("sessions.trajectory"),
+			trajectoryChanges: call("sessions.trajectoryChanges"),
+			fork: call("sessions.fork"),
 			remove: call("sessions.remove"),
 			setArchived: call("sessions.setArchived"),
 			removeArchived: absentList,
 			capabilities: call("sessions.capabilities"),
 			rename: call("sessions.rename"),
-			compact: absent,
-			contextBreakdown: absent,
+			compact: call("sessions.compact"),
+			contextBreakdown: call("sessions.contextBreakdown"),
 		},
 		agent: {
 			prompt: call("agent.prompt"),
@@ -367,41 +486,52 @@ export function bridgeScript(connection: Connection): string {
 		},
 		subAgents: {
 			list: call("subAgents.list"),
-			detail: absent,
-			steer: absent,
-			abort: absent,
-			dismiss: absent,
-			dismissFinished: absent,
+			detail: call("subAgents.detail"),
+			steer: call("subAgents.steer"),
+			abort: call("subAgents.abort"),
+			dismiss: call("subAgents.dismiss"),
+			dismissFinished: call("subAgents.dismissFinished"),
 		},
 		sideChat: {
-			state: absent,
-			ask: absent,
-			editAndResend: absent,
-			abort: absent,
-			reset: absent,
+			state: call("sideChat.state"),
+			ask: call("sideChat.ask"),
+			editAndResend: call("sideChat.editAndResend"),
+			abort: call("sideChat.abort"),
+			reset: call("sideChat.reset"),
 			onEvent: subscribe(subscribers.sideChat),
 		},
-		tasks: { list: absentList, cancel: absent, dismiss: absent, resume: absent },
+		tasks: { list: call("tasks.list"), cancel: call("tasks.cancel"), dismiss: call("tasks.dismiss"), resume: call("tasks.resume") },
 		git: {
-			scratchRoots: absentList,
-			generalScratch: absent,
+			scratchRoots: call("git.scratchRoots"),
+			generalScratch: call("git.generalScratch"),
 			repos: absentList,
 			status: absent,
 			worktrees: absentList,
 		},
-		sync: { status: absent, start: absent, stop: absent, rotateToken: absent },
-		system: { platform: () => Promise.resolve(window.lyra.platform), openPath: absent, openExternal: absent },
-		clipboard: {
-			writeText: (text) => { try { navigator.clipboard.writeText(text); } catch {} return Promise.resolve(null); },
-			readText: () => Promise.resolve(""),
+		sync: {
+			status: absent,
+			start: absent,
+			stop: absent,
+			rotateToken: absent,
+			onStatus: subscribe(subscribers.sync),
+			connectionStatus: () => connectionStatus,
 		},
+		system: {
+			platform: () => Promise.resolve(window.lyra.platform),
+			openPath: absent,
+			openExternal: (url) => nativeCall("openExternal", url),
+		},
+		clipboard: {
+			writeText: (text) => nativeCall("clipboardWrite", text),
+			readText: () => nativeCall("clipboardRead"),
+		},
+		files: { list: call("files.list"), read: call("files.read"), document: absent, bytes: absent, write: absent, mediaUrl: () => "" },
 
 		/*
 		 * Everything below is a desktop capability with no phone equivalent, present so the
 		 * renderer's calls resolve rather than throw. They are absent from the allowlist too, so
 		 * this is defence in depth rather than the only gate.
 		 */
-		files: { list: absentList, read: absent, document: absent, bytes: absent, write: absent, mediaUrl: () => "" },
 		terminal: { list: absentList, attach: absent, detach: absent, write: absent, resize: absent, close: absent },
 		screenshot: { start: absent, cancel: absent },
 		plugins: { list: absentList, install: absent, remove: absent },
@@ -412,7 +542,7 @@ export function bridgeScript(connection: Connection): string {
 		forge: { accounts: absentList, add: absent, remove: absent, rename: absent },
 		memory: { list: absentList, remove: absent },
 		diff: { workspaceDiff: absentList },
-		commands: { list: () => Promise.resolve({ commands: [], skills: [] }) },
+		commands: { list: call("commands.list") },
 		providers: { test: absent, models: absentList },
 		usage: { summary: absent, sessions: absentList },
 		documents: { open: absent },

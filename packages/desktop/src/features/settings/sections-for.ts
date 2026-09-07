@@ -34,9 +34,15 @@ export const HIDDEN_ON_MOBILE: ReadonlySet<SettingsSection> = new Set<SettingsSe
 	"worktrees",
 	"index",
 	"formatting",
+	"models",
+	"forges",
+	"plugins",
 	"commands",
 	"hooks",
+	"search",
+	"access",
 	"sync",
+	"usage",
 ]);
 
 export interface SettingsGroup<T> {
@@ -50,10 +56,10 @@ export interface SettingsGroup<T> {
  * A group whose every item was hidden would otherwise render as a heading with nothing under it,
  * which reads as a section that failed to load rather than one that does not apply.
  */
-export function groupsFor<T extends { id: SettingsSection }>(
-	groups: readonly SettingsGroup<T>[],
+export function groupsFor<G extends SettingsGroup<{ id: SettingsSection }>>(
+	groups: readonly G[],
 	onPhone: boolean,
-): SettingsGroup<T>[] {
+): G[] {
 	if (!onPhone) return groups.map((group) => ({ ...group, items: [...group.items] }));
 	return groups
 		.map((group) => ({ ...group, items: group.items.filter((item) => !HIDDEN_ON_MOBILE.has(item.id)) }))

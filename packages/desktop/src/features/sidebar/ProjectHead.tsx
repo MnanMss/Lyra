@@ -110,19 +110,19 @@ export function ProjectHead({
 				{/*
 				 * How many are folded away, so a shut project is not indistinguishable from an
 				 * empty one. Only while shut: open, the rows themselves are the count.
+				 * Running work replaces the count with a quiet spinner in this same trailing slot.
 				 *
 				 * It vacates under the pointer, the same way the folder does. The menu button
 				 * lives at this exact spot, and the two drawn together was not two things
 				 * crowding each other — it was a numeral and an icon on the same pixels, legible
 				 * as neither. Hovering is reaching for the button, so the count is what yields.
 				 */}
-				<GroupActivity sessions={group.sessions} />
-				<span className="w-[46px] shrink-0 text-right text-caption text-ink-faint tabular-nums transition-opacity duration-[var(--ly-t-quick)] group-hover/project:opacity-0">
-						{collapsed && group.sessions.length > 0 ? group.sessions.length : ""}
+				<span className="flex w-[46px] shrink-0 items-center justify-end pr-0.5 text-caption text-ink-faint tabular-nums transition-opacity duration-[var(--ly-t-quick)] group-hover/project:opacity-0 group-has-[:focus-visible]/project:opacity-0">
+					<GroupActivity sessions={group.sessions} collapsed={collapsed} count={group.sessions.length} />
 				</span>
 			</button>
 
-			<span className="pointer-events-none absolute inset-y-0 right-0 flex items-center gap-0.5 rounded-r-lg pr-1.5 opacity-0 transition-opacity duration-[var(--ly-t-quick)] group-hover/project:opacity-100 group-has-[:focus-visible]/project:opacity-100">
+			<span data-ly-hover-reveal className="pointer-events-none absolute inset-y-0 right-0 flex items-center gap-0.5 rounded-r-lg pr-1.5 opacity-0 transition-opacity duration-[var(--ly-t-quick)] group-hover/project:opacity-100 group-has-[:focus-visible]/project:opacity-100">
 				<button
 					type="button"
 					data-ly-tip="在这个项目里新建会话"

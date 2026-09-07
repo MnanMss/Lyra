@@ -37,6 +37,16 @@ const TYPES: Record<string, string> = {
 	".map": "application/json; charset=utf-8",
 };
 
+/** Base64 expands by a third; five MiB stays below the relay's eight MiB frame ceiling. */
+export const MAX_RELAY_ASSET_BYTES = 5 * 1024 * 1024;
+
+export interface AppAsset {
+	status: 200 | 404 | 413;
+	contentType: string;
+	cacheControl: string;
+	body: Buffer;
+}
+
 /**
  * The file for a request path, or null if it is not one of ours.
  *
@@ -50,6 +60,69 @@ export function resolveAsset(pathname: string): string | null {
 	return full;
 }
 
+async function appFile(pathname: string): Promise<string | null> {
+	const candidate = resolveAsset(pathname);
+	if (!candidate) return null;
+
+	let file = candidate;
+	try {
+		const info = await stat(file);
+		if (info.isDirectory()) file = join(file, "index.html");
+	} catch {
+		file = join(ROOT, "index.html");
+	}
+
+	try {
+		await stat(file);
+		return file;
+	} catch {
+		return null;
+	}
+}
+
+function contentType(file: string): string {
+	return TYPES[extname(file).toLowerCase()] ?? "application/octet-stream";
+}
+
+function cacheControl(file: string): string {
+	return file.endsWith("index.html") ? "no-store" : "public, max-age=31536000, immutable";
+}
+
+function mobileShell(html: string): string {
+	return html.replace(
+		/<meta name="viewport"[^>]*>/,
+		'<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />',
+	);
+}
+
+/** Read one renderer resource for the relay's deliberately narrow static-resource tunnel. */
+export async function readAppAsset(pathname: string): Promise<AppAsset> {
+	const file = await appFile(pathname);
+	if (!file) {
+		return {
+			status: 404,
+			contentType: "text/plain; charset=utf-8",
+			cacheControl: "no-store",
+			body: Buffer.from("not found"),
+		};
+	}
+
+	const info = await stat(file);
+	if (info.size > MAX_RELAY_ASSET_BYTES) {
+		return {
+			status: 413,
+			contentType: "text/plain; charset=utf-8",
+			cacheControl: "no-store",
+			body: Buffer.from("asset too large"),
+		};
+	}
+
+	const body = file.endsWith("index.html")
+		? Buffer.from(mobileShell(await readFile(file, "utf8")))
+		: await readFile(file);
+	return { status: 200, contentType: contentType(file), cacheControl: cacheControl(file), body };
+}
+
 /**
  * Send an asset, or answer false so the caller can 404 it.
  *
@@ -57,23 +130,8 @@ export function resolveAsset(pathname: string): string | null {
  * so a deep link is a page this server has never heard of and the app sorts out on its own.
  */
 export async function serveApp(pathname: string, res: ServerResponse): Promise<boolean> {
-	const candidate = resolveAsset(pathname);
-	if (!candidate) return false;
-
-	let file = candidate;
-	try {
-		const info = await stat(file);
-		if (info.isDirectory()) file = join(file, "index.html");
-	} catch {
-		// Unknown path: hand back the shell rather than a 404, so refreshing a route works.
-		file = join(ROOT, "index.html");
-	}
-
-	try {
-		await stat(file);
-	} catch {
-		return false;
-	}
+	const file = await appFile(pathname);
+	if (!file) return false;
 
 	/*
 	 * The shell gets a viewport of its own, and it is not cosmetic.
@@ -91,17 +149,14 @@ export async function serveApp(pathname: string, res: ServerResponse): Promise<b
 	 * the WebView, see `desk.tsx`.
 	 */
 	if (file.endsWith("index.html")) {
-		const html = (await readFile(file, "utf8")).replace(
-			/<meta name="viewport"[^>]*>/,
-			'<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />',
-		);
+		const html = mobileShell(await readFile(file, "utf8"));
 		res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
 		res.end(html);
 		return true;
 	}
 
 	res.writeHead(200, {
-		"content-type": TYPES[extname(file).toLowerCase()] ?? "application/octet-stream",
+		"content-type": contentType(file),
 		/*
 		 * Hashed assets are immutable; the shell is not.
 		 *
@@ -109,7 +164,7 @@ export async function serveApp(pathname: string, res: ServerResponse): Promise<b
 		 * phone, where the alternative is re-downloading a four-megabyte bundle over mobile data
 		 * every time the app is opened. `index.html` names those hashes, so it must never be held.
 		 */
-		"cache-control": file.endsWith("index.html") ? "no-store" : "public, max-age=31536000, immutable",
+		"cache-control": cacheControl(file),
 	});
 	createReadStream(file).pipe(res);
 	return true;

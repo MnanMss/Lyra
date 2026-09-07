@@ -1,16 +1,13 @@
-import { FileText } from "lucide-react";
 import type { Message, Settings } from "@lyra/core";
 import { useEffect, useState } from "react";
 
-import type { ContextBreakdown, ContextSegmentKey, MemoryFileItem } from "../../../electron/ipc-types.ts";
+import type { ContextBreakdown, ContextSegmentKey } from "../../../electron/ipc-types.ts";
 import { useApp } from "../../store/index.ts";
 import { findModel } from "../models/index.ts";
 import { Popover, usePopover } from "../../ui/overlay/Popover.tsx";
 import { formatTokens } from "../conversation/index.ts";
 import { bridge } from "../../services/index.ts";
-import { useOpenFile } from "../../store/openFile.ts";
-import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
-import { companionOf, useDock } from "../dock/index.ts";
+import { ContextMemoryFiles } from "./ContextMemoryFiles.tsx";
 
 /**
  * How much of the model's context window this conversation is using.
@@ -97,7 +94,7 @@ export function ContextMeter({
 				 * for, the proportion, impossible to see. Brightening the mark itself says the
 				 * same "this is a control" without erasing what it shows.
 				 */
-				className={`ly-ring-button flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-opacity ${
+				className={`ly-composer-control ly-ring-button flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-opacity ${
 					open ? "opacity-100" : "opacity-80 hover:opacity-100"
 				}`}
 			>
@@ -141,14 +138,7 @@ export function ContextMeter({
 									share={Math.max(0, limit - used) / limit}
 								/>
 								{!detail.measured && <p className="text-micro text-ink-faint">按当前模型上下文估算；下次响应后校准。</p>}
-								<details className="mt-1 border-t border-line-soft pt-1">
-									<summary className="cursor-pointer py-1 text-detail text-ink-muted">项目指令 <span className="float-right tabular-nums">{formatTokens(detail.segments.find((segment) => segment.key === "memory")?.tokens ?? 0)}</span></summary>
-									{detail.memoryFiles?.map((file) => <MemoryFileRow key={file.path} file={file} limit={limit} onPreview={() => { popover.close(); void useOpenFile.getState().open({ path: file.path, name: file.path.split(/[\\/]/).pop() || file.path, isDirectory: false, size: 0 }); useDock.getState().open("file", companionOf("file")); }} />) ?? <p className="py-1 text-detail text-ink-faint">未加载项目指令</p>}
-								</details>
-								<details className="text-detail text-ink-muted">
-									<summary className="cursor-pointer py-1">项目记忆 <span className="float-right tabular-nums">{formatTokens(detail.segments.find((segment) => segment.key === "projectMemory")?.tokens ?? 0)}</span></summary>
-									<p className="py-1 whitespace-pre-wrap break-words leading-relaxed text-ink-faint">{detail.projectMemory?.trim() || "当前未注入项目记忆，可在设置 → 个性化中管理。"}</p>
-								</details>
+								<ContextMemoryFiles detail={detail} onOpen={popover.close} />
 
 							</div>
 						) : current?.error ? (
@@ -244,34 +234,6 @@ function Row({
 			<span className="shrink-0 tabular-nums text-ink-muted">{formatTokens(tokens)}</span>
 			<span className="w-[44px] shrink-0 text-right tabular-nums text-ink-faint">{(share * 100).toFixed(1)}%</span>
 		</div>
-	);
-}
-
-function MemoryFileRow({
-	file,
-	limit,
-	onPreview,
-}: {
-	file: MemoryFileItem;
-	limit: number;
-	onPreview: () => void;
-}) {
-	return (
-		<button
-			type="button"
-			onClick={onPreview}
-			data-ly-tip="点击在文件容器中预览"
-			className="group/file ly-scroll flex w-full cursor-pointer items-center gap-1.5 rounded px-1.5 py-1 text-detail transition-colors hover:bg-card-hover"
-		>
-			<FileText size={12} className="shrink-0 text-ink-faint group-hover/file:text-accent" />
-			<span className="min-w-0 flex-1 text-left font-mono text-[11px] text-ink-muted group-hover/file:text-ink">
-				<ScrollText text={file.path} />
-			</span>
-			<span className="shrink-0 tabular-nums text-[11px] text-ink-faint">{formatTokens(file.tokens)}</span>
-			<span className="w-[40px] shrink-0 text-right tabular-nums text-[11px] text-ink-faint/70">
-				{((file.tokens / limit) * 100).toFixed(1)}%
-			</span>
-		</button>
 	);
 }
 

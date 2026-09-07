@@ -12,12 +12,16 @@
  * `node e2e/two-way-probe.ts`
  */
 
+import { createHash } from "node:crypto";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { WebSocket } from "ws";
 import { startApp } from "./app.ts";
 
 const SYNC_PORT = 4596;
+const RELAY_PORT = 4597;
 const MODEL_PORT = 9568;
 const TOKEN = "1111111111111111111111111111abcd";
 
@@ -98,7 +102,12 @@ async function seed(home: string): Promise<void> {
 			scheduledTasks: [],
 			disabledPlugins: [],
 			alwaysAllow: [],
-			sync: { enabled: true, port: SYNC_PORT, token: TOKEN },
+			sync: {
+				enabled: true,
+				port: SYNC_PORT,
+				token: TOKEN,
+				relayUrl: `ws://127.0.0.1:${RELAY_PORT}`,
+			},
 			editor: { defaultOpenTarget: "Zed", showBottomPanel: true },
 			appearance: { theme: "dark" },
 		}),
@@ -107,16 +116,99 @@ async function seed(home: string): Promise<void> {
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** One call to the sync server, exactly as the phone's bridge makes it. */
-async function rpc(method: string, args: unknown[]): Promise<unknown> {
-	const response = await fetch(`http://127.0.0.1:${SYNC_PORT}/api/rpc`, {
-		method: "POST",
-		headers: { "content-type": "application/json", authorization: `Bearer ${TOKEN}` },
-		body: JSON.stringify({ method, args }),
+interface RpcPeer {
+	call(method: string, args: unknown[]): Promise<unknown>;
+	close(): void;
+}
+
+/** A persistent WebSocket RPC peer, matching the bridge's actual transport. */
+async function connectRpc(url: string, relay = false): Promise<RpcPeer> {
+	const socket = new WebSocket(url);
+	const pending = new Map<
+		string,
+		{ resolve(value: unknown): void; reject(reason: Error): void; timer: NodeJS.Timeout }
+	>();
+	let nextId = 0;
+	let ready!: () => void;
+	let refuseReady!: (reason: Error) => void;
+	const linked = new Promise<void>((resolve, reject) => {
+		ready = resolve;
+		refuseReady = reject;
 	});
-	const body = (await response.json()) as { ok: boolean; value?: unknown; error?: string };
-	if (!body.ok) throw new Error(`${method} 失败：${body.error}`);
-	return body.value;
+
+	socket.on("message", (raw) => {
+		let message: { type?: string; id?: string; ok?: boolean; value?: unknown; error?: string };
+		try {
+			message = JSON.parse(String(raw)) as typeof message;
+		} catch {
+			return;
+		}
+		if (message.type === "ready" || (!relay && message.type === "hello")) {
+			ready();
+			return;
+		}
+		if (message.type !== "rpc_result" || typeof message.id !== "string") return;
+		const entry = pending.get(message.id);
+		if (!entry) return;
+		pending.delete(message.id);
+		clearTimeout(entry.timer);
+		if (message.ok) entry.resolve(message.value);
+		else entry.reject(new Error(message.error || "RPC failed"));
+	});
+	socket.on("close", () => {
+		const error = new Error("sync socket closed");
+		refuseReady(error);
+		for (const entry of pending.values()) {
+			clearTimeout(entry.timer);
+			entry.reject(error);
+		}
+		pending.clear();
+	});
+	socket.on("error", (error) => refuseReady(error));
+	await new Promise<void>((resolve, reject) => {
+		socket.once("open", resolve);
+		socket.once("error", reject);
+	});
+	if (relay) {
+		const room = createHash("sha256").update(TOKEN).digest("hex");
+		socket.send(JSON.stringify({ type: "hello", room, role: "mobile" }));
+	}
+	await Promise.race([
+		linked,
+		new Promise<never>((_, reject) => setTimeout(() => reject(new Error("sync peer was not ready")), 10_000)),
+	]);
+
+	return {
+		call(method, args) {
+			return new Promise((resolve, reject) => {
+				const id = `probe-${++nextId}`;
+				const timer = setTimeout(() => {
+					pending.delete(id);
+					reject(new Error(`${method} timed out`));
+				}, 20_000);
+				pending.set(id, { resolve, reject, timer });
+				socket.send(JSON.stringify({ type: "rpc", id, method, args }));
+			});
+		},
+		close: () => socket.close(),
+	};
+}
+
+async function startRelay(): Promise<ChildProcess> {
+	const entry = join(import.meta.dirname, "..", "..", "relay", "server.mjs");
+	const child = spawn(process.execPath, [entry], {
+		env: { ...process.env, PORT: String(RELAY_PORT) },
+		stdio: "pipe",
+	});
+	const deadline = Date.now() + 10_000;
+	while (Date.now() < deadline) {
+		const up = await fetch(`http://127.0.0.1:${RELAY_PORT}/health`).then((response) => response.ok).catch(() => false);
+		if (up) return child;
+		if (child.exitCode !== null) throw new Error(`relay exited with ${child.exitCode}`);
+		await wait(100);
+	}
+	child.kill();
+	throw new Error("relay did not start");
 }
 
 let failures = 0;
@@ -126,10 +218,15 @@ function check(label: string, ok: boolean, detail = ""): void {
 }
 
 const model = startModel();
+const relay = await startRelay();
 const desktop = await startApp({ port: 9467, seed });
+let direct: RpcPeer | null = null;
+let relayed: RpcPeer | null = null;
 
 try {
 	await wait(2500);
+	direct = await connectRpc(`ws://127.0.0.1:${SYNC_PORT}/ws?token=${encodeURIComponent(TOKEN)}`);
+	relayed = await connectRpc(`ws://127.0.0.1:${RELAY_PORT}`, true);
 
 	const status = await desktop.evaluate<string>(`window.lyra.sync.status().then((s) => JSON.stringify(s))`);
 	const { addresses } = JSON.parse(status) as { addresses: string[] };
@@ -169,15 +266,8 @@ try {
 	);
 	console.log(`桌面端当前消息数：${before}`);
 
-	/*
-	 * The phone's send, made the way the bridge makes it: one POST to /api/rpc.
-	 *
-	 * Issued from this process rather than from inside the desktop's renderer — that renderer's
-	 * CSP is `connect-src 'self'`, so it may not reach the sync server's origin, which is the whole
-	 * reason the phone loads the interface *from* that origin. From here the request is over the
-	 * same network and indistinguishable from the phone's.
-	 */
-	const sent = await rpc("agent.prompt", [sessionId, [{ type: "text", text: "第二句来自手机" }], {}]);
+	// The phone's send, on the same WebSocket frame the injected bridge creates.
+	const sent = await direct.call("agent.prompt", [sessionId, [{ type: "text", text: "第二句来自手机" }], {}]);
 	console.log(`手机端发送的返回：${JSON.stringify(sent)}`);
 	await wait(4000);
 
@@ -195,7 +285,7 @@ try {
 	check("会话日志增长了", after > before, `${before} → ${after}`);
 
 	console.log("\n—— 反向：电脑发消息，手机端读到的日志应当一致 ——");
-	const transcript = (await rpc("sessions.transcript", [projectId, sessionId])) as {
+	const transcript = (await relayed.call("sessions.transcript", [projectId, sessionId])) as {
 		messages?: { content?: { text?: string }[] }[];
 	} | null;
 	const phoneSees = JSON.stringify(
@@ -205,10 +295,32 @@ try {
 	check("手机端能读到电脑发的那句", phoneSees.includes("第一句来自电脑"));
 	check("手机端能读到自己发的那句", phoneSees.includes("第二句来自手机"));
 	check("手机端能读到模型的回复", phoneSees.includes("收到了"));
+
+	const assetKey = createHash("sha256").update(`lyra-assets\0${TOKEN}`).digest("hex");
+	const shell = await fetch(`http://127.0.0.1:${RELAY_PORT}/app/${assetKey}/`);
+	const html = await shell.text();
+	check("中转能从配对桌面读取 renderer", shell.ok && /<html/i.test(html), `${shell.status} ${html.slice(0, 80)}`);
+
+	const files = (await direct.call("files.list", [join(desktop.home, "project")])) as { name?: string }[];
+	const file = (await relayed.call("files.read", [join(desktop.home, "project", "readme.md")])) as {
+		text?: string;
+		readOnly?: boolean;
+	} | null;
+	check("LAN 能列出项目文件", files.some((entry) => entry.name === "readme.md"));
+	check("relay 能只读项目文本", file?.readOnly === true && file.text?.includes("双向同步测试") === true);
+
+	const hold = Number(process.env.LYRA_PROBE_HOLD_MS ?? 0);
+	if (hold > 0) {
+		console.log(`\nPROBE_READY http://127.0.0.1:${SYNC_PORT}/app/ relay=http://127.0.0.1:${RELAY_PORT}/app/${assetKey}/`);
+		await wait(hold);
+	}
 } finally {
+	direct?.close();
+	relayed?.close();
 	await desktop.stop();
 	for (const res of open) res.destroy();
 	await new Promise<void>((resolve) => model.close(() => resolve()));
+	relay.kill();
 }
 
 console.log(failures === 0 ? "\n全部通过" : `\n${failures} 条失败`);

@@ -69,6 +69,16 @@ export interface Usage {
 		cacheRead: number;
 		cacheWrite: number;
 		total: number;
+		/** How these dollar values were obtained. Absent on logs written before this field existed. */
+		source?: "manual" | "catalog" | "provider" | "mixed";
+		catalogVersion?: string;
+		/** The selected rates are stored so later catalogue updates cannot rewrite history. */
+		rates?: {
+			input: number;
+			output: number;
+			cacheRead: number;
+			cacheWrite: number;
+		};
 	};
 }
 
@@ -83,7 +93,26 @@ export function emptyUsage(): Usage {
 	};
 }
 
+function isEmptyUsage(usage: Usage): boolean {
+	return usage.input === 0 && usage.output === 0 && usage.cacheRead === 0 &&
+		usage.cacheWrite === 0 && (usage.reasoning ?? 0) === 0 && usage.total === 0 &&
+		usage.cost.input === 0 && usage.cost.output === 0 && usage.cost.cacheRead === 0 &&
+		usage.cost.cacheWrite === 0 && usage.cost.total === 0;
+}
+
 export function addUsage(a: Usage, b: Usage): Usage {
+	// Empty accumulators contribute no pricing provenance; every billed request does.
+	const first = isEmptyUsage(a) ? b.cost : a.cost;
+	const second = isEmptyUsage(b) ? a.cost : b.cost;
+	const source = first.source === second.source ? first.source : "mixed";
+	const catalogVersion = first.catalogVersion === second.catalogVersion ? first.catalogVersion : undefined;
+	const sameRates =
+		first.rates !== undefined &&
+		second.rates !== undefined &&
+		first.rates.input === second.rates.input &&
+		first.rates.output === second.rates.output &&
+		first.rates.cacheRead === second.rates.cacheRead &&
+		first.rates.cacheWrite === second.rates.cacheWrite;
 	return {
 		input: a.input + b.input,
 		output: a.output + b.output,
@@ -97,6 +126,9 @@ export function addUsage(a: Usage, b: Usage): Usage {
 			cacheRead: a.cost.cacheRead + b.cost.cacheRead,
 			cacheWrite: a.cost.cacheWrite + b.cost.cacheWrite,
 			total: a.cost.total + b.cost.total,
+			...(source !== undefined ? { source } : {}),
+			...(catalogVersion !== undefined ? { catalogVersion } : {}),
+			...(sameRates ? { rates: first.rates } : {}),
 		},
 	};
 }
@@ -182,6 +214,9 @@ export interface AssistantMessage {
 }
 
 export interface ToolResultMessage {
+	/** Actual execution boundary; absent in historical messages. */
+	startedAt?: number;
+	durationMs?: number;
 	role: "toolResult";
 	toolCallId: string;
 	toolName: string;

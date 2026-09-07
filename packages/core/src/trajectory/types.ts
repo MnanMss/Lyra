@@ -10,6 +10,8 @@
  * sharing a `seq` is normal and meaningful: they arrived together.
  */
 
+import type { ImageContent, Usage } from "../types/message.ts";
+
 export type Source =
 	/** The instructions the model was given. */
 	| "system"
@@ -24,9 +26,15 @@ export type Source =
 	/** A nested agent being dispatched, and what it reported back. */
 	| "subagent"
 	/** History being summarised to fit the window. */
-	| "compaction";
+	| "compaction"
+	| "request"
+	| "lifecycle"
+	| "notice"
+	| "approval";
 
 export interface Entry {
+	/** Stable across filtering, appends and lifecycle updates. */
+	id?: string;
 	/** The log record this came from. Not unique: one record can produce several entries. */
 	seq: number;
 	ts: number;
@@ -45,6 +53,34 @@ export interface Entry {
 	 * among other arguments — is reading around the syntax rather than reading the command.
 	 */
 	command?: string;
+	turn?: number;
+	step?: number;
+	parentId?: string;
+	status?: "running" | "done" | "error" | "cancelled" | "skipped" | "interrupted";
+	startedAt?: number;
+	finishedAt?: number;
+	durationMs?: number;
+	ttftMs?: number;
+	decodeMs?: number;
+	usage?: Usage;
+	provider?: string;
+	model?: string;
+	toolName?: string;
+	input?: string;
+	output?: string;
+	/** Structured tool metadata, such as exit code and full-output artifact location. */
+	metadata?: unknown;
+	images?: ImageContent[];
+	/** Sequence of the paired request, call, result or delegated dispatch. */
+	linkedSeqs?: number[];
+}
+
+/** Replaces the list on reset; otherwise replaces matching keys and appends newly seen entries. */
+export interface TrajectoryChanges {
+	cursor: string;
+	reset: boolean;
+	upserts: Entry[];
+	removals: string[];
 }
 
 /** Shown as filter chips, in the order a turn actually happens. */
@@ -58,6 +94,10 @@ export const SOURCE_ORDER: Source[] = [
 	"tool-result",
 	"subagent",
 	"compaction",
+	"request",
+	"lifecycle",
+	"notice",
+	"approval",
 ];
 
 export const SOURCE_LABEL: Record<Source, string> = {
@@ -70,4 +110,16 @@ export const SOURCE_LABEL: Record<Source, string> = {
 	"tool-result": "工具结果",
 	subagent: "子 Agent",
 	compaction: "上下文压缩",
+	request: "模型请求",
+	lifecycle: "执行状态",
+	notice: "诊断与重试",
+	approval: "审批",
 };
+
+export const STATUS_LABEL: Record<NonNullable<Entry["status"]>, string> = {
+	running: "进行中", done: "完成", error: "失败", cancelled: "已取消", skipped: "已跳过", interrupted: "未记录完成",
+};
+
+export function entryKey(entry: Entry): string {
+	return entry.id ?? `${entry.seq}:${entry.source}:${entry.correlationId ?? ""}`;
+}

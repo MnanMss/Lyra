@@ -14,7 +14,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
-import { roomFor, sha256Hex } from "../src/sha256.ts";
+import { assetKeyFor, roomFor, sha256Hex } from "../src/sha256.ts";
 
 const expected = (text: string) => createHash("sha256").update(text).digest("hex");
 
@@ -56,6 +56,13 @@ test("tokens that differ by one character land in different rooms", () => {
 	// holds two.
 	assert.notEqual(roomFor("token-a"), roomFor("token-b"));
 	assert.notEqual(roomFor("1111111111111111111111111111abcd"), roomFor("1111111111111111111111111111abce"));
+});
+
+test("renderer assets use a separate capability from the conversation room", () => {
+	const token = "1111111111111111111111111111abcd";
+	assert.equal(assetKeyFor(token), expected(`lyra-assets\0${roomFor(token)}`));
+	assert.notEqual(assetKeyFor(token), roomFor(token));
+	assert.match(assetKeyFor(token), /^[a-f0-9]{64}$/);
 });
 
 test("non-ASCII is hashed as UTF-8, the same as everywhere else", () => {

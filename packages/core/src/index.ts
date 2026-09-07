@@ -51,6 +51,7 @@ export {
 	matchRanges,
 	messagesUpTo,
 	readTrajectory,
+	TrajectoryReader,
 	replaySession,
 	SOURCE_LABEL,
 	SOURCE_ORDER,
@@ -58,12 +59,14 @@ export {
 	type ForkResult,
 	type Source as TrajectorySourceKind,
 	type TrajectoryFilter,
+	type TrajectoryChanges,
 } from "./trajectory/index.ts";
 export { nextTask, useScheduler } from "./runtime/scheduling.ts";
 export { isDue, nextRunAt } from "./config/schedule.ts";
 export { migratePreviousHome, type MigrationResult } from "./session/migrate-home.ts";
 export { prepareTurn, useTurnPipeline, type TurnContext, type TurnMiddleware } from "./runtime/turn.ts";
 export { registeredSkills, useSkillRegistry } from "./skills/registry.ts";
+export { backgroundJobs, type BackgroundJob } from "./tools/background-jobs.ts";
 export { loadCapabilityPlugins, type LoadedCapabilityPlugins } from "./plugins/capability.ts";
 export { API_FORMATS, getProvider, streamAssistant, useLlmRegistry } from "./ai/index.ts";
 export type { AgentEvent, AgentEventSink, CommandRun, QueuedTask } from "./agent/events.ts";
@@ -91,6 +94,8 @@ export {
 	type ProjectEntry,
 	type ScreenshotSettings,
 	type Settings,
+	type UiLocale,
+	UI_LOCALES,
 } from "./config/settings.ts";
 /**
  * The credential store, for the desktop's own secrets.
@@ -158,10 +163,11 @@ export {
 export { compactIfNeeded, compactWith, useCompaction } from "./runtime/compaction.ts";
 export type { ContextBreakdown, ContextSegment, ContextSegmentKey, MemoryFileItem } from "./runtime/context.ts";
 export { estimateTokens } from "./tokens.ts";
+export { computeCost, costAtRates, selectPricingRates, type SelectedPricingRates } from "./utils/pricing.ts";
 export { hooksFor, makeAfterToolCall, makeBeforeToolCall, runHook } from "./runtime/hooks.ts";
 export type { SessionStatus } from "./runtime/reporting.ts";
 export { AgentSession, type AgentSessionOptions,  } from "./runtime/session.ts";
-export { SideChat, restoredSideChatMessages, type SideChatOptions, type SideChatState, type SideChatEvent } from "./runtime/sidechat.ts";
+export { SideChat, restoredSideChatMessages, type SideChatOptions, type SideChatState, type SideChatEvent, type SideChatUpdate } from "./runtime/sidechat.ts";
 export {
 	lyraHome,
 	projectIdFor,
@@ -253,3 +259,5 @@ export { readLessons } from "./runtime/project-memory.ts";
 export { readExtractedMemory } from "./runtime/memory-extract.ts";
 export { projectMemoryDir } from "./runtime/project-memory.ts";
 export { computeDiff } from "./tools/diff.ts";
+
+export { readFileChange, undoFileChanges, undoFileChangeBatches, type RecordedChange } from "./tools/file-changes.ts";

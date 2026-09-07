@@ -1,4 +1,7 @@
+import { beforeCommand, afterCommand } from "./command-changes.ts";
+import { createOutputLog } from "./output-log.ts";
 import { randomUUID } from "node:crypto";
+import { backgroundJobs, type BackgroundJob } from "./background-jobs.ts";
 import { rerouteShellCommand, TOOL_NAMES_KEY } from "./reroute.ts";
 import { getSandbox, looksDenied } from "../sandbox/index.ts";
 import {
@@ -24,26 +27,6 @@ interface BashArgs {
 	escalate?: string;
 	/** Why that wider mode is needed, in one sentence, shown to the user verbatim. */
 	justification?: string;
-}
-
-interface BackgroundJob {
-	id: string;
-	command: string;
-	startedAt: number;
-	exitCode: number | null;
-	output: string;
-	kill: () => void;
-}
-
-const BACKGROUND_JOBS_KEY = "backgroundJobs";
-
-function jobs(ctx: ToolContext): Map<string, BackgroundJob> {
-	let map = ctx.state.get(BACKGROUND_JOBS_KEY) as Map<string, BackgroundJob> | undefined;
-	if (!map) {
-		map = new Map();
-		ctx.state.set(BACKGROUND_JOBS_KEY, map);
-	}
-	return map;
 }
 
 /**
@@ -176,16 +159,21 @@ export const bashTool: Tool<BashArgs> = {
 			if (decision === "reject") return errorResult("The user rejected this command.");
 		}
 
-		if (args.run_in_background) return startBackground(args, ctx);
+		if (args.run_in_background) return startBackground(args, { ...ctx, sandboxMode: mode });
 
 		const timeout = Math.min(args.timeout ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
-		return new Promise<ToolResult>((resolve) => {
+		let baseline: Awaited<ReturnType<typeof beforeCommand>> = null;
+		let changeWarning: string | undefined;
+		try { baseline = await beforeCommand(ctx); } catch (error) { changeWarning = String(error); }
+		const outputLog = await createOutputLog(ctx.scratchDir);
+		const result = await new Promise<ToolResult>((resolve) => {
 			const child = getSandbox().run(args.command, { cwd: ctx.cwd, mode });
 
 			let output = "";
 			let settled = false;
 			child.onOutput((chunk) => {
-				if (output.length < MAX_OUTPUT_CHARS * 2) output += chunk;
+				outputLog?.append(chunk);
+				output = clip(output + chunk);
 				ctx.onProgress?.({ content: [{ type: "text", text: clip(output) }] });
 			});
 
@@ -240,19 +228,25 @@ export const bashTool: Tool<BashArgs> = {
 				const denied = ranUnder !== undefined && ranUnder !== "danger-full-access" && looksDenied(output);
 				const body = denied
 					? [text || "(no output)", sandboxDenialMarker(ranUnder), escalationHint("command")].join("\n")
-					: text || `(no output, exit code ${code ?? 0})`;
+					: text || (code === null ? "(terminated without an exit code)" : `(no output, exit code ${code})`);
 				resolve({
 					content: [{ type: "text", text: body }],
-					details: { kind: "bash", command: args.command, exitCode: code ?? 0, ...(denied ? { denied: true } : {}) },
+					details: { kind: "bash", command: args.command, exitCode: code, ...(denied ? { denied: true } : {}) },
 					isError: code !== 0,
 				});
 			});
 		});
+		const outputDetails = await outputLog?.close();
+		let changeIds: string[] = [];
+		try { changeIds = await afterCommand(ctx, baseline); } catch (error) { changeWarning = String(error); }
+		const details = result.details && typeof result.details === "object" ? result.details : {};
+		return { ...result, details: { ...details, ...outputDetails, changeIds, changeWarning } };
 	},
 };
 
-function startBackground(args: BashArgs, ctx: ToolContext): ToolResult {
-	const id = randomUUID().slice(0, 8);
+async function startBackground(args: BashArgs, ctx: ToolContext): Promise<ToolResult> {
+	const outputLog = await createOutputLog(ctx.scratchDir);
+	const id = randomUUID();
 	const child = getSandbox().run(args.command, { cwd: ctx.cwd, mode: ctx.sandboxMode });
 
 	const job: BackgroundJob = {
@@ -261,19 +255,26 @@ function startBackground(args: BashArgs, ctx: ToolContext): ToolResult {
 		startedAt: Date.now(),
 		exitCode: null,
 		output: "",
-		kill: () => child.kill(),
+		outputPath: outputLog?.path,
+		pid: child.pid,
+		status: "running",
 	};
 	child.onOutput((chunk) => {
+		outputLog?.append(chunk);
 		job.output = clip(job.output + chunk);
 	});
 	child.onExit((code) => {
-		job.exitCode = code ?? 0;
+		void outputLog?.close().then(details => Object.assign(job, details));
+		job.exitCode = code;
+		job.finishedAt = Date.now();
+		job.status = code !== null && code !== 0 ? "failed" : "exited";
 	});
+	child.onError((error) => { void outputLog?.close().then(details => Object.assign(job, details)); job.error = error.message; job.status = "failed"; if (!job.pid) job.finishedAt = Date.now(); });
 
-	jobs(ctx).set(id, job);
+	backgroundJobs(ctx.state).add(job, child);
 	return {
 		content: [{ type: "text", text: `Started background job ${id}. Read its output with bash_output({ id: "${id}" }).` }],
-		details: { kind: "bash_background", id, command: args.command },
+		details: { kind: "bash_background", id, command: args.command, outputPath: outputLog?.path },
 	};
 }
 
@@ -298,13 +299,13 @@ export const bashOutputTool: Tool<BashOutputArgs> = {
 	summarize: (args) => `Check job ${args.id}`,
 
 	async execute(args, ctx): Promise<ToolResult> {
-		const job = jobs(ctx).get(args.id);
+		const job = backgroundJobs(ctx.state).get(args.id);
 		if (!job) return errorResult(`No background job with id "${args.id}".`);
-		if (args.kill) job.kill();
-		const status = job.exitCode === null ? "running" : `exited with code ${job.exitCode}`;
+		if (args.kill) backgroundJobs(ctx.state).stop(args.id, true);
+		const status = job.finishedAt === undefined ? job.status : job.exitCode === null ? "terminated" : `exited with code ${job.exitCode}`;
 		return {
 			content: [{ type: "text", text: `[job ${job.id} ${status}]\n${job.output || "(no output yet)"}` }],
-			details: { kind: "bash_output", id: job.id, exitCode: job.exitCode, command: job.command },
+			details: { kind: "bash_output", id: job.id, exitCode: job.exitCode, command: job.command, outputPath: job.outputPath, outputComplete: job.outputComplete, outputError: job.outputError },
 		};
 	},
 };

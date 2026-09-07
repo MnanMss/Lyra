@@ -28,6 +28,22 @@ const model = (modelId: string): ModelConfig => ({
 
 const ids = (modelId: string) => resolveModelThinkingOptions(model(modelId)).map((option) => option.id);
 
+test("every offered level reaches the wire unchanged, including explicit provider levels", () => {
+	for (const config of [model("gpt-5.6-terra"), model("gpt-5.4-mini"), {
+		...model("gemini-custom"), thinkingOptions: [{ id: "adaptive", label: "自适应", isDefault: true }],
+	}]) {
+		for (const option of resolveModelThinkingOptions(config)) {
+			assert.equal(resolveReasoningEffort(option.id, config), option.id === "off" ? undefined : option.id);
+		}
+	}
+});
+
+test("stale effort falls back to the displayed model default; disabled models send none", () => {
+	assert.equal(resolveReasoningEffort("ultra", model("unknown-relay-model")), "medium");
+	assert.equal(resolveReasoningEffort("high", { ...model("x"), supportsThinking: false }), undefined);
+	assert.deepEqual(resolveModelThinkingOptions({ ...model("x"), thinkingOptions: [] }), []);
+});
+
 /** What Google's API accepts, and nothing else. */
 const GEMINI_SAFE = ["off", "low", "medium", "high"];
 

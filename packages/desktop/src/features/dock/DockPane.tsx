@@ -3,13 +3,14 @@
  *
  * Absolute rather than laid out in a flex tree, because the flat list is what keeps a pane from
  * being unmounted when the layout changes — see the note at the top of `layout.ts`. The practical
- * consequence is that rearranging *is* the animation: four percentages change, CSS interpolates
- * them, and the pane slides to where it now belongs without anything having been recreated.
+ * consequence is that a rearrangement retains the same content. PaneSurface lays it out once
+ * at its destination and composites the movement, without reflowing every intermediate width.
  */
 
 import { PaneHeader } from "./PaneHeader.tsx";
+import { PaneSurface } from "./PaneSurface.tsx";
 import { pct } from "./css.ts";
-import { PANE_INSET } from "./geometry.ts";
+import { HEADER_HEIGHT, PANE_INSET } from "./geometry.ts";
 import type { Box } from "./layout.ts";
 import type { DropSide, PaneKind } from "./tree.ts";
 
@@ -56,8 +57,8 @@ export function DockPane({
 	/**
 	 * Behind another pane in the collapsed layout.
 	 *
-	 * `display: none` rather than unmounting — the pane keeps its shell, its page and its scroll
-	 * position, exactly as the old tab strip kept the tabs behind the front one.
+	 * Opacity and inertness retain layout as well as content. display:none invalidates the
+	 * terminal grid and every row's measurements; inherited visibility restyles every descendant.
 	 */
 	hidden: boolean;
 	draggable: boolean;
@@ -83,7 +84,9 @@ export function DockPane({
 	const floats = kind !== "conversation" || Boolean(carried);
 
 	return (
-		<div
+		<PaneSurface
+			carried={Boolean(carried)}
+			isHidden={hidden}
 			data-dock-pane={kind}
 			// Focus follows the click for the benefit of the collapsed layout and the keyboard;
 			// it costs nothing here and means the two forms agree about which pane is current.
@@ -107,7 +110,7 @@ export function DockPane({
 			 * Two positioning models, one element.
 			 *
 			 * Docked, it is `absolute` against the dock in percentages, so a window resize is the
-			 * browser's problem and a rearrangement is four numbers animating. Carried, it is
+			 * browser's problem. Carried, it is
 			 * `fixed` against the window in pixels, so it can go anywhere the pointer does. The
 			 * switch does not recreate anything — same element, same subtree, same shell running
 			 * inside it.
@@ -138,17 +141,11 @@ export function DockPane({
 					: { left: pct(box.left), top: pct(box.top), width: pct(box.width), height: pct(box.height) }
 			}
 			/*
-			 * Lifted above its neighbours while maximised, rather than swapped for a different
-			 * element. Maximising sets the box to the whole dock and raises the pane over the
-			 * others, so entering and leaving are the same four percentages animating — the same
-			 * trick as a rearrangement, and it means a maximised terminal is the same terminal.
-			 */
-			/*
 			 * Panels sit above the conversation, and the splitters sit above both.
 			 *
 			 * Full screen used to raise its pane higher than everything — a hangover from when it
 			 * meant "cover the others". It prunes the layout now, so the panes it is not showing
-			 * are `display: none` and there is nothing to cover; the only thing the extra layer
+			 * are inert and transparent and there is nothing to cover; the only thing the extra layer
 			 * achieved was burying the splitter, which made a maximised pair impossible to resize.
 			 */
 			/*
@@ -162,7 +159,27 @@ export function DockPane({
 			data-pane={kind}
 			className={`ly-dock-pane group/pane absolute flex min-w-0 flex-col ${
 				carried ? "ly-dock-pane-carried" : floats ? "z-10" : "z-0"
-			} ${landing ? "ly-dock-pane-landing" : ""} ${hidden ? "hidden" : ""}`}
+			} ${landing ? "ly-dock-pane-landing" : ""}`}
+			header={<div className="ly-dock-chrome absolute inset-x-0 top-0 z-[1]" style={{ margin: floats ? PANE_INSET + 1 : 0, background: "transparent" }}>
+				<PaneHeader
+					kind={kind}
+					label={label}
+					icon={icon}
+					maximized={maximized}
+					draggable={draggable}
+					carried={Boolean(carried)}
+					hideTitle={kind === "conversation"}
+					title={title}
+					onDragStart={onDragStart}
+					onMove={onMove}
+					actions={actions}
+					inset={inset}
+					insetEnd={insetEnd}
+					lift={floats ? PANE_INSET + 1 : 0}
+					onToggleMaximized={onToggleMaximized}
+					onClose={onClose}
+				/>
+			</div>}
 		>
 			{/*
 			 * Panels float; the conversation does not.
@@ -185,26 +202,10 @@ export function DockPane({
 				className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${floats ? "ly-dock-card" : ""}`}
 				style={floats ? { margin: PANE_INSET } : undefined}
 			>
-			<PaneHeader
-				kind={kind}
-				label={label}
-				icon={icon}
-				maximized={maximized}
-				draggable={draggable}
-				carried={Boolean(carried)}
-				hideTitle={kind === "conversation"}
-				title={title}
-				onDragStart={onDragStart}
-				onMove={onMove}
-				actions={actions}
-				inset={inset}
-				insetEnd={insetEnd}
-				lift={floats ? PANE_INSET + 1 : 0}
-				onToggleMaximized={onToggleMaximized}
-				onClose={onClose}
-			/>
+			{/* Controls keep their endpoint geometry while this retained surface composites its resize. */}
+			<div aria-hidden className="shrink-0" style={{ height: HEADER_HEIGHT }} />
 			<div className="relative flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
 			</div>
-		</div>
+		</PaneSurface>
 	);
 }

@@ -4,6 +4,7 @@ import { createServer, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { after, afterEach, before, test } from "node:test";
 import { closeListeningServer, startApp, type RunningApp } from "./app.ts";
+import { cleanupFixture } from "./fixture-cleanup.ts";
 import { seedInteractions } from "./interaction-fixture.ts";
 
 let app: RunningApp;
@@ -46,7 +47,7 @@ afterEach(async (t) => {
 		t.diagnostic(JSON.stringify(await app.evaluate(`({value:document.querySelector('textarea')?.value.slice(0,160),focus:document.activeElement?.tagName,menus:document.querySelectorAll('[role="option"]').length,body:document.querySelector('main')?.innerText.slice(-600)})`)));
 	}
 });
-after(async () => { await app?.stop(); await closeListeningServer(server); });
+after(async () => { await cleanupFixture(() => app?.stop(), () => closeListeningServer(server)); });
 
 async function frames(n = 20) {
 	await app.evaluate(`new Promise(resolve=>{let n=${n};const f=()=>--n?requestAnimationFrame(f):resolve();requestAnimationFrame(f);})`);
@@ -200,8 +201,8 @@ test("pasted compact with parameters executes once, reports progress, and surviv
 	assert.ok(contextAfter.used < contextBefore.used * 0.7, JSON.stringify({contextBefore,contextAfter}));
 	t.diagnostic(JSON.stringify({contextBefore,contextAfter}));
 	await click('button[aria-label^="上下文占用"]');
-	await until(`document.querySelectorAll('[aria-label="上下文窗口用量"] details').length === 2`);
-	assert.deepEqual(await app.evaluate(`Array.from(document.querySelectorAll('[aria-label="上下文窗口用量"] details')).map(e=>({open:e.open,title:e.querySelector('summary').textContent.split(' ')[0]}))`), [{open:false,title:'项目指令'},{open:false,title:'项目记忆'}]);
+	await until(`document.querySelector('[aria-label="上下文窗口用量"] section button[aria-expanded]')`);
+	assert.deepEqual(await app.evaluate(`Array.from(document.querySelectorAll('[aria-label="上下文窗口用量"] section button[aria-expanded]')).map(e=>({open:e.getAttribute('aria-expanded'),title:e.textContent}))`), [{open:'false',title:'记忆文件'}]);
 	await shot("context-after-compaction");
 	await click('button[aria-label^="上下文占用"]');
 	await shot("compact-done");

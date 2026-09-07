@@ -39,7 +39,8 @@ export function ScrollText({ text, className = "" }: { text: string; className?:
 		 * oscillates by a pixel would re-render on every observer callback forever.
 		 */
 		const measure = () => {
-			const part = Math.round(inner.getBoundingClientRect().width);
+			// Overflow compares layout sizes, not the transient scale of a moving dock pane.
+			const part = inner.offsetWidth;
 			const next = Math.max(0, part - outer.clientWidth);
 			setWidth((prev) => (Math.abs(part - prev) > 1 ? part : prev));
 			setOverflow((prev) => (Math.abs(next - prev) > 1 ? next : prev));
@@ -71,13 +72,13 @@ export function ScrollText({ text, className = "" }: { text: string; className?:
 					: undefined
 			}
 		>
-			<span className={scrolls ? "ly-marquee-track" : "inline-block"}>
+			<span className={scrolls ? "ly-marquee-track ly-scroll-text-track" : "inline-block"}>
 				<span ref={body} className="inline-block">
 					{text}
 				</span>
-				{/* The trailing copy is decoration; screen readers and copy-paste get one line. */}
+				{/* The duplicate must not change the flex basis and feed back into overflow measurement. */}
 				{scrolls && (
-					<span aria-hidden className="inline-block">
+					<span aria-hidden className="absolute top-0 left-full inline-block" style={{ marginLeft: GAP }}>
 						{text}
 					</span>
 				)}

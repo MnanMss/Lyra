@@ -5,6 +5,8 @@ import { useApp } from "../../src/store/index.ts";
 import { applyAgentEvent } from "../../src/store/apply-event.ts";
 import { flushCoalesced } from "../../src/store/coalesce.ts";
 import { prune, type Cache } from "../../src/store/derive.ts";
+import { readSelectedSession } from "../../src/store/session-read.ts";
+import { applySessionChange } from "../../src/store/session-changes.ts";
 import type { LyraApi } from "../../electron/ipc-types.ts";
 
 type Snapshot = Awaited<ReturnType<LyraApi["sessions"]["transcript"]>>;
@@ -251,4 +253,62 @@ test("a failed transcript read releases loading and preserves warm content", asy
 	assert.equal(useApp.getState().loadingSession, false);
 	assert.deepEqual(useApp.getState().messages[0].content, reply("b").content);
 	assert.ok(useApp.getState().notices.some((notice) => notice.message.includes("disk unavailable")));
+});
+
+test("reconnecting merges the missed history prefix with newly arriving live events", async () => {
+	const read = deferredRead();
+	readTranscript = () => read.promise;
+	const missed = { ...reply("written while offline"), timestamp: 20 };
+	const latest = { ...reply("live after reconnect"), timestamp: 30 };
+	const reading = readSelectedSession(meta("a"), useApp.setState, useApp.getState, true);
+	applyAgentEvent("a", { type: "message_start", message: latest }, useApp.setState, useApp.getState);
+	read.resolve({ meta: meta("a"), messages: [reply("a"), missed], running: true, pendingApprovals: [] });
+	await reading;
+	assert.deepEqual(useApp.getState().messages.map(message => message.timestamp), [10, 20, 30]);
+});
+
+test("reconnecting during an existing read queues a fresh snapshot for the same session", async () => {
+	const first = deferredRead();
+	const second = deferredRead();
+	let reads = 0;
+	readTranscript = () => (++reads === 1 ? first.promise : second.promise);
+	const opening = readSelectedSession(meta("a"), useApp.setState, useApp.getState);
+	await readSelectedSession(meta("a"), useApp.setState, useApp.getState, true);
+	first.resolve(snapshot("a"));
+	await opening;
+	assert.equal(reads, 2, "a response requested before reconnect cannot cover the offline gap");
+	const missed = { ...reply("offline history"), timestamp: 20 };
+	const live = { ...reply("after reconnect"), timestamp: 30 };
+	applyAgentEvent("a", { type: "message_start", message: live }, useApp.setState, useApp.getState);
+	second.resolve({ meta: meta("a"), messages: [reply("a"), missed], running: true, pendingApprovals: [] });
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assert.deepEqual(useApp.getState().messages.map(message => message.timestamp), [10, 20, 30]);
+});
+
+test("remote metadata updates the active picker, and deletion clears running state and cached content", () => {
+	useApp.setState({ running: true, drafts: { a: { text: "local draft", attachments: [] } } });
+	const changed = { ...meta("a"), modelId: "new-model", thinking: "high" as const, seq: 3 };
+	applySessionChange({ id: "a", projectId: "test", meta: changed }, useApp.setState, useApp.getState);
+	assert.equal(useApp.getState().meta?.modelId, "new-model");
+	assert.equal(useApp.getState().meta?.thinking, "high");
+	applySessionChange({ id: "a", projectId: "test", meta: null }, useApp.setState, useApp.getState);
+	assert.equal(useApp.getState().activeSessionId, null);
+	assert.equal(useApp.getState().running, false);
+	assert.deepEqual(useApp.getState().messages, []);
+	assert.equal(useApp.getState().sessionCache.a, undefined);
+	assert.equal(useApp.getState().drafts.a, undefined);
+});
+
+test("failed archive and deletion leave the visible session and draft intact", async () => {
+	Object.defineProperty(window, "lyra", { configurable: true, value: { sessions: {
+		setArchived: async () => { throw new Error("offline"); },
+		remove: async () => { throw new Error("offline"); },
+	} } });
+	useApp.setState({ drafts: { a: { text: "unsent", attachments: [] } }, notices: [] });
+	await useApp.getState().setSessionArchived(meta("a"), true);
+	await useApp.getState().deleteSession(meta("a"));
+	assert.equal(useApp.getState().activeSessionId, "a");
+	assert.equal(useApp.getState().sessions.find(session => session.id === "a")?.archived, undefined);
+	assert.equal(useApp.getState().drafts.a.text, "unsent");
+	assert.equal(useApp.getState().notices.filter(notice => notice.level === "error").length, 2);
 });

@@ -29,7 +29,7 @@ export function Row({
 	control,
 	children,
 }: {
-	title: string;
+	title: React.ReactNode;
 	detail?: React.ReactNode;
 	control?: React.ReactNode;
 	children?: React.ReactNode;

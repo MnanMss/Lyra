@@ -1,61 +1,34 @@
-/**
- * What one recorded run actually consisted of.
- *
- * The list above answers "what has it done"; this answers "what exactly did it send, and what came
- * back" — the question you ask when a step did something you did not expect. Everything shown here
- * is read from what was already written down, so it says what happened rather than what the UI
- * thinks happened.
- *
- * Long output is capped rather than given its own scrollbar: a scrolling region inside a scrolling
- * panel means the wheel does something different depending on where the pointer happens to be.
- */
-
+import { History, ScrollText as OutputIcon } from "lucide-react";
 import type { ToolRun } from "../../store/index.ts";
-import { CodeText } from "../conversation/index.ts";
-import { Section } from "../conversation/index.ts";
+import { useApp } from "../../store/index.ts";
+import { TraceText, showTrace } from "../conversation/index.ts";
+import { bridge } from "../../services/index.ts";
+import { useOpenFile } from "../../store/openFile.ts";
+import { companionOf, useDock } from "../dock/index.ts";
+import { IconButton } from "../../ui/primitives/IconButton.tsx";
 
-/** Past this, output is trimmed with a note rather than made scrollable. */
-const MAX_OUTPUT = 4000;
-
-export function RunDetail({ run }: { run: ToolRun }) {
-	const command = typeof run.args?.command === "string" ? run.args.command : null;
-	const rest = { ...run.args };
-	delete rest.command;
-	const output = textOf(run);
-
-	return (
-		<>
-			{command && (
-				<Section title="命令" mono tone="ink">
-					<span className="mr-2 select-none text-ink-faint">$</span>
-					<CodeText text={command} kind="shell" />
-				</Section>
-			)}
-
-			{Object.keys(rest).length > 0 && (
-				<Section title="参数" mono>
-					<CodeText text={JSON.stringify(rest, null, 2)} kind="json" />
-				</Section>
-			)}
-
-			<Section
-				title={run.status === "error" ? "错误" : run.status === "running" ? "输出（进行中）" : "结果"}
-				mono
-				tone={run.status === "error" ? "danger" : "muted"}
-			>
-				{output || (run.status === "running" ? "等待输出…" : "（无输出）")}
-			</Section>
-		</>
-	);
-}
-
-/** A tool result is a list of parts; only the text ones can be shown as text. */
-function textOf(run: ToolRun): string {
-	const text = (run.result?.content ?? [])
-		.filter((part) => part.type === "text")
-		.map((part) => (part.type === "text" ? part.text : ""))
-		.join("\n")
-		.trim();
-	if (text.length <= MAX_OUTPUT) return text;
-	return `${text.slice(0, MAX_OUTPUT)}\n\n… 还有 ${text.length - MAX_OUTPUT} 个字符`;
+export function RunDetail({ run, query = "" }: { run: ToolRun; query?: string }) {
+	const sessionId = useApp(state => state.activeSessionId);
+	const meta = useApp(state => state.meta);
+	const openOutput = async () => {
+		if (!meta) return;
+		try {
+			const path = await bridge.sessions.exportTrajectory(meta.projectId, meta.id, "output", { correlationId: run.toolCallId });
+			await useOpenFile.getState().open({ path, name: path.split(/[\\/]/).pop() || path, isDirectory: false, size: 0 });
+			useDock.getState().open("file", companionOf("file"));
+		} catch (error) { useApp.getState().notify(String(error), "error"); }
+	};
+	const output = (run.result?.content ?? []).filter(part => part.type === "text").map(part => part.text).join("\n");
+	return <>
+		<div className="flex items-center gap-2 px-3 pt-2 text-caption text-ink-faint">
+			<span className="min-w-0 flex-1 break-all">{run.toolName} · {run.toolCallId}</span>
+			{run.result?.details && typeof run.result.details === "object" && "outputPath" in run.result.details && typeof run.result.details.outputPath === "string" ? <IconButton size="sm" label="查看完整原始输出" icon={<OutputIcon size={13} />} onClick={() => void openOutput()} /> : null}
+			{sessionId && <IconButton size="sm" label="在轨迹中查看这次调用" icon={<History size={13} />} onClick={() => showTrace(sessionId, run.toolCallId)} />}
+		</div>
+		<p className="px-3 pt-1 text-caption text-ink-faint tabular-nums">{new Date(run.startedAt).toLocaleString()} {run.finishedAt === undefined ? "· 进行中" : `→ ${new Date(run.finishedAt).toLocaleString()}`}</p>
+		<TraceText title="参数" kind="json" text={JSON.stringify(run.args, null, 2)} query={query} />
+		<TraceText title={run.status === "error" ? "错误" : "结果"} text={output || (run.status === "running" ? "等待输出…" : "（无文本输出）")} query={query} />
+		{run.result?.details !== undefined && <TraceText title="执行详情" kind="json" text={JSON.stringify(run.result.details, null, 2)} query={query} />}
+		{run.result?.content.filter(part => part.type === "image").map((part, index) => <img key={index} alt={`工具结果图片 ${index + 1}`} src={`data:${part.mimeType};base64,${part.data}`} className="mx-3 my-2 max-h-40 max-w-[calc(100%-24px)] rounded-lg object-contain" />)}
+	</>;
 }

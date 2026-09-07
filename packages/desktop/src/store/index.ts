@@ -1,3 +1,5 @@
+import { applySessionChange } from "./session-changes.ts";
+import type { SessionChange } from "../../electron/ipc-types.ts";
 import type {
   AgentEvent,
 	ApprovalDecision,
@@ -12,6 +14,7 @@ import { type SessionActivity } from "@lyra/core/activity";
 import { applyAgentEvent } from "./apply-event.ts";
 import type { Cache, TurnStop } from "./derive.ts";
 import { sessionSlice } from "./session-slice.ts";
+import { readSelectedSession } from "./session-read.ts";
 import { turnSlice } from "./turn-slice.ts";
 import { workspaceSlice } from "./workspace-slice.ts";
 import type { TodoItem } from "@lyra/core";
@@ -172,6 +175,7 @@ export interface AppState {
    * unrelated requests into one message nobody wrote.
    */
   composerDraft: { text: string; replace: boolean };
+  browserAttachment: { text: string; dataUrl: string; draftKey: string } | null;
   setComposerDraft(text: string, replace?: boolean): void;
 
   /**
@@ -381,7 +385,7 @@ export interface AppState {
    * `carryOn` says this send continues a turn that stopped rather than starting a new one, so its
    * clock and token count are picked up from where the pause left them. See `turn-meter.ts`.
    */
-	send(content: UserContent[], options?: { synthetic?: boolean; carryOn?: boolean; deliver?: "steer" | "followUp"; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }> }): Promise<void>;
+	send(content: UserContent[], options?: { synthetic?: boolean; carryOn?: boolean; deliver?: "steer" | "followUp"; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }> }): Promise<boolean>;
   /** Replace a message and re-run from there; everything after it is discarded. */
   editMessage(index: number, content: UserContent[]): Promise<void>;
   /** Re-send the user message that produced the reply at `index`. */
@@ -425,6 +429,7 @@ export const useApp = create<AppState>((set, get) => ({
   scratchCwd: null,
   parkedProject: null,
   composerDraft: { text: "", replace: false },
+  browserAttachment: null,
   drafts: {},
   activeSessionId: null,
   selectionEpoch: 0,
@@ -464,6 +469,43 @@ export const useApp = create<AppState>((set, get) => ({
      */
     if (booted) return;
     booted = true;
+		let initialComplete = false;
+		let connectionInterrupted = false;
+		const initialChanges: SessionChange[] = [];
+		bridge.sessions.onChanged((change) => {
+			if (!initialComplete) initialChanges.push(change);
+			else applySessionChange(change, set, get);
+		});
+
+		/*
+		 * Subscribe before the first reads.
+		 *
+		 * A fast agent event can arrive between reading a transcript and attaching the event listener.
+		 * That gap leaves the phone one token behind until the next full refresh, which is most visible
+		 * after foregrounding on a weak network. The local bridge queues the reads already, so there is
+		 * no reason to postpone the listeners until after they answer.
+		 */
+		bridge.settings.onChanged((next) =>
+			set((state) => ({ settings: next, extensionsNonce: state.extensionsNonce + 1 })),
+		);
+		bridge.agent.onEvent(({ sessionId, event }) =>
+			get().applyEvent(sessionId, event),
+		);
+		bridge.sideChat.onEvent(({ sessionId, event }) =>
+			useSide.getState().applyEvent(sessionId, event),
+		);
+		if (typeof window !== "undefined") {
+			window.addEventListener("lyra:connection", (event) => {
+				const status = event instanceof CustomEvent ? event.detail : null;
+				if (status === "reconnecting" || status === "offline") {
+					connectionInterrupted = true;
+					return;
+				}
+				if (status !== "connected" || !connectionInterrupted || !initialComplete) return;
+				connectionInterrupted = false;
+				void refreshRemoteState(set, get);
+			});
+		}
 
     const [settings, sessions] = await Promise.all([
       bridge.settings.get(),
@@ -481,6 +523,9 @@ export const useApp = create<AppState>((set, get) => ({
     // boot: it is derived from the app's home and cannot change while running.
     const scratchRoots = await bridge.git.scratchRoots().catch(() => []);
     set({ settings, sessions, workspace, scratchRoots, ready: true });
+		initialComplete = true;
+		for (const change of initialChanges) applySessionChange(change, set, get);
+		initialChanges.length = 0;
 
     /*
      * Settings the window did not write itself.
@@ -494,18 +539,6 @@ export const useApp = create<AppState>((set, get) => ({
      * Also bumps `extensionsNonce`, because a change to `mcpServers` usually means a directory
      * appeared or vanished as well, and the lists that scan disk have no other way to hear it.
      */
-    bridge.settings.onChanged((next) =>
-      set((state) => ({ settings: next, extensionsNonce: state.extensionsNonce + 1 })),
-    );
-
-    bridge.agent.onEvent(({ sessionId, event }) =>
-      get().applyEvent(sessionId, event),
-    );
-    // The side chat is a separate conversation on a separate channel, for the same reason
-    // it is a separate store: its replies must never land in the main transcript.
-    bridge.sideChat.onEvent(({ sessionId, event }) =>
-      useSide.getState().applyEvent(sessionId, event),
-    );
     void get().refreshSync();
   },
 
@@ -559,3 +592,27 @@ export const useApp = create<AppState>((set, get) => ({
     applyAgentEvent(sessionId, event, set, get);
   },
 }));
+
+async function refreshRemoteState(
+	set: (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void,
+	get: () => AppState,
+): Promise<void> {
+	try {
+		const [settings, sessions] = await Promise.all([bridge.settings.get(), bridge.sessions.list()]);
+		set((state) => ({ settings, sessions, sessionCache: Object.fromEntries(
+			Object.entries(state.sessionCache).map(([id, cached]) => [id, { ...cached, dirty: true }]),
+		) }));
+		const active = get().meta;
+		if (active && get().activeSessionId === active.id) {
+			const current = sessions.find((session) => session.id === active.id);
+			if (!current || current.archived) {
+				applySessionChange({ id: active.id, projectId: active.projectId, meta: current ?? null }, set, get);
+				return;
+			}
+			await readSelectedSession(current, set, get, true);
+			await useSide.getState().attach(active.id, true);
+		}
+	} catch (cause) {
+		get().notify(`重新同步失败：${cause instanceof Error ? cause.message : String(cause)}`, "error");
+	}
+}

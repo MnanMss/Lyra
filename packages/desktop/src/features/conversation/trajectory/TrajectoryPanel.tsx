@@ -1,130 +1,93 @@
-/**
- * Everything the model saw, in the order it saw it.
- *
- * The transcript shows a conversation; this shows the record underneath it — the system prompt, the
- * reasoning, every tool call and what it returned, every sub-agent, every time the context was
- * rebuilt. Filtered by source and searchable, because the reason to open it is always a specific
- * question: what was it told, what did it try, where did it go wrong.
- *
- * Windowed like the transcript. A day-long run has thousands of entries and the list must not be
- * the reason the app stutters.
- */
-
-import { History, Search } from "lucide-react";
-import { useEffect, useState } from "react";
-import type { Source as TrajectorySourceKind } from "@lyra/core/trajectory-view";
-
+import { History, Coins, Terminal, Zap } from "lucide-react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { countBySource, entryKey, filterTrajectory, type Entry, type Source, type TrajectoryFilter } from "@lyra/core/trajectory-view";
 import { PanelEmpty } from "../../../ui/layout/PanelEmpty.tsx";
-import { Scroller } from "../../../ui/scroll/Scroller.tsx";
-import { Text } from "../../../ui/primitives/Text.tsx";
+import { SearchField } from "../../../ui/inputs/SearchField.tsx";
+import { formatTokens } from "../../../lib/format-tokens.ts";
+import { TraceActions } from "./TraceActions.tsx";
 import { useApp } from "../../../store/index.ts";
-import { EntryRow } from "./EntryRow.tsx";
+import { useOpenFile } from "../../../store/openFile.ts";
+import { useDock, companionOf } from "../../dock/index.ts";
 import { SourceFilter } from "./SourceFilter.tsx";
 import { useTrajectory } from "./useTrajectory.ts";
-import { bridge } from "../../../services/index.ts";
-
-/** Enough to fill any window; more arrive as you reach the end. */
-const WINDOW_STEP = 150;
+import { TraceList } from "./TraceList.tsx";
+import { TraceInspector } from "./TraceInspector.tsx";
+import { TraceTimeline, type TimeRange } from "./TraceTimeline.tsx";
+import { consumeTraceFocus, useTraceFocus } from "./navigation.ts";
+import { available, bridge } from "../../../services/index.ts";
 
 export function TrajectoryPanel() {
-	const meta = useApp((s) => s.meta);
-	const openSession = useApp((s) => s.openSession);
-	const notify = useApp((s) => s.notify);
+	const meta = useApp(state => state.meta);
+	return meta ? <SessionTrajectory key={meta.id} /> : <PanelEmpty icon={History} title="轨迹">打开对话查看记录</PanelEmpty>;
+}
 
-	const [sources, setSources] = useState<TrajectorySourceKind[]>([]);
+function SessionTrajectory() {
+	const meta = useApp(state => state.meta);
+	const { all, loading, refreshing, error, refresh } = useTrajectory();
+	const controls = useRef<HTMLDivElement>(null);
+	const [sources, setSources] = useState<Source[]>([]);
 	const [query, setQuery] = useState("");
-	const [openSeq, setOpenSeq] = useState<string | null>(null);
-	const [windowSize, setWindowSize] = useState(WINDOW_STEP);
-
-	const { entries, counts, total, loading } = useTrajectory(sources, query);
-
-	// A new filter or a new search starts at the top, so the window has to start over too.
-	useEffect(() => setWindowSize(WINDOW_STEP), [sources, query, meta?.id]);
-
-	if (!meta) {
-		return (
-			<PanelEmpty icon={History} title="轨迹">
-				打开一个对话，这里会显示它的完整记录。
-			</PanelEmpty>
-		);
-	}
-
-	const visible = entries.slice(0, windowSize);
-	const hidden = entries.length - visible.length;
-
-	async function fork(seq: number) {
+	const deferredQuery = useDeferredValue(query);
+	const [status, setStatus] = useState<TrajectoryFilter["status"]>();
+	const [time, setTime] = useState<TimeRange | null>(null);
+	const [selected, setSelected] = useState<string | null>(null);
+	const [target, setTarget] = useState<string | null>(null);
+	const [collapsed, setCollapsed] = useState(new Set<number>());
+	const focus = useTraceFocus();
+	const sessionId = meta?.id;
+	const counts = useMemo(() => countBySource(all), [all]);
+	const entries = useMemo(() => filterTrajectory(all, { sources, query: deferredQuery, status, time: time ?? undefined }), [all, sources, deferredQuery, status, time]);
+	const byId = useMemo(() => new Map(all.map(entry => [entryKey(entry), entry])), [all]);
+	const picked = selected ? byId.get(selected) : undefined;
+	const totals = useMemo(() => {
+		const requests = new Set(all.filter(entry => entry.source === "request").flatMap(entry => entry.linkedSeqs ?? []));
+		return all.reduce((total, entry) => {
+			if (entry.usage && (entry.source === "request" || !requests.has(entry.seq))) { total.tokens += entry.usage.total; total.cost += entry.usage.cost.total; }
+			if (entry.source === "tool-call") total.tools++;
+			return total;
+		}, { tokens: 0, cost: 0, tools: 0 });
+	}, [all]);
+	const navigate = useCallback((entry: Entry) => {
+		setSources([]); setQuery(""); setStatus(undefined); setTime(null); setCollapsed(new Set());
+		setSelected(entryKey(entry)); setTarget(entryKey(entry));
+	}, []);
+	const select = useCallback((entry: Entry) => { setTarget(null); setSelected(entryKey(entry)); }, []);
+	const collapse = useCallback((turn: number) => setCollapsed(previous => { const next = new Set(previous); if (next.has(turn)) next.delete(turn); else next.add(turn); return next; }), []);
+	useEffect(() => {
+		if (!sessionId || focus.sessionId !== sessionId || !focus.correlationId) return;
+		const entry = all.find(entry => entry.correlationId === focus.correlationId && entry.source === "tool-call");
+		if (entry) { setSources([]); setQuery(""); setStatus(undefined); setTime(null); setCollapsed(new Set()); setSelected(entryKey(entry)); setTarget(entryKey(entry)); consumeTraceFocus(focus.nonce); }
+	}, [focus.nonce, focus.sessionId, focus.correlationId, sessionId, all]);
+	const exportFile = async (format: "md" | "json" | "output", entry?: Entry) => {
 		if (!meta) return;
-		const result = await bridge.sessions.fork(meta.projectId, meta.id, seq);
-		if (!result) {
-			notify("分叉失败", "error");
-			return;
-		}
-		notify(`已从 #${seq} 分叉出新会话，带走 ${result.messages} 条消息`);
-		await openSession(result.meta);
-	}
-
-	return (
-		<div className="flex min-h-0 flex-1 flex-col">
-			<div className="flex items-center gap-1.5 px-2 pt-2">
-				<Search size={12} strokeWidth={1.8} className="shrink-0 text-ink-faint" />
-				<input
-					value={query}
-					onChange={(event) => setQuery(event.target.value)}
-					placeholder="搜索这条轨迹…"
-					className="ly-input min-w-0 flex-1 bg-transparent text-detail text-ink outline-none placeholder:text-ink-faint"
-				/>
-				<Text size="caption" tone="faint" numeric className="shrink-0">
-					{entries.length}/{total}
-				</Text>
-			</div>
-
-			<SourceFilter
-				selected={sources}
-				counts={counts}
-				onToggle={(source) =>
-					setSources((current) =>
-						current.includes(source) ? current.filter((item) => item !== source) : [...current, source],
-					)
-				}
-				onClear={() => setSources([])}
-			/>
-
-			<Scroller className="flex-1 pt-1.5" contentClassName="px-2 pb-3">
-				{loading && entries.length === 0 && (
-					<Text size="caption" tone="faint" className="block px-1.5 py-2">
-						读取中…
-					</Text>
-				)}
-				{!loading && entries.length === 0 && (
-					<Text size="caption" tone="faint" className="block px-1.5 py-2">
-						{total === 0 ? "这个对话还没有记录。" : "没有匹配的记录。"}
-					</Text>
-				)}
-
-				{visible.map((entry, index) => {
-					const key = `${entry.seq}-${entry.source}-${index}`;
-					return (
-						<EntryRow
-							key={key}
-							entry={entry}
-							query={query}
-							open={openSeq === key}
-							onToggle={() => setOpenSeq(openSeq === key ? null : key)}
-							onFork={() => void fork(entry.seq)}
-						/>
-					);
-				})}
-
-				{hidden > 0 && (
-					<button
-						type="button"
-						onClick={() => setWindowSize((size) => size + WINDOW_STEP)}
-						className="ly-item mt-1 w-full rounded-md px-1.5 py-1.5 text-detail text-ink-faint"
-					>
-						还有 {hidden} 条，展开更多
-					</button>
-				)}
-			</Scroller>
+		try {
+			const path = await bridge.sessions.exportTrajectory(meta.projectId, meta.id, format, entry ? { id: entryKey(entry) } : undefined);
+			await useOpenFile.getState().open({ path, name: path.split(/[\\/]/).pop() || path, isDirectory: false, size: 0 });
+			useDock.getState().open("file", companionOf("file"));
+			setSelected(null);
+		} catch (error) { useApp.getState().notify(String(error), "error"); }
+	};
+	const fork = async () => {
+		if (!meta || !picked) return;
+		try { const result = await bridge.sessions.fork(meta.projectId, meta.id, picked.seq); if (result) await useApp.getState().openSession(result.meta); else throw new Error("分叉失败"); }
+		catch (error) { useApp.getState().notify(String(error), "error"); }
+	};
+	return <div className="flex min-h-0 flex-1 flex-col" data-trajectory>
+		<div ref={controls} className="flex shrink-0 items-center gap-1 px-2 pt-1.5 pb-1" role="toolbar" aria-label="轨迹工具栏">
+			<SearchField value={query} onChange={setQuery} placeholder="搜索轨迹" className="min-w-0 flex-1" />
+			<TraceTimeline entries={all} range={time} selected={selected} onRange={setTime} onSelect={navigate} />
+			<SourceFilter selected={sources} counts={counts} status={status} onStatus={setStatus} onToggle={source => setSources(current => current.includes(source) ? current.filter(value => value !== source) : [...current, source])} onClear={() => setSources([])} />
+			<TraceActions refreshing={refreshing} collapsed={collapsed.size > 0} onRefresh={refresh} onExport={available("sessions", "exportTrajectory") ? format => void exportFile(format) : undefined} onCollapse={() => setCollapsed(collapsed.size ? new Set() : new Set(all.flatMap(entry => entry.turn === undefined ? [] : [entry.turn])))} />
 		</div>
-	);
+		<div className="flex shrink-0 items-center gap-2 whitespace-nowrap px-3 text-caption text-ink-faint tabular-nums" data-trace-count aria-live="polite">
+			<span data-ly-tip={`${entries.length}/${all.length} 条记录`}>{entries.length}/{all.length}</span>
+			<span className="ml-auto flex items-center gap-1" data-ly-tip={`${totals.tools} 次工具`}><Terminal size={11} />{formatTokens(totals.tools)}</span>
+			<span className="flex items-center gap-1" data-ly-tip={`${totals.tokens.toLocaleString()} tokens`}><Zap size={11} />{formatTokens(totals.tokens)}</span>
+			{totals.cost > 0 && <span className="flex items-center gap-1" data-ly-tip={`估算费用 $${totals.cost.toFixed(4)}`}><Coins size={11} />${totals.cost.toFixed(2)}</span>}
+		</div>
+		{error && <p role="alert" className="px-3 py-1 text-caption text-danger">读取失败：{error}</p>}
+		{loading ? <p role="status" className="px-3 py-2 text-caption text-ink-faint">读取中…</p> : !entries.length && <p className="px-3 py-2 text-caption text-ink-faint">{all.length ? "没有匹配的记录" : "暂无记录"}</p>}
+		<TraceList entries={entries} selected={selected} onSelect={select} resetKey={JSON.stringify([sources, deferredQuery, status, time])} collapsed={collapsed} onCollapse={collapse} target={target} />
+		{picked && <TraceInspector key={entryKey(picked)} anchor={controls.current} entry={picked} all={all} query={deferredQuery} onSelect={navigate} onClose={() => setSelected(null)} onExport={() => void exportFile("json", picked)} onOutput={() => void exportFile("output", picked)} onFork={() => void fork()} />}
+	</div>;
 }

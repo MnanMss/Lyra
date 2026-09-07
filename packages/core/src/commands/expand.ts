@@ -24,6 +24,8 @@ export interface Invocation {
  * which is most of what it is for.
  */
 export function parseInvocation(text: string): Invocation | null {
+	const compact = /^@compact(?:\s+([\s\S]*))?$/i.exec(text);
+	if (compact) return { name: "compact", rest: (compact[1] ?? "").trim() };
 	if (!text.startsWith("/")) return null;
 	const line = text.slice(1);
 	const match = /^([a-z0-9:-]+)(?:\s+([\s\S]*))?$/i.exec(line);

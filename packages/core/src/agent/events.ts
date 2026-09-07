@@ -19,6 +19,9 @@ export type AgentEvent =
 	| { type: "command_status"; command: CommandRun }
 	| { type: "agent_start"; sessionId: string }
 	| { type: "turn_start"; turn: number }
+	| { type: "request"; provider: string; model: string; thinking?: string; messageCount: number }
+	/** Durable nested events stay outside the parent's model transcript. */
+	| { type: "subagent_event"; id: string; event: Extract<AgentEvent, { type: "tool_start" | "tool_end" | "request" | "retry" | "agent_end" | "turn_start" | "context" | "compacted" }> }
 	| { type: "message_start"; message: Message }
 	| { type: "message_update"; message: AssistantMessage; delta: StreamEvent }
 	| { type: "message_end"; message: Message }
@@ -102,7 +105,7 @@ export type AgentEvent =
 	 * Written when it changes rather than every turn, because it rarely changes and a log that
 	 * repeats itself is one nobody reads.
 	 */
-	| { type: "context"; systemPrompt: string; tools: string[]; skills: string[] }
+	| { type: "context"; systemPrompt: string; tools: string[]; skills: string[]; schemas?: import("../types/tool.ts").ToolSpec[] }
 	/**
 	 * A sub-agent was dispatched, and what came back.
 	 *
@@ -114,14 +117,14 @@ export type AgentEvent =
 	 * Steps are summaries, not transcripts. A sub-agent exists so its forty file reads stay out of
 	 * the parent context; copying them into the parent log would give that back with interest.
 	 */
-	| { type: "subagent"; id: string; agent: string; description: string; prompt: string; tools: string[] }
+	| { type: "subagent"; id: string; agent: string; description: string; prompt: string; tools: string[]; parentId?: string; provider?: string; model?: string }
 	/**
 	 * One message from inside a sub-agent, as it is written.
 	 *
 	 * Delegated work used to be write-only — dispatched, then a paragraph of answer — which is the
 	 * shape of the problem: the context isolation that makes delegation worth doing is what makes
 	 * it opaque, and a run you cannot see is one you cannot correct. These carry the sub-agent's
-	 * own id and are never written to the session log; the parent's transcript is unchanged by
+	 * own id and are persisted as events, outside the parent's model transcript. The parent is unchanged by
 	 * anyone watching one.
 	 */
 	| { type: "subagent_message"; id: string; message: Message }
@@ -133,7 +136,7 @@ export type AgentEvent =
 	 * instead of having to have seen every event since it left.
 	 */
 	| { type: "subagents"; agents: SubAgentSummary[] }
-	| { type: "subagent_done"; id: string; steps: string[]; answer: string }
+	| { type: "subagent_done"; id: string; steps: string[]; answer: string; status?: "done" | "failed" | "aborted"; error?: string }
 	/**
 	 * History was summarised to fit the window.
 	 *

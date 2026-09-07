@@ -59,7 +59,9 @@ export function resolveAsset(dir: string | undefined, src: string): string | nul
 	 * Both are ordinary in a README — the second is how a project ships a light and a dark logo —
 	 * and left on the end they become part of the filename, which then does not exist.
 	 */
-	const path = decodeURI(raw.split("#")[0].split("?")[0]).trim();
+	let path: string;
+	try { path = decodeURI(raw.split("#")[0].split("?")[0]).trim(); }
+	catch { return null; }
 	if (!path) return null;
 
 	const separator = separatorOf(dir);

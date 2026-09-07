@@ -70,7 +70,7 @@ export function resolveModelThinkingOptions(model?: ModelConfig | null): Thinkin
 		return [];
 	}
 
-	if (model.thinkingOptions && model.thinkingOptions.length > 0) {
+	if (model.thinkingOptions !== undefined) {
 		return model.thinkingOptions;
 	}
 
@@ -127,131 +127,16 @@ export function resolveModelThinkingOptions(model?: ModelConfig | null): Thinkin
 		return FAST_3_LEVEL_OPTIONS;
 	}
 
-	/*
-	 * An unrecognised model gets the levels everything supports, not the most it could want.
-	 *
-	 * The fallback used to be GPT-5.6's seven, so any model this file has never heard of was
-	 * offered `minimal`, `xhigh` and `max` — and the effort mapping passes those straight through
-	 * for an id it cannot place, so picking one sent a string the endpoint may well reject. That
-	 * is the failure the whole arrangement exists to prevent, arriving through its own default.
-	 *
-	 * Low/medium/high is the common denominator: every reasoning API that takes an effort at all
-	 * takes these three. A model that supports more says so in its own `thinkingOptions`, which is
-	 * checked at the top of this function and is where a claim like that belongs — asserted by the
-	 * configuration, not guessed from the name.
-	 */
+	// Compatibility fallback for unrecognised relay aliases, not a provider capability claim.
+	// Explicit thinkingOptions (including an empty list) always take precedence.
 	return STANDARD_3_LEVEL_OPTIONS;
 }
 
-/**
- * Map a UI thinking level to upstream API reasoning effort parameter safely.
- * Clamps and sanitizes so that APIs like Gemini never receive unsupported strings like "minimal".
- */
+/** Use the same capability list as the UI; stale selections inherit its displayed default. */
 export function resolveReasoningEffort(level: ThinkingLevel | undefined, model?: ModelConfig | null): string | undefined {
-	if (!level || level === "off") {
-		return undefined;
-	}
-
-	const id = (model?.modelId || model?.id || "").toLowerCase();
-
-	// Gemini API only supports low, medium, high. Any "minimal", "xhigh", "max" or "ultra" must be safely clamped.
-	if (id.includes("gemini") || id.includes("gemma")) {
-		switch (level) {
-			case "minimal":
-			case "low":
-				return "low";
-			case "medium":
-				return "medium";
-			case "high":
-			case "xhigh":
-			case "max":
-			case "ultra":
-				return "high";
-			default:
-				return "medium";
-		}
-	}
-
-	// GPT-5.6-sol supports high, xhigh, max, ultra. Qualified the same way as the options above:
-	// a bare `ultra` is not enough to say which family a model belongs to.
-	if (id.includes("5.6-sol") || (id.includes("gpt-") && id.includes("ultra"))) {
-		switch (level) {
-			case "minimal":
-				return "minimal";
-			case "low":
-				return "low";
-			case "medium":
-				return "medium";
-			case "high":
-				return "high";
-			case "xhigh":
-				return "xhigh";
-			case "max":
-				return "max";
-			case "ultra":
-				return "ultra";
-			default:
-				return String(level);
-		}
-	}
-
-	// Standard GPT-5.6 / 5.5 / 5.4 mapping
-	if (id.includes("gpt-5.6") || id.includes("gpt5.6")) {
-		switch (level) {
-			case "minimal":
-				return "minimal";
-			case "low":
-				return "low";
-			case "medium":
-				return "medium";
-			case "high":
-				return "high";
-			case "xhigh":
-				return "xhigh";
-			case "max":
-			case "ultra":
-				return "max";
-			default:
-				return String(level);
-		}
-	}
-
-	if (id.includes("gpt-5")) {
-		switch (level) {
-			case "minimal":
-				return "low";
-			case "low":
-				return "low";
-			case "medium":
-				return "medium";
-			case "high":
-				return "high";
-			case "xhigh":
-			case "max":
-			case "ultra":
-				return "xhigh";
-			default:
-				return String(level);
-		}
-	}
-
-	// Default general mapping
-	switch (level) {
-		case "minimal":
-			return "minimal";
-		case "low":
-			return "low";
-		case "medium":
-			return "medium";
-		case "high":
-			return "high";
-		case "xhigh":
-			return "xhigh";
-		case "max":
-			return "max";
-		case "ultra":
-			return "ultra";
-		default:
-			return String(level);
-	}
+	if (!level || level === "off") return undefined;
+	const options = resolveModelThinkingOptions(model);
+	const selected = options.find((option) => option.id === level)
+		?? options.find((option) => option.isDefault) ?? options[0];
+	return selected?.id === "off" ? undefined : selected?.id;
 }

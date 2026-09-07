@@ -83,7 +83,7 @@ test("接线：一轮的 gatherMemory 把两边都盖上今天的戳", async () 
 	assert.equal(proj[EXTRACTED_KEY], now, "and the extracted file as one item");
 
 	const off = await gatherMemory(project, false, now + 1);
-	assert.deepEqual(off, { memorySnippet: "", projectMemory: "" }, "switched off: nothing gathered");
+	assert.deepEqual(off, { memorySnippet: "", projectMemory: "", projectMemoryFiles: [] }, "switched off: nothing gathered");
 	assert.equal((await readInjected(userInjectedPath()))[ids[0]], now, "and nothing stamped");
 });
 

@@ -99,7 +99,7 @@ function fakeHost(height: number, windowHeight: number) {
 		},
 	};
 	return {
-		host: { viewport, innerHeight: windowHeight },
+		host: { visualViewport: viewport, innerHeight: windowHeight },
 		viewport,
 		fire: (type: string) => (listeners[type] ?? []).forEach((h) => h()),
 		listening: (type: string) => (listeners[type] ?? []).length,
@@ -186,6 +186,21 @@ test("stopping puts everything back", () => {
 });
 
 test("a host with no viewport API is a no-op that is still safe to stop", () => {
-	const stop = watchKeyboard({ viewport: null, innerHeight: WINDOW }, fakeTarget().target);
+	const stop = watchKeyboard({ visualViewport: null, innerHeight: WINDOW }, fakeTarget().target);
+	assert.doesNotThrow(stop);
+});
+
+test("the similarly named experimental window.viewport object is ignored", () => {
+	/*
+	 * Chromium exposes an experimental `window.viewport` object on some builds. It has geometry but
+	 * no EventTarget methods, so reading it instead of `visualViewport` crashes the entire phone UI
+	 * as soon as LayoutProvider mounts.
+	 */
+	const host = {
+		viewport: { height: 508, offsetTop: 0 },
+		visualViewport: null,
+		innerHeight: WINDOW,
+	};
+	const stop = watchKeyboard(host, fakeTarget().target);
 	assert.doesNotThrow(stop);
 });

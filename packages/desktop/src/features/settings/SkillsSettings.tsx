@@ -188,11 +188,7 @@ export function SkillsSettings({ filter = "" }: { filter?: string }) {
 			{slow ? (
 				<SkeletonList count={6} label="正在读取技能" />
 			) : scan === null || pending === null ? null : skills.length === 0 ? (
-				<EmptyHint>
-					还没有技能。
-					<br />
-					在上面的目录里新建 <span className="font-mono">{"<技能名>/SKILL.md"}</span>，写上 name 和 description 即可。
-				</EmptyHint>
+				<EmptyHint>{needle ? "没有匹配的技能" : "暂无技能"}</EmptyHint>
 			) : (
 				/*
 				 * The same row as the plugin list, because it is the same kind of thing: a mark, a

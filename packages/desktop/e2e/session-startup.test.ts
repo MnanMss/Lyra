@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
-import { after, before, test } from "node:test";
+import { after, afterEach, before, test, type TestContext } from "node:test";
 import type { SessionMeta } from "@lyra/core";
 import { closeListeningServer, startApp, type RunningApp } from "./app.ts";
+import { cleanupFixture } from "./fixture-cleanup.ts";
 import { seedInteractions } from "./interaction-fixture.ts";
 
 let app: RunningApp;
@@ -49,11 +50,26 @@ else if(q.method==='tools/list')reply({tools:[]});else reply({});});`);
 		settings.mcpServers = [{ id: "slow-qa", name: "Slow QA", transport: "stdio", enabled: true, command: process.execPath, args: [mcp] }];
 		await writeFile(file, JSON.stringify(settings));
 	} });
+	await app.evaluate(`(() => {
+		window.qaStartupTrace=[];
+		for(const type of ['pointerdown','pointerup','click','focusin','input'])document.addEventListener(type,event=>{
+			const target=event.target;
+			window.qaStartupTrace.push({type,time:performance.now(),target:target.outerHTML?.slice(0,240),value:target.value,
+				field:document.querySelector('textarea')?.value,heading:document.querySelector('h1')?.textContent});
+			if(window.qaStartupTrace.length>80)window.qaStartupTrace.shift();
+		},true);
+	})()`);
 });
-after(async () => { await app?.stop(); await closeListeningServer(server); });
+after(async () => { await cleanupFixture(() => app?.stop(), () => closeListeningServer(server)); });
+afterEach(async (t) => {
+	if (t.passed) return;
+	await shot("group-loading-failure");
+	t.diagnostic(await app.evaluate<string>(`JSON.stringify({trace:window.qaStartupTrace,field:document.querySelector('textarea')?.value,active:document.activeElement?.outerHTML.slice(0,300),body:document.body.innerText.slice(-1600)})`));
+	t.diagnostic(await app.evaluate<string>(`JSON.stringify([...document.querySelectorAll('[class~="group/project"] > button[aria-expanded]')].map(b=>({text:b.textContent,expanded:b.getAttribute('aria-expanded'),html:b.innerHTML})))`));
+});
 
 async function click(selector: string): Promise<void> {
-	const at = await app.evaluate<{ x: number; y: number }>(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.checkVisibility({visibilityProperty:true}));if(!e)throw new Error(${JSON.stringify(selector)});e.scrollIntoView({block:'nearest',behavior:'instant'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+	const at = await app.evaluate<{ x: number; y: number }>(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.checkVisibility({visibilityProperty:true}));if(!e)throw new Error(${JSON.stringify(selector)});e.scrollIntoView({block:'nearest',behavior:'instant'});const r=e.getBoundingClientRect();const x=r.x+r.width/2,y=r.y+r.height/2;window.qaStartupTrace.push({type:'aim',selector:${JSON.stringify(selector)},time:performance.now(),rect:r.toJSON(),hit:document.elementFromPoint(x,y)?.outerHTML.slice(0,240),field:document.querySelector('textarea')?.value});return {x,y};})()`);
 	await app.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...at });
 	await app.send("Input.dispatchMouseEvent", { type: "mousePressed", button: "left", clickCount: 1, ...at });
 	await app.send("Input.dispatchMouseEvent", { type: "mouseReleased", button: "left", clickCount: 1, ...at });
@@ -64,8 +80,16 @@ async function frames(n: number): Promise<void> {
 }
 async function submit(): Promise<{ meta: SessionMeta; elapsed: number }> {
 	await click('button[aria-label="在「交互验证」里新建会话"]');
+	// Returning from a worktree replaces the previous conversation's composer after workspace.info.
+	// Target the new draft, rather than focusing an old textarea between its pointerdown and unmount.
+	await app.evaluate(`new Promise((resolve,reject)=>{const end=performance.now()+8000;const step=()=>{
+		if(document.querySelector('main h1')&&!document.querySelector('.ly-transcript')&&document.querySelector('textarea'))resolve();
+		else if(performance.now()<end)requestAnimationFrame(step);else reject(new Error('new project draft did not appear'));
+	};step();})`);
 	await click('textarea');
+	assert.equal(await app.evaluate(`document.activeElement===document.querySelector('textarea')`), true, "typing targets the new draft's live field");
 	await app.send("Input.insertText", { text: "相同提示词隔离验证" });
+	assert.equal(await app.evaluate(`document.querySelector('textarea').value`), "相同提示词隔离验证");
 	const before = await app.evaluate<string[]>(`[...document.querySelectorAll('[data-ly-row]')].map(e=>e.dataset.lyRow)`);
 	const start = performance.now();
 	await click('button[aria-label="发送"]');
@@ -81,10 +105,11 @@ test("slow MCP startup still creates immediate titled rows, aggregates collapsed
 	assert.ok(first.elapsed < 1000, `opening row took ${first.elapsed}ms with a 2400ms MCP handshake`);
 	assert.equal(first.meta.title, "相同提示词隔离验证"); assert.equal(first.meta.messageCount, 1);
 	assert.equal(modelRequests, 0, "the row is present before either MCP or the provider responds");
+	assert.equal(await app.evaluate(`!!document.querySelector('[class~="group/project"] > button[aria-expanded="true"] [aria-label*="个会话正在执行"]')`), false);
 	await click('[class~="group/project"] > button[aria-expanded]');
 	await frames(20);
-	const group = await app.evaluate<{ expanded: string; label: string; hasLight: boolean }>(`(()=>{const b=document.querySelector('[class~="group/project"] > button[aria-expanded]');const status=b.querySelector('[aria-label*="个会话正在执行"]');return {expanded:b.getAttribute('aria-expanded'),label:status?.getAttribute('aria-label'),hasLight:!!status?.querySelector('span')};})()`);
-	assert.equal(group.expanded, "false"); assert.equal(group.label, "1 个会话正在执行"); assert.equal(group.hasLight, true);
+	const group = await app.evaluate<{ expanded: string; label: string; hasSpinner: boolean }>(`(()=>{const b=document.querySelector('[class~="group/project"] > button[aria-expanded]');const status=b.querySelector('[aria-label*="个会话正在执行"]');return {expanded:b.getAttribute('aria-expanded'),label:status?.getAttribute('aria-label'),hasSpinner:!!status?.querySelector('svg.ly-spin')};})()`);
+	assert.equal(group.expanded, "false"); assert.equal(group.label, "1 个会话正在执行"); assert.equal(group.hasSpinner, true);
 	await click('button[aria-label="停止"]');
 	const second = await submit();
 	assert.notEqual(first.meta.id, second.meta.id); assert.equal(first.meta.title, second.meta.title);
@@ -124,3 +149,68 @@ test("a submitted worktree session preserves a startup rename and completes once
 	assert.ok(samples.every((text) => text.includes("初始化后完成，后台缓存收到回复。")), "a parked completion is present on every painted frame after selection");
 	t.diagnostic(JSON.stringify({ rowMs: started.elapsed, providerRequests: modelRequests, messages: saved.messages.map((m) => m.role), title: saved.meta.title, frames: samples.length }));
 });
+
+test("collapsed group loading shares the far-right action slot without shifting the heading", async (t) => {
+	await app.evaluate(`(async()=>{const s=await window.lyra.settings.get();await window.lyra.settings.save({...s,worktrees:{...s.worktrees,autoCreateOnNewSession:false}});})()`);
+	const requested = new Promise<void>((resolve) => { onModelRequest = resolve; });
+	const started = await submit();
+	await requested;
+	await verifyGroupLoading(t, started.meta.id);
+	assert.ok(completeReply); completeReply();
+	await app.evaluate(`new Promise((resolve,reject)=>{let n=300;const read=async()=>{const s=await window.lyra.sessions.transcript(${JSON.stringify(started.meta.projectId)},${JSON.stringify(started.meta.id)});if(!s.running)resolve();else if(--n)requestAnimationFrame(read);else reject(new Error('turn did not complete'));};read();})`);
+	await click('[data-qa-running-group]'); await frames(20);
+	assert.equal(await app.evaluate(`!!document.querySelector('[data-qa-running-group] svg.ly-spin')`), false);
+});
+
+async function shot(name: string) {
+	const directory = process.env.LYRA_E2E_ARTIFACTS;
+	if (!directory) return;
+	await mkdir(directory, { recursive: true });
+	const result = await app.send<{ data: string }>("Page.captureScreenshot", { format: "png" });
+	await writeFile(join(directory, name + ".png"), Buffer.from(result.data, "base64"));
+}
+
+async function verifyGroupLoading(t: TestContext, sessionId: string) {
+	// Workspace initialization may refresh the project name; locate the group by its actual row.
+	await app.evaluate(`(()=>{let group=document.querySelector(${JSON.stringify(`[data-ly-row="${sessionId}"]`)}).parentElement;
+const selector=':scope > [data-ly-head] > [class~="group/project"] > button[aria-expanded]';
+while(group&&!group.querySelector(selector))group=group.parentElement;
+if(!group)throw new Error('Running session has no project heading');group.querySelector(selector).setAttribute('data-qa-running-group','');})()`);
+	const heading = '[data-qa-running-group]';
+	assert.equal(await app.evaluate(`document.querySelector(${JSON.stringify(heading)}).getAttribute('aria-expanded')`), "true");
+	assert.equal(await app.evaluate(`!!document.querySelector(${JSON.stringify(heading + ' svg.ly-spin')})`), false);
+	await click(heading);
+	// Leave the row so its resting status can occupy the same slot as the hover actions.
+	await app.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 600, y: 100 }); await frames(20);
+	const measurement = `(()=>{const b=document.querySelector(${JSON.stringify(heading)}),r=b.getBoundingClientRect(),name=b.children[1].getBoundingClientRect();
+const status=b.querySelector('[aria-label*="个会话正在执行"]'),slot=status.parentElement,s=status.getBoundingClientRect(),svg=status.querySelector('svg');
+const menu=b.parentElement.querySelector('button[aria-haspopup="menu"]'),actions=menu.parentElement,m=menu.querySelector('svg').getBoundingClientRect();
+return {height:r.height,nameX:name.x,nameWidth:name.width,rightInset:r.right-s.right,centerY:s.y+s.height/2-r.y-r.height/2,slotOpacity:Number(getComputedStyle(slot).opacity),actionsOpacity:Number(getComputedStyle(actions).opacity),diameter:s.width,menuCenterX:m.x+m.width/2,loadingCenterX:s.x+s.width/2,rotation:getComputedStyle(svg).transform,buttonsReachable:[...actions.querySelectorAll('button')].every(e=>{const a=e.getBoundingClientRect();return e.contains(document.elementFromPoint(a.x+a.width/2,a.y+a.height/2));})};})()`;
+	type Measurement = { height: number; nameX: number; nameWidth: number; rightInset: number; centerY: number; slotOpacity: number; actionsOpacity: number; diameter: number; menuCenterX: number; loadingCenterX: number; rotation: string; buttonsReachable: boolean };
+	const resting = await app.evaluate<Measurement>(measurement);
+	assert.equal(resting.diameter, 14); assert.ok(resting.rightInset >= 8 && resting.rightInset <= 12);
+	assert.ok(Math.abs(resting.centerY) <= 0.5); assert.ok(Math.abs(resting.menuCenterX - resting.loadingCenterX) <= 1);
+	assert.equal(resting.slotOpacity, 1); assert.equal(resting.actionsOpacity, 0);
+	await shot("group-loading-collapsed");
+	const position = await app.evaluate<{ x: number; y: number }>(`(()=>{const r=document.querySelector(${JSON.stringify(heading)}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+	await app.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...position });
+	const samples = await app.evaluate<Measurement[]>(`(async()=>{const samples=[];for(let i=0;i<24;i++){await new Promise(requestAnimationFrame);samples.push(${measurement});}return samples;})()`);
+	assert.ok(samples.every((frame) => frame.height === resting.height && frame.nameX === resting.nameX && frame.nameWidth === resting.nameWidth));
+	assert.ok(samples.some((frame) => frame.slotOpacity > 0 && frame.slotOpacity < 1), "status fades rather than jumping");
+	assert.ok(new Set(samples.map((frame) => frame.rotation)).size > 1, "the loading arc actually rotates");
+	const hovered = samples.at(-1); assert.ok(hovered);
+	assert.equal(hovered.slotOpacity, 0); assert.equal(hovered.actionsOpacity, 1); assert.equal(hovered.buttonsReachable, true);
+	await shot("group-loading-hover");
+	await app.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 600, y: 100 }); await frames(20);
+	assert.equal((await app.evaluate<Measurement>(measurement)).slotOpacity, 1);
+	await click(heading); await frames(20);
+	assert.equal(await app.evaluate(`!!document.querySelector(${JSON.stringify(heading + ' svg.ly-spin')})`), false);
+	await shot("group-loading-expanded");
+	const section = '[class~="group/section"]';
+	assert.equal(await app.evaluate(`!!document.querySelector(${JSON.stringify(section + ' svg.ly-spin')})`), false);
+	await click(section); await frames(20);
+	assert.equal(await app.evaluate(`!!document.querySelector(${JSON.stringify(section + ' svg.ly-spin')})`), true);
+	await click(section); await frames(20);
+	assert.equal(await app.evaluate(`!!document.querySelector(${JSON.stringify(section + ' svg.ly-spin')})`), false);
+	t.diagnostic(JSON.stringify({ resting, hovered, sampledFrames: samples.length, slotOpacity: samples.map((frame) => frame.slotOpacity), pinnedSection: "collapsed only" }));
+}

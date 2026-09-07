@@ -523,7 +523,7 @@ export class AgentSession {
 	 * workspace: steering changes what the sub-agent reports back, and the parent acts on the
 	 * report. Two agents writing to one working tree is a conflict waiting to happen.
 	 */
-	steerSubAgent(id: string, text: string): boolean {
+	async steerSubAgent(id: string, text: string): Promise<boolean> {
 		const message = this.subAgents.steer(id, text);
 		if (!message) return false;
 		/*
@@ -534,7 +534,7 @@ export class AgentSession {
 		 * thing — and the reply, when it came, would arrive as an answer to a question that was
 		 * never on screen.
 		 */
-		void this.emit({ type: "subagent_message", id, message });
+		await this.emit({ type: "subagent_message", id, message });
 		return true;
 	}
 
@@ -566,7 +566,7 @@ export class AgentSession {
 		const epoch = this.abortEpoch;
 		const resume = async () => {
 			await this.cancelPendingPrompt();
-			if (this.abortEpoch !== epoch) return;
+			if (this.abortEpoch !== epoch) { await this.emit({ type: "agent_end", reason: "aborted" }); return; }
 			/*
 			 * A fresh session restored with pendingPrompt (e.g. from the desktop new session flow)
 			 * has its first prompt already written to disk before the session object exists. Trigger
@@ -579,7 +579,7 @@ export class AgentSession {
 					await this.setTitleFromPrompt(first.content, first.displayText === "" ? first.skillRef?.name ?? first.sessionRefs?.[0]?.title ?? "" : first.displayText);
 				}
 			}
-			if (this.abortEpoch !== epoch) return;
+			if (this.abortEpoch !== epoch) { await this.emit({ type: "agent_end", reason: "aborted" }); return; }
 			await this.run();
 			await this.drainPending();
 		};
@@ -664,7 +664,7 @@ export class AgentSession {
 			await this.setTitleFromPrompt(content, options.displayText === "" ? options.skillRef?.name ?? options.sessionRefs?.[0]?.title ?? "" : options.displayText);
 		}
 
-		if (this.abortEpoch !== epoch) return;
+		if (this.abortEpoch !== epoch) { await this.emit({ type: "agent_end", reason: "aborted" }); return; }
 		await this.run(options.thinking);
 		await this.drainPending();
 		};
@@ -760,7 +760,8 @@ export class AgentSession {
 	abort(): void {
 		void this.cancelTitleSummary();
 		this.abortEpoch++;
-		if (this.acceptingPrompt && !this.controller) void this.emit({ type: "agent_end", reason: "aborted" });
+		// The prompt owner records a cancelled startup before resolving, so disposal cannot race
+		// an unawaited append after the caller has already finished the opening submission.
 		this.controller?.abort();
 		this.steering.length = 0;
 		/*

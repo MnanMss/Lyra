@@ -9,15 +9,15 @@ import { flushCoalesced } from "./coalesce.ts";
 
 // Only one IPC payload is in flight. Intermediate selections collapse into the latest one.
 let reading: string | null = null;
-let queued: SessionMeta | null = null;
+let queued: { meta: SessionMeta; resync: boolean } | null = null;
 
 type Get = () => AppState;
 type Set = (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void;
 
-export async function readSelectedSession(meta: SessionMeta, set: Set, get: Get): Promise<void> {
+export async function readSelectedSession(meta: SessionMeta, set: Set, get: Get, resync = false): Promise<void> {
 	const cached = get().sessionCache[meta.id];
 	if (reading !== null) {
-		queued = meta;
+		queued = { meta, resync: resync || (queued?.meta.id === meta.id && queued.resync) };
 		return;
 	}
 	reading = meta.id;
@@ -39,7 +39,10 @@ export async function readSelectedSession(meta: SessionMeta, set: Set, get: Get)
 		// Whatever was clicked last while this was running is the one that still wants reading.
 		const next = queued;
 		queued = null;
-		if (next && next.id !== meta.id && get().activeSessionId === next.id) void readSelectedSession(next, set, get);
+		// Reconnect needs a post-disconnect snapshot even if the selected session did not change.
+		if (next && (next.meta.id !== meta.id || next.resync) && get().activeSessionId === next.meta.id) {
+			void readSelectedSession(next.meta, set, get, next.resync);
+		}
 	}
 
 	// A second click while this was in flight wins; discard the stale arrival.
@@ -51,7 +54,7 @@ export async function readSelectedSession(meta: SessionMeta, set: Set, get: Get)
 	}
 
 	// Cold visits need the disk prefix as well as events that arrived during the read.
-	if (before.loadingSession && events.length) {
+	if ((before.loadingSession || resync) && events.length) {
 		let merged: Cache[string] = {
 			meta: snapshot.meta, messages: snapshot.messages, toolRuns: rebuildToolRuns(snapshot.messages),
 			state: { running: snapshot.running, commandRuns: snapshot.commandRuns ?? [], todos: todosFrom(snapshot.messages), compactions: (snapshot.compactions ?? []).map((at) => ({ at, before: 0, after: 0 })),
@@ -74,7 +77,7 @@ export async function readSelectedSession(meta: SessionMeta, set: Set, get: Get)
 	// A warm transcript already contains the history. Events received during the IPC read
 	// are newer than that request, so refreshing must not roll them back.
 	const advanced =
-		!before.loadingSession &&
+		!resync && !before.loadingSession &&
 		(current.messages !== before.messages ||
 			current.toolRuns !== before.toolRuns ||
 			current.running !== before.running ||

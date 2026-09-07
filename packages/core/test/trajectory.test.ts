@@ -116,7 +116,7 @@ test("filtering by source and by words compose", async () => {
 		const entries = await readTrajectory(h.store, h.meta.projectId, h.meta.id);
 
 		assert.equal(filterTrajectory(entries, { sources: ["thinking"] }).length, 1);
-		assert.equal(filterTrajectory(entries, { query: "cache miss" }).length, 1);
+		assert.deepEqual(filterTrajectory(entries, { query: "cache miss" }).map(entry => entry.source), ["tool-call", "tool-result"], "paired call details are searchable too");
 		assert.equal(filterTrajectory(entries, { sources: ["user"], query: "cache miss" }).length, 0);
 
 		const counts = countBySource(entries);
@@ -186,4 +186,13 @@ test("match ranges point at every occurrence, for highlighting", () => {
 		{ start: 25, end: 30 },
 	]);
 	assert.deepEqual(matchRanges("anything", "  "), [], "an empty query matches nothing, not everything");
+});
+
+test("forking rejects a mismatched project without creating an empty conversation", async () => {
+	const h = await seeded();
+	try {
+		const before = await h.store.listSessions();
+		assert.equal(await forkSession(h.store, "wrong-project", h.meta.id, 1), null);
+		assert.deepEqual(await h.store.listSessions(), before);
+	} finally { await h.cleanup(); }
 });

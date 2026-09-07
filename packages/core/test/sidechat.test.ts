@@ -16,7 +16,7 @@ const question = (text: string): Message => ({ role: "user", content: [{ type: "
 function reply(text = "Answer"): AssistantMessage {
 	return { role: "assistant", content: [{ type: "text", text }], api: provider.api, provider: provider.id, model: model.modelId, stopReason: "stop", usage: emptyUsage(), timestamp: Date.now() };
 }
-async function fixture(t: TestContext, options: Pick<SideChatOptions, "streamFn" | "summaryStream" | "emit">) {
+async function fixture(t: TestContext, options: Omit<SideChatOptions, "main" | "settings"> & { settings?: SideChatOptions["settings"] }) {
 	const root = await mkdtemp(join(tmpdir(), "lyra-side-read-"));
 	const store = new SessionStore(join(root, "sessions"));
 	const meta = await store.create(root, model.id);
@@ -126,4 +126,93 @@ test("long side history compacts once across follow-ups while retaining the full
 	assert.equal(summaries, 1, "a second question reuses the compacted reading instead of summarizing everything again");
 	assert.equal(chat.messages.length, 204);
 	assert.ok(requests.every((size) => size < 128000), JSON.stringify(requests));
+});
+
+const sideModel = { ...model, id: "qa/side", modelId: "side", name: "Side" };
+const modelSettings = { ...settings, providers: [{ ...provider, models: [model, sideModel] }], sideChatModelId: sideModel.id };
+
+test("requests retain matching reasoning handles but strip foreign ones after selection, restore and following main", async (t) => {
+	const otherModel = { ...model, id: "other/model", providerId: "other" };
+	const other: ProviderConfig = { ...provider, id: "other", api: "openai-responses", models: [otherModel] };
+	const both = { ...settings, providers: [provider, other] };
+	const signed: AssistantMessage = { ...reply(), content: [{ type: "thinking", thinking: "Visible reasoning", signature: "private-signature", encrypted: "private-payload" }, { type: "text", text: "Previous answer" }] };
+	const seen: string[] = [];
+	const streamFn: NonNullable<SideChatOptions["streamFn"]> = async (context, config) => {
+		seen.push(JSON.stringify(context.messages));
+		return { ...reply(), provider: config.provider.id, api: config.provider.api, model: config.model.modelId };
+	};
+	const { main, chat } = await fixture(t, { settings: both, emit: () => {}, streamFn });
+	chat.restore([question("original"), signed]);
+	await chat.ask([{ type: "text", text: "same provider" }]);
+	assert.match(seen.at(-1)!, /private-signature/);
+	await chat.setModel(otherModel.id);
+	await chat.ask([{ type: "text", text: "different provider" }]);
+	assert.doesNotMatch(seen.at(-1)!, /private-signature|private-payload/);
+	assert.match(seen.at(-1)!, /Visible reasoning/);
+	assert.match(JSON.stringify(chat.messages), /private-signature/, "the visible archive is not rewritten");
+	const restored = new SideChat({ main, settings: both, emit: () => {}, streamFn });
+	restored.restore(chat.messages, otherModel.id);
+	await restored.ask([{ type: "text", text: "after restart" }]);
+	assert.doesNotMatch(seen.at(-1)!, /private-signature|private-payload/);
+	const follow = new SideChat({ main, settings: both, emit: () => {}, streamFn });
+	follow.restore([question("original"), signed], null);
+	main.meta.modelId = otherModel.id;
+	await follow.ask([{ type: "text", text: "follow changed main" }]);
+	assert.doesNotMatch(seen.at(-1)!, /private-signature|private-payload/);
+});
+
+test("side defaults, explicit selection and following main resolve at request start without erasing history", async (t) => {
+	const used: string[] = [];
+	const { main, chat } = await fixture(t, { settings: modelSettings, emit: () => {}, streamFn: async (_context, config) => { used.push(config.model.id); return reply(); } });
+	assert.equal(chat.state().modelId, sideModel.id);
+	await chat.ask([{ type: "text", text: "default" }]);
+	await chat.setModel(null);
+	await chat.ask([{ type: "text", text: "follow" }]);
+	await chat.setModel(sideModel.id);
+	main.meta.modelId = model.id;
+	await chat.ask([{ type: "text", text: "explicit" }]);
+	assert.deepEqual(used, [sideModel.id, model.id, sideModel.id]);
+	assert.equal(chat.messages.length, 6);
+	await assert.rejects(chat.setModel("missing"), /不可用/);
+});
+
+test("model changes during a request apply only to the following request", async (t) => {
+	const started = Promise.withResolvers<void>(), gate = Promise.withResolvers<void>();
+	const used: string[] = [];
+	const { chat } = await fixture(t, { settings: modelSettings, emit: () => {}, streamFn: async (_context, config) => {
+		used.push(config.model.id); if (used.length === 1) { started.resolve(); await gate.promise; }
+		return reply();
+	} });
+	const run = chat.ask([{ type: "text", text: "first" }]); await started.promise;
+	await chat.setModel(model.id); gate.resolve(); await run;
+	await chat.ask([{ type: "text", text: "next" }]);
+	assert.deepEqual(used, [sideModel.id, model.id]);
+});
+
+test("failed model persistence stays uncommitted and cancels the request awaiting it", async (t) => {
+	const gate = Promise.withResolvers<void>(); const events: string[] = []; let calls = 0;
+	const { chat } = await fixture(t, { settings: modelSettings, persistModel: () => gate.promise, emit: (event) => { events.push(event.type); }, streamFn: async () => { calls++; return reply(); } });
+	const initial = chat.state();
+	const setting = chat.setModel(model.id); const rejected = assert.rejects(setting, /disk full/);
+	const run = chat.ask([{ type: "text", text: "must not fall back" }]);
+	assert.deepEqual(chat.state().modelId, initial.modelId);
+	gate.reject(new Error("disk full")); await rejected; await run;
+	assert.equal(calls, 0); assert.equal(chat.running, false); assert.equal(chat.state().modelId, sideModel.id);
+	assert.ok(events.includes("agent_end")); assert.ok(!events.includes("side_model"));
+});
+
+test("aborting a request while its model is being saved settles the UI without sending", async (t) => {
+	const gate = Promise.withResolvers<void>(); const events: string[] = []; let calls = 0;
+	const { chat } = await fixture(t, { settings: modelSettings, persistModel: () => gate.promise, emit: (event) => { events.push(event.type); }, streamFn: async () => { calls++; return reply(); } });
+	const setting = chat.setModel(model.id); const run = chat.ask([{ type: "text", text: "cancel me" }]);
+	chat.abort(); gate.resolve(); await setting; await run;
+	assert.equal(calls, 0); assert.equal(chat.running, false); assert.ok(events.includes("agent_end"));
+});
+
+test("restart commits empty history even when the configured default disappeared, and failed reset preserves history", async (t) => {
+	let fail = true; const saved: (string | null)[] = [];
+	const { chat } = await fixture(t, { settings: { ...modelSettings, sideChatModelId: "removed" }, emit: () => {}, persistReset: async (id) => { if (fail) throw new Error("disk full"); saved.push(id); } });
+	chat.restore([question("retain on failure")], sideModel.id);
+	await assert.rejects(chat.restart(), /disk full/); assert.equal(chat.messages.length, 1);
+	fail = false; await chat.restart(); assert.deepEqual(saved, ["removed"]); assert.deepEqual(chat.messages, []); assert.equal(chat.state().modelId, "removed");
 });

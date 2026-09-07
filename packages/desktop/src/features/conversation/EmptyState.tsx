@@ -4,38 +4,37 @@ import { Scroller } from "../../ui/scroll/Scroller.tsx";
 import { Composer } from "../composer/index.ts";
 import { useLayout } from "../../app/layout.tsx";
 import { useApp } from "../../store/index.ts";
+import { useI18n, type MessageKey } from "../../i18n/index.ts";
 
-const CARDS = [
+const CARDS: { icon: typeof Telescope; tint: string; labelKey: MessageKey; promptKey: MessageKey }[] = [
 	{
 		icon: Telescope,
 		tint: "text-info",
-		label: "探索并理解代码",
-		prompt:
-			"帮我梳理这个项目的整体架构：入口在哪里、核心模块怎么划分、数据是怎么流动的。",
+		labelKey: "empty.explore",
+		promptKey: "empty.explorePrompt",
 	},
 	{
 		icon: Hammer,
 		tint: "text-violet",
-		label: "构建新功能、应用或工具",
-		prompt:
-			"我想新增一个功能，先帮我确认现有代码里应该改哪些文件，再给出实现方案。",
+		labelKey: "empty.build",
+		promptKey: "empty.buildPrompt",
 	},
 	{
 		icon: RefreshCw,
 		tint: "text-ok",
-		label: "审查代码并提出修改建议",
-		prompt:
-			"审查当前工作区未提交的改动，指出其中的缺陷和风险，按严重程度排序。",
+		labelKey: "empty.review",
+		promptKey: "empty.reviewPrompt",
 	},
 	{
 		icon: Bug,
 		tint: "text-accent",
-		label: "修复问题和失败",
-		prompt: "帮我定位一个问题的根因。先复现，再定位，最后给出最小改动的修复。",
+		labelKey: "empty.fix",
+		promptKey: "empty.fixPrompt",
 	},
 ];
 
 export function EmptyState() {
+	const { t } = useI18n();
 	const scratchCwd = useApp((s) => s.scratchCwd);
 	const workspace = useApp((s) => s.workspace);
 	const { compact } = useLayout();
@@ -75,23 +74,9 @@ export function EmptyState() {
 						 * to Chat would only have made it 「要在 Chat 内开发什么？」. When there is nowhere to
 						 * be working, the honest opening is the one that does not claim there is.
 						 */}
-						{chatting ? (
-							"想聊点什么？"
-						) : (
-							<>
-								要在 {/*
-								 * The project name carries itself.
-								 *
-								 * It used to be underlined with a dotted rule, which is the convention for
-								 * "there is a definition behind this" — and there is not. A heading that
-								 * hints at an interaction it does not have is worse than a plain one.
-								 */}
-								<span className="text-ink">
-									{workspace?.name ?? "未选择项目"}
-								</span>{" "}
-								内开发什么？
-							</>
-						)}
+						{chatting
+							? t("empty.chat")
+							: t("empty.projectQuestion", { project: workspace?.name ?? t("empty.noProject") })}
 					</h1>
 
 					{/*
@@ -109,7 +94,7 @@ export function EmptyState() {
 						<div className="grid grid-cols-4 gap-2.5 @max-[510px]:grid-cols-2">
 							{CARDS.map((card) => (
 								<button
-									key={card.label}
+									key={card.labelKey}
 									type="button"
 									/*
 									 * Into the composer, not out to the agent.
@@ -127,7 +112,7 @@ export function EmptyState() {
 									 * review at once.
 									 */
 									onClick={() =>
-										useApp.getState().setComposerDraft(card.prompt, true)
+										useApp.getState().setComposerDraft(t(card.promptKey), true)
 									}
 									/*
 									 * Stacked from the top, not spread to the edges.
@@ -146,7 +131,7 @@ export function EmptyState() {
 										className={`shrink-0 ${card.tint}`}
 									/>
 									<span className="text-label leading-snug text-ink">
-										{card.label}
+										{t(card.labelKey)}
 									</span>
 								</button>
 							))}

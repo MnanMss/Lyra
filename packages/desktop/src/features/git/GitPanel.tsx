@@ -167,6 +167,7 @@ export function GitPanel() {
   const workspace = useApp((s) => s.workspace);
   const running = useApp((s) => s.running);
   const [view, setView] = useState<View>("changes");
+	const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null);
   /*
    * Which repository the panel is looking at.
    *
@@ -460,7 +461,7 @@ export function GitPanel() {
   if (!workspace) {
     return (
       <PanelEmpty icon={GitBranch} title="Git">
-        先打开一个项目。
+        打开项目后查看
       </PanelEmpty>
     );
   }
@@ -513,7 +514,7 @@ export function GitPanel() {
           className="mt-3 flex h-[28px] items-center gap-1.5 rounded-md bg-ink px-3 text-detail font-medium text-shell transition-opacity hover:opacity-90 disabled:opacity-40"
         >
           <Sparkles size={13} strokeWidth={2} />
-          让 Agent 诊断并修复
+          诊断并修复
         </button>
       </PanelEmpty>
     );
@@ -522,7 +523,6 @@ export function GitPanel() {
   if (!cwd) {
     return (
       <PanelEmpty icon={GitBranch} title="未检测到 Git 仓库">
-        <span className="block text-ink-muted">当前目录尚未建立 Git 版本控制。</span>
         <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
           <button
             type="button"
@@ -534,8 +534,9 @@ export function GitPanel() {
                 if (ok) setRescan((n) => n + 1);
               });
             }}
-            className="h-[28px] rounded-md bg-ink px-3 text-detail font-medium text-shell transition-opacity hover:opacity-90 disabled:opacity-40"
+            className="flex h-[28px] items-center gap-1.5 rounded-md bg-ink px-3 text-detail font-medium text-shell transition-opacity hover:opacity-90 disabled:opacity-40"
           >
+            <GitBranch size={13} strokeWidth={1.8} />
             初始化仓库
           </button>
           <button
@@ -610,6 +611,8 @@ export function GitPanel() {
         {/* The counts used to be repeated here in small grey text. They are on the buttons now,
             where the thing you would do about them is. */}
         <div className="min-w-1 flex-1" />
+        {view !== "pipelines" && <>
+        {view === "changes" && <>
         <SyncControl
           icon={<ArrowDownToLine size={12} strokeWidth={1.9} />}
           word="拉取"
@@ -629,6 +632,7 @@ export function GitPanel() {
           roomForWords={roomForWords}
           onClick={() => void remote("push", (id) => bridge.git.push(cwd, id))}
         />
+        </>}
         <IconButton
           icon={<RefreshCw size={12} strokeWidth={1.9} className={sync === "fetch" ? "ly-spin" : undefined} />}
           /*
@@ -651,6 +655,8 @@ export function GitPanel() {
             })
           }
         />
+        </>}
+		<div ref={setToolbar} className="flex shrink-0 items-center gap-1" data-git-tab-actions={view} />
       </div>
 
       {/* One row of views, counted where a count means something. */}
@@ -659,6 +665,8 @@ export function GitPanel() {
           <button
             key={entry.id}
             type="button"
+            aria-label={entry.label}
+            aria-pressed={view === entry.id}
             data-ly-tip={narrowNav ? `${entry.label}${entry.id === "changes" && changeCount > 0 ? ` (${changeCount})` : ""}` : undefined}
             onClick={() => setView(entry.id)}
             className={`flex h-[26px] shrink-0 items-center gap-1.5 rounded-md text-detail transition-colors duration-[var(--ly-t-quick)] ${
@@ -727,6 +735,8 @@ export function GitPanel() {
       {shown === "pipelines" && (
         <PipelinesView
           cwd={cwd}
+          toolbar={toolbar}
+          active={view === "pipelines"}
           onOpenRelease={() => setReleaseOpen(true)}
         />
       )}

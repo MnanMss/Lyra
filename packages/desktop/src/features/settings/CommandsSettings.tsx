@@ -16,10 +16,11 @@ import { FolderOpen, Plus, SquareTerminal, TriangleAlert, Wrench } from "lucide-
 import { useCallback, useEffect, useState } from "react";
 import type { AgentCapabilities } from "../../../electron/ipc-types.ts";
 import { useApp } from "../../store/index.ts";
-import { EmptyHint, GhostButton, PrimaryButton } from "./controls.tsx";
+import { EmptyHint, PrimaryButton } from "./controls.tsx";
 import { TextInput } from "./inputs.tsx";
 import { Card, ListRow, SectionTitle } from "./layout.tsx";
 import { bridge } from "../../services/index.ts";
+import { IconButton } from "../../ui/primitives/IconButton.tsx";
 import { RowDeleteButton } from "../../ui/primitives/RowDeleteButton.tsx";
 import { useDefinitionRemoval } from "./useDefinitionRemoval.tsx";
 
@@ -184,15 +185,9 @@ function SlashCommands() {
 			<div className="mb-2 flex items-center justify-between">
 				<SectionTitle>可用命令（{commands.length}）</SectionTitle>
 				<div className="flex items-center gap-1">
-					<GhostButton onClick={() => void bridge.commands.reveal("user", cwd)}>
-						<FolderOpen size={13} strokeWidth={1.9} />
-						个人目录
-					</GhostButton>
+					<IconButton label="打开个人命令目录" icon={<FolderOpen size={14} />} onClick={() => void bridge.commands.reveal("user", cwd)} />
 					{cwd && (
-						<GhostButton onClick={() => void bridge.commands.reveal("workspace", cwd)}>
-							<FolderOpen size={13} strokeWidth={1.9} />
-							项目目录
-						</GhostButton>
+						<IconButton label="打开项目命令目录" icon={<FolderOpen size={14} />} onClick={() => void bridge.commands.reveal("workspace", cwd)} />
 					)}
 				</div>
 			</div>
@@ -228,11 +223,7 @@ function SlashCommands() {
 
 			<Card>
 				{commands.length === 0 ? (
-					<EmptyHint>
-						还没有命令。上面建一个，或者把写好的 .md 文件放进命令目录——
-						{/* Said plainly, because the commonest question about this feature is where the files go. */}
-						项目的 .lyra/commands、你的 ~/.lyra/commands，以及 Claude Code 的 .claude/commands 都会被读取。
-					</EmptyHint>
+					<EmptyHint>暂无自定义命令</EmptyHint>
 				) : (
 					<div className="p-2">
 						{commands.map((command) => (
@@ -283,7 +274,7 @@ function ToolInventory() {
 			<SectionTitle>内置工具（{builtin.length}）</SectionTitle>
 			<Card className="mb-6">
 				{builtin.length === 0 ? (
-					<EmptyHint>打开一个会话后即可查看。</EmptyHint>
+					<EmptyHint>打开会话后查看</EmptyHint>
 				) : (
 					<div className="flex flex-wrap gap-2 p-4">
 						{builtin.map((tool) => (
@@ -298,7 +289,7 @@ function ToolInventory() {
 			<SectionTitle>MCP 工具（{external.length}）</SectionTitle>
 			<Card>
 				{external.length === 0 ? (
-					<EmptyHint>没有已连接的 MCP 工具。</EmptyHint>
+					<EmptyHint>暂无已连接的 MCP 工具</EmptyHint>
 				) : (
 					<div className="flex flex-wrap gap-2 p-4">
 						{external.map((tool) => (

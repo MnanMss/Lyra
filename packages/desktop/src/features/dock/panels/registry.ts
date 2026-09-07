@@ -35,6 +35,8 @@ export interface PanelDefinition {
 	label: string;
 	icon: typeof GitCompare;
 	shortcut: string;
+	/** Expose this panel in the phone renderer. Absent stays desktop-only. */
+	mobile?: boolean;
 	/** Why it cannot be opened right now, given the current state. */
 	unavailable?(state: PanelAvailability): string | undefined;
 	/**
@@ -106,4 +108,9 @@ export function allPanels(): PanelDefinition[] {
 	const byKind = new Map<PanelKind, PanelDefinition>();
 	for (const set of registered) for (const panel of set) byKind.set(panel.kind, panel);
 	return [...byKind.values()];
+}
+
+/** Mobile gets only panels whose complete data and actions cross the sync boundary. */
+export function panelsForHost(panels: PanelDefinition[], phone: boolean): PanelDefinition[] {
+	return phone ? panels.filter((panel) => panel.mobile) : panels;
 }

@@ -35,12 +35,7 @@ import { FileKindIcon } from "./attachments/FileKindIcon.tsx";
 import { useApp } from "../../store/index.ts";
 import { sessionThinking } from "../../lib/thinking.ts";
 import { bridge } from "../../services/index.ts";
-
-const PERMISSION_LABEL: Record<string, string> = {
-	ask: "请求批准",
-	auto: "帮我批准",
-	full: "完全访问",
-};
+import { useI18n } from "../../i18n/index.ts";
 
 interface Attachment {
 	id: string;
@@ -54,6 +49,7 @@ interface Attachment {
 }
 
 export function Composer() {
+	const { t } = useI18n();
 	const workspace = useApp((s) => s.workspace);
 	const scratchCwd = useApp((s) => s.scratchCwd);
 	const settings = useApp((s) => s.settings);
@@ -123,6 +119,13 @@ export function Composer() {
 	 * losing it would be worse than an awkward join.
 	 */
 	const draft = useApp((s) => s.composerDraft);
+	const browserAttachment = useApp((s) => s.browserAttachment);
+	useEffect(() => {
+		if (!browserAttachment || browserAttachment.draftKey !== draftKey) return;
+		setText((current) => current.trim() ? `${current.trimEnd()}\n\n${browserAttachment.text}` : browserAttachment.text);
+		setAttachments((current) => [...current, { id: crypto.randomUUID(), name: "页面区域.png", mimeType: "image/png", isText: false, data: browserAttachment.dataUrl.split(",")[1] }]);
+		useApp.setState({ browserAttachment: null });
+	}, [browserAttachment, draftKey]);
 	const field = useRef<HTMLTextAreaElement>(null);
 	useEffect(() => {
 		if (!draft.text) return;
@@ -196,6 +199,11 @@ export function Composer() {
 	// The mark rolls with the name it belongs to, on the same terms — never on the first paint.
 	const modelRolls = useRolled(modelId ?? "");
 	const permissionMode = settings?.permissionMode ?? "auto";
+	const permissionLabel = {
+		ask: t("composer.permissionAsk"),
+		auto: t("composer.permissionAuto"),
+		full: t("composer.permissionFull"),
+	}[permissionMode];
 
 	async function submit() {
 		if (submitting.current.has(draftKey)) return;
@@ -348,12 +356,23 @@ export function Composer() {
 		setSessionRefs([]);
 		setDraft(draftKey, null);
 		release();
-		await send(content, {
+		const accepted = await send(content, {
 			...(deliver ? { deliver } : {}),
 			...(userDisplayText !== undefined ? { displayText: userDisplayText } : {}),
 			...(triggeredSkill ? { skillRef: triggeredSkill } : {}),
 			...(referencedSessions.length > 0 ? { sessionRefs: referencedSessions } : {}),
 		});
+		if (!accepted) {
+			// A transport rejection must preserve the original files and command text for retry.
+			const newer = useApp.getState().drafts[draftKey];
+			const restored = { text: newer?.text ? `${text}\n${newer.text}` : text, attachments: [...attachments, ...(newer?.attachments ?? [])], sessionRefs: [...new Map([...referencedSessions, ...(newer?.sessionRefs ?? [])].map(ref => [ref.id, ref])).values()] };
+			setDraft(draftKey, restored);
+			if (draftKeyRef.current === draftKey) {
+				setText(current => current ? `${text}\n${current}` : text);
+				setAttachments(current => [...attachments, ...current]);
+				setSessionRefs(current => [...new Map([...referencedSessions, ...current].map(ref => [ref.id, ref])).values()]);
+			}
+		}
 	}
 
 	/**
@@ -432,7 +451,8 @@ export function Composer() {
 	}
 
 	const takeScreenshot = useCallback(async () => {
-		await bridge.screenshot.start(settings?.screenshot);
+		try { await bridge.screenshot.start(settings?.screenshot); }
+		catch (error) { useApp.getState().notify(String(error), "error"); }
 	}, [settings?.screenshot]);
 
 	return (
@@ -480,7 +500,7 @@ export function Composer() {
 						 * an unfinished step. The picker sits behind all three.
 						 */
 						icon={chatting ? <MessageSquare size={13} strokeWidth={1.8} /> : <Folder size={13} strokeWidth={1.8} />}
-						label={workspace?.name ?? (chatting ? "Chat" : "选择项目")}
+						label={workspace?.name ?? (chatting ? "Chat" : t("composer.selectProject"))}
 						onClick={projectMenu.toggle}
 						active={projectMenu.open}
 					/>
@@ -539,7 +559,7 @@ export function Composer() {
 						if (mention.keyDown(event)) return;
 						slash.keyDown(event, () => void submit());
 					}}
-					placeholder="输入消息，/ 命令，@ 引用"
+					placeholder={t("composer.placeholder")}
 					onFiles={(files) => void addFiles(files)}
 					attachments={
 						attachments.length > 0 || sessionRefs.length > 0 ? (
@@ -560,21 +580,21 @@ export function Composer() {
 													<FileKindIcon kind={attachment.kind ?? "text"} size={15} />
 													<span className="truncate text-xs font-medium text-ink">{attachment.name}</span>
 												</div>
-												<span className="text-[10px] text-ink-faint">文本 / 代码附件</span>
+												<span className="text-[10px] text-ink-faint">{t("composer.textAttachment")}</span>
 											</div>
 										) : !attachment.data ? (
 											/* Attached by name and type: its bytes are not something a prompt can carry.
 											   See `addFiles`. */
 											<div
 												className="flex h-[68px] w-[110px] flex-col justify-between rounded-lg border border-line bg-card p-2.5 text-left shadow-xs"
-												data-ly-tip={`${attachment.name}\n${KIND_LABEL[attachment.kind ?? "binary"]} · 只附带文件名`}
+											data-ly-tip={`${attachment.name}\n${KIND_LABEL[attachment.kind ?? "binary"]} · ${t("composer.filenameOnly")}`}
 											>
 												<div className="flex items-center gap-1.5 text-ink-muted">
 													<FileKindIcon kind={attachment.kind ?? "binary"} size={15} />
 													<span className="truncate text-xs font-medium text-ink">{attachment.name}</span>
 												</div>
 												<span className="text-[10px] text-ink-faint">
-													{KIND_LABEL[attachment.kind ?? "binary"]} · 仅文件名
+											{KIND_LABEL[attachment.kind ?? "binary"]} · {t("composer.filenameOnly")}
 												</span>
 											</div>
 										) : (
@@ -625,20 +645,20 @@ export function Composer() {
 						<>
 							<button
 								type="button"
-								data-ly-tip="添加附件文件或图片"
-								aria-label="添加附件文件或图片"
+								data-ly-tip={t("composer.addAttachment")}
+								aria-label={t("composer.addAttachment")}
 								onClick={() => fileRef.current?.click()}
-								className="flex h-6.5 w-6.5 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-card-hover hover:text-ink"
+								className="ly-composer-control flex h-6.5 w-6.5 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-card-hover hover:text-ink"
 							>
 								<Plus size={16} strokeWidth={1.9} />
 							</button>
-							{bridge.platform === "darwin" && settings?.screenshot?.showInComposer && (
+							{settings?.screenshot?.enabled !== false && settings?.screenshot?.showInComposer && (
 								<button
 									type="button"
-									data-ly-tip={`屏幕截图 ${settings?.screenshot?.shortcut ? `(${settings.screenshot.shortcut.replace("CommandOrControl", "⌘").replace("Shift", "⇧").replace("Alt", "⌥").replace(/\+/g, "")})` : ""}`}
-									aria-label="屏幕截图"
+									data-ly-tip={`${t("composer.screenshot")} ${settings?.screenshot?.shortcut ? `(${settings.screenshot.shortcut.replace("CommandOrControl", "⌘").replace("Shift", "⇧").replace("Alt", "⌥").replace(/\+/g, "")})` : ""}`}
+									aria-label={t("composer.screenshot")}
 									onClick={() => void takeScreenshot()}
-									className="flex h-6.5 w-6.5 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-card-hover hover:text-ink"
+									className="ly-composer-control flex h-6.5 w-6.5 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-card-hover hover:text-ink"
 								>
 									<Camera size={15} strokeWidth={1.9} />
 								</button>
@@ -657,9 +677,9 @@ export function Composer() {
 							<button
 								type="button"
 								/* The app's own tooltip, so the icon-only form still says what it is. */
-								data-ly-tip={PERMISSION_LABEL[permissionMode]}
+								data-ly-tip={permissionLabel}
 								data-ly-tip-side="top"
-								aria-label={PERMISSION_LABEL[permissionMode]}
+								aria-label={permissionLabel}
 								onClick={permissionMenu.toggle}
 								aria-haspopup="menu"
 								aria-expanded={permissionMenu.open}
@@ -694,7 +714,7 @@ export function Composer() {
 								 * right now — see the ranking in `composer/fit.ts`.
 								 */}
 								<span data-ly-fit-drop="1" className="shrink-0 whitespace-nowrap">
-									<RollingText>{PERMISSION_LABEL[permissionMode]}</RollingText>
+									<RollingText>{permissionLabel}</RollingText>
 								</span>
 							</button>
 						</>
@@ -738,21 +758,22 @@ export function Composer() {
 								 * there was not enough width to go round. `fit.ts` reads this element — the class is the handle — which is why a short
 								 * name keeps its meter at any width.
 								 */}
-								<RollingText className="ly-fit-probe min-w-0 truncate">{modelName ?? "选择模型"}</RollingText>
+								<RollingText className="ly-fit-probe min-w-0 truncate">{modelName ?? t("composer.selectModel")}</RollingText>
 							</button>
 							<button
 								type="button"
 								onClick={effortMenu.toggle}
 								aria-haspopup="menu"
 								aria-expanded={effortMenu.open}
-								data-ly-tip={`推理强度：${effortLabel(sessionThinking(meta, settings), model)}`}
+								data-ly-tip={t("composer.thinking", { level: effortLabel(sessionThinking(meta, settings), model, t) })}
 								className={`ly-composer-control mr-1.5 flex h-7 shrink-0 items-center rounded-md px-2 text-label transition-colors ${
 									effortMenu.open ? "bg-card-hover text-ink" : "text-ink-faint hover:bg-card-hover hover:text-ink"
 								}`}
 							>
-								<RollingText>{effortLabel(sessionThinking(meta, settings), model)}</RollingText>
+								<RollingText>{effortLabel(sessionThinking(meta, settings), model, t)}</RollingText>
 							</button>
 
+							{running && (text.trim() || attachments.length > 0) && <ComposerSend running={false} onSend={() => void submit()} onStop={() => void abort()} />}
 							<ComposerSend
 								running={running}
 								disabled={!text.trim() && attachments.length === 0 && sessionRefs.length === 0}
@@ -788,18 +809,19 @@ function Chip({
 	/** Something is being changed about what this names; the label is held until it lands. */
 	busy?: boolean;
 }) {
+	const { t } = useI18n();
 	const rolls = useRolled(label);
 
 	return (
 		<button
 			type="button"
-			data-ly-tip={busy ? "正在切换分支…" : label}
+			data-ly-tip={busy ? t("composer.switchingBranch") : label}
 			aria-haspopup="menu"
 			aria-expanded={active}
 			aria-busy={busy || undefined}
 			onClick={onClick}
 			/* Dimmed while it is being changed, so the name reads as "still this, for now". */
-			className={`ly-scroll flex h-[26px] min-w-0 items-center gap-1.5 rounded-md px-2 text-label transition-[color,background-color,opacity] duration-[var(--ly-t-quick)] ${
+			className={`ly-composer-control ly-scroll flex h-[26px] min-w-0 items-center gap-1.5 rounded-md px-2 text-label transition-[color,background-color,opacity] duration-[var(--ly-t-quick)] ${
 				busy ? "opacity-60" : ""
 			} ${active ? "bg-card-hover text-ink" : "text-ink-muted hover:bg-card-hover hover:text-ink"}`}
 		>

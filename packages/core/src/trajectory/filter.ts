@@ -8,11 +8,16 @@
 
 import type { Entry, Source } from "./types.ts";
 
+const searchIndex = new WeakMap<Entry, string>();
+
 export interface TrajectoryFilter {
 	/** Empty or absent means every source. */
 	sources?: Source[];
 	/** Matched case-insensitively against the summary and the detail. */
 	query?: string;
+	status?: Entry["status"];
+	turn?: number;
+	time?: { start: number; end: number };
 }
 
 export function filterTrajectory(entries: Entry[], filter: TrajectoryFilter = {}): Entry[] {
@@ -21,8 +26,17 @@ export function filterTrajectory(entries: Entry[], filter: TrajectoryFilter = {}
 
 	return entries.filter((entry) => {
 		if (sources && !sources.has(entry.source)) return false;
+		if (filter.status && entry.status !== filter.status) return false;
+		if (filter.turn !== undefined && entry.turn !== filter.turn) return false;
+		if (filter.time && ((entry.startedAt ?? entry.ts) > filter.time.end || (entry.finishedAt ?? entry.startedAt ?? entry.ts) < filter.time.start)) return false;
 		if (!query) return true;
-		return entry.summary.toLowerCase().includes(query) || entry.detail.toLowerCase().includes(query);
+		let text = searchIndex.get(entry);
+		if (text === undefined) {
+			// A projection is complete before it reaches search; live refreshes replace its entries.
+			text = [entry.summary, entry.detail, entry.command, entry.input, entry.output, entry.correlationId, entry.parentId, entry.toolName, entry.model, entry.provider, JSON.stringify(entry.metadata)].filter(Boolean).join("\n").toLowerCase();
+			searchIndex.set(entry, text);
+		}
+		return text.includes(query);
 	});
 }
 

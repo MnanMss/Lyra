@@ -1,6 +1,7 @@
 import type { HookConfig } from "@lyra/core";
 import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
-import { Anchor, Plus } from "lucide-react";
+import { Anchor, Plus, Info } from "lucide-react";
+import { IconButton } from "../../ui/primitives/IconButton.tsx";
 import { RowDeleteButton } from "../../ui/primitives/RowDeleteButton.tsx";
 import { useState } from "react";
 import { useConfirmer } from "../../ui/overlay/Confirm.tsx";
@@ -117,10 +118,11 @@ export function HooksSettings() {
            */
           <div
             key={preset.label}
+            data-row-actions
             className="@container border-b border-line-soft px-4 py-3 last:border-b-0"
           >
-            <div className="flex flex-col gap-2 @md:flex-row @md:items-center @md:gap-3">
-              <div className="flex min-w-0 items-center gap-3">
+            <div className="flex items-center gap-3">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
                 <Anchor
                   size={14}
                   strokeWidth={1.8}
@@ -128,17 +130,12 @@ export function HooksSettings() {
                 />
                 <div className="min-w-0 flex-1">
                   <div className="text-label text-ink">{preset.label}</div>
-                  <div className="mt-0.5 truncate font-mono text-detail text-ink-faint">
-                    {preset.hook.command}
-                  </div>
+                  <ScrollText text={preset.hook.command} className="mt-0.5 font-mono text-detail text-ink-faint" />
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-2 pl-[26px] @md:pl-0">
-                <Badge tone="muted">
-                  {preset.hook.event === "before-tool" ? "调用前" : "调用后"}
-                </Badge>
-                {preset.hook.blocking && <Badge tone="accent">可阻断</Badge>}
-                <GhostButton onClick={() => add(preset.hook)}>添加</GhostButton>
+              <div className="flex shrink-0 items-center gap-1">
+                <span data-ly-tip={`${preset.hook.event === "before-tool" ? "工具调用前" : "工具调用后"}${preset.hook.blocking ? "，非零退出码阻断调用" : ""}`} className="text-ink-faint"><Info size={13} /></span>
+                <IconButton className="ly-row-action" label={`添加钩子：${preset.label}`} icon={<Plus size={14} />} onClick={() => add(preset.hook)} />
               </div>
             </div>
           </div>

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { after, afterEach, before, test } from "node:test";
 import type { SessionSnapshot } from "../electron/ipc-types.ts";
 import { closeListeningServer, startApp, type RunningApp } from "./app.ts";
+import { cleanupFixture } from "./fixture-cleanup.ts";
 import { questionModel, REFERENCE_TITLE, seedQuestions } from "./mention-question-fixture.ts";
 
 let app: RunningApp;
@@ -29,9 +30,14 @@ before(async () => {
 });
 afterEach(async () => { if (app) await shot("mention-question-last-screen"); });
 after(async () => {
-	const directory = process.env.LYRA_E2E_ARTIFACTS;
-	if (directory) { await mkdir(directory, { recursive: true }); await writeFile(join(directory, "request-tails.json"), JSON.stringify(requests.map((request) => request.messages.slice(-3)), null, 2)); }
-	await app?.stop(); await closeListeningServer(server);
+	await cleanupFixture(
+		async () => {
+			const directory = process.env.LYRA_E2E_ARTIFACTS;
+			if (directory) { await mkdir(directory, { recursive: true }); await writeFile(join(directory, "request-tails.json"), JSON.stringify(requests.map((request) => request.messages.slice(-3)), null, 2)); }
+		},
+		() => app?.stop(),
+		() => closeListeningServer(server),
+	);
 });
 
 async function until(condition: string | (() => Promise<boolean>)) {
@@ -47,7 +53,7 @@ async function click(target: keyof typeof clickTargets) {
 		// The fixture selects a complete constant script, never inserts data into JavaScript.
 		if (!await app.evaluate(clickTargets[target])) return false;
 		await app.evaluate("globalThis.__lyraMentionTarget.scrollIntoView({block:'nearest',behavior:'instant'})");
-		return app.evaluate("(()=>{const e=globalThis.__lyraMentionTarget,r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));})()");
+		return app.evaluate("(()=>{const e=globalThis.__lyraMentionTarget,r=e.getBoundingClientRect();return !document.getAnimations().some(a=>a.playState==='running'&&a.effect?.getTiming().iterations!==Infinity) && e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));})()");
 	});
 	const at = await app.evaluate<{ x: number; y: number }>("(()=>{const r=globalThis.__lyraMentionTarget.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()");
 	for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) await app.send("Input.dispatchMouseEvent", { type, ...at, ...(type === "mouseMoved" ? {} : { button: "left", clickCount: 1 }) });

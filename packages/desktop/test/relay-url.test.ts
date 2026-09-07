@@ -9,8 +9,9 @@
  */
 
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
-import { relaySocketUrl, roomFor } from "../electron/sync-relay.ts";
+import { assetKeyFor, relaySocketUrl, roomFor } from "../electron/sync-relay.ts";
 
 test("a bare host becomes a secure socket", () => {
 	/*
@@ -63,4 +64,10 @@ test("the room is the token's digest, and nothing else travels", () => {
 	assert.notEqual(roomFor(token), roomFor(`${token}x`));
 	// Stable across calls, or the two ends would never meet.
 	assert.equal(roomFor(token), roomFor(token));
+});
+
+test("the renderer asset capability is namespaced away from the room", () => {
+	const token = "abc123";
+	assert.equal(assetKeyFor(token), createHash("sha256").update(`lyra-assets\0${roomFor(token)}`).digest("hex"));
+	assert.notEqual(assetKeyFor(token), roomFor(token));
 });

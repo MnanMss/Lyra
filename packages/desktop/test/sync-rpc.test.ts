@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { allowedMethods, callRpc, RPC, type RpcDeps } from "../electron/sync-rpc.ts";
-import { DEFAULT_SETTINGS, type SessionMeta } from "@lyra/core";
+import { DEFAULT_SETTINGS, type SessionMeta, type Settings } from "@lyra/core";
 
 /** Deps that record what was asked of them, so a call can be traced without a real session. */
 function deps(overrides: Partial<RpcDeps> = {}): RpcDeps {
@@ -23,12 +23,27 @@ function deps(overrides: Partial<RpcDeps> = {}): RpcDeps {
 		activate: async () => null,
 		create: async () => { throw new Error("not needed"); },
 		abort: async () => {},
+		editMessage: async () => {},
 		dispose: async () => {},
 		prompt: async () => {
 			throw new Error("not needed");
 		},
 		snapshot: async () => ({}),
 		touch: () => {},
+		sideChatState: async () => null,
+		sideChatAsk: async () => {},
+		sideChatEditAndResend: async () => {},
+		sideChatAbort: async () => {},
+		sideChatReset: async () => {},
+		tasksList: async () => [],
+		tasksCancel: async () => false,
+		tasksDismiss: async () => false,
+		tasksResume: async () => false,
+		commandsList: async () => ({ commands: [], builtins: [], diagnostics: [], skills: [], agents: [] }),
+		filesList: async () => [],
+		filesRead: async () => null,
+		scratchRoots: async () => [],
+		generalScratch: async () => "/scratch/general",
 		...overrides,
 	};
 }
@@ -49,7 +64,6 @@ test("the things that would hand over the machine are all absent", () => {
 		"terminal.attach",
 		"terminal.write",
 		"files.write",
-		"files.read",
 		"files.bytes",
 		"screenshot.start",
 		"system.openPath",
@@ -73,8 +87,34 @@ test("what a phone is actually for is on the list", () => {
 		"agent.prompt",
 		"agent.abort",
 		"agent.approve",
+		"files.list",
+		"files.read",
 	]) {
 		assert.ok(allowed.has(method), `${method} 应该可用`);
+	}
+});
+
+test("read-only project files cross the phone RPC without exposing write operations", async () => {
+	const calls: unknown[] = [];
+	const remote = deps({
+		filesList: async (dir) => {
+			calls.push(["list", dir]);
+			return [{ name: "README.md", path: `${dir}/README.md`, isDirectory: false, size: 7 }];
+		},
+		filesRead: async (path) => {
+			calls.push(["read", path]);
+			return { text: "# Lyra\n", readOnly: true, truncated: false, bytes: 7, modifiedAt: 1 };
+		},
+	});
+
+	assert.equal((await callRpc(remote, "files.list", ["/project"])).ok, true);
+	const read = await callRpc(remote, "files.read", ["/project/README.md"]);
+	assert.equal(read.ok, true);
+	assert.deepEqual(read.value, { text: "# Lyra\n", readOnly: true, truncated: false, bytes: 7, modifiedAt: 1 });
+	assert.deepEqual(calls, [["list", "/project"], ["read", "/project/README.md"]]);
+
+	for (const method of ["files.write", "files.remove", "files.rename", "files.importInto"]) {
+		assert.deepEqual(await callRpc(remote, method, []), { ok: false, error: "method-not-allowed" });
 	}
 });
 
@@ -84,28 +124,58 @@ test("approving a tool call is allowed, because that is the point of having a ph
 	assert.ok(allowedMethods().includes("agent.approve"));
 });
 
-test("agent.approve with always persists the subject to alwaysAllow", async () => {
-	let savedSettings: unknown;
-	const approvals = [{ id: "req-1", request: { subject: "mcp__sqlcl-mcp__db_query" } }];
-	const fakeSession = {
-		listPendingApprovals: () => [...approvals],
-		resolveApproval: (id: string, _decision: unknown) => {
-			const idx = approvals.findIndex((a) => a.id === id);
-			if (idx === -1) return false;
-			approvals.splice(idx, 1);
+test("approval decisions accept structured answers and persist only the consumed trusted subject", async () => {
+	const resolved: unknown[] = [];
+	let pending = [{ id: "r1", request: { subject: "approved command" } }];
+	const saved: Settings[] = [];
+	const session = {
+		listPendingApprovals: () => pending,
+		resolveApproval: (requestId: string, decision: unknown) => {
+			resolved.push([requestId, decision]);
+			pending = [];
 			return true;
 		},
-	};
-	const d = deps({
-		live: (id) => (id === "s1" ? (fakeSession as never) : undefined),
-		settings: () => ({ ...DEFAULT_SETTINGS, alwaysAllow: [] }),
-		saveSettings: async (next) => { savedSettings = next; },
+	} as never;
+
+	assert.deepEqual(await callRpc(deps({ live: () => session, saveSettings: async value => { saved.push(value); } }), "agent.approve", ["s1", "r1", "always"]), {
+		ok: true,
+		value: null,
+	});
+	assert.deepEqual(resolved, [["r1", "always"]]);
+	assert.ok(saved[0].alwaysAllow.includes("approved command"));
+	assert.equal((await callRpc(deps({ live: () => session }), "agent.approve", ["s1", "r2", { answer: "保留" }])).ok, true);
+
+	for (const invalid of [{ allow: true }, { answer: "" }, { answer: 42 }, "yes", null]) {
+		const result = await callRpc(deps({ live: () => session }), "agent.approve", ["s1", "r2", invalid]);
+		assert.equal(result.ok, false);
+		assert.match(String(result.error), /invalid-args.*decision/);
+	}
+	assert.deepEqual(resolved, [["r1", "always"], ["r2", { answer: "保留" }]], "invalid decisions must not reach the session");
+	const missing = await callRpc(deps(), "agent.approve", ["missing", "r", { answer: "保留" }]);
+	assert.equal(missing.ok, false, "a closed session must not acknowledge an answer");
+});
+
+test("thinking accepts a bounded string or null", async () => {
+	const levels: unknown[] = [];
+	const session = {
+		meta: { projectId: "p1" },
+		setThinking: async (thinking: unknown) => void levels.push(thinking),
+	} as never;
+	const withSession = deps({
+		live: () => session,
+		activate: async () => session,
 	});
 
-	const result = await callRpc(d, "agent.approve", ["s1", "req-1", "always"]);
-	assert.equal(result.ok, true);
-	assert.deepEqual((savedSettings as { alwaysAllow: string[] })?.alwaysAllow, ["mcp__sqlcl-mcp__db_query"]);
-	assert.equal(approvals.length, 0);
+	assert.equal((await callRpc(withSession, "agent.setThinking", ["s1", "ultra"])).ok, true);
+	assert.equal((await callRpc(withSession, "agent.setThinking", ["s1", null])).ok, true);
+	assert.deepEqual(levels, ["ultra", null]);
+
+	for (const invalid of [{ effort: "low" }, 3, "x".repeat(201)]) {
+		const result = await callRpc(withSession, "agent.setThinking", ["s1", invalid]);
+		assert.equal(result.ok, false);
+		assert.match(String(result.error), /invalid-args.*thinking/);
+	}
+	assert.deepEqual(levels, ["ultra", null]);
 });
 
 test("a handler that throws is an answer, not a dropped connection", async () => {
@@ -184,18 +254,41 @@ test("每个 handler 都能经 callRpc 到达", async () => {
 		"sessions.create": ["/tmp/p"],
 		"sessions.open": ["p1", "s1"],
 		"sessions.transcript": ["p1", "s1"],
+		"sessions.trajectory": ["p1", "s1"],
+		"sessions.trajectoryChanges": ["p1", "s1"],
+		"sessions.fork": ["p1", "s1", 1],
 		"sessions.remove": ["p1", "s1"],
 		"sessions.capabilities": ["s1"],
 		"sessions.setArchived": ["p1", "s1", true],
 		"sessions.rename": ["p1", "s1", "标题"],
+		"sessions.compact": ["s1"],
+		"sessions.contextBreakdown": ["s1"],
 		"agent.prompt": ["s1", "你好"],
 		"agent.editMessage": ["s1", 0, "改过的"],
 		"agent.abort": ["s1"],
-		"agent.approve": ["s1", "r1", { allow: true }],
+		"agent.approve": ["s1", "r1", "once"],
 		"agent.setModel": ["s1", "m1"],
-		"agent.setThinking": ["s1", { effort: "low" }],
+		"agent.setThinking": ["s1", "low"],
 		"settings.save": [{}],
 		"subAgents.list": ["s1"],
+		"subAgents.detail": ["s1", "a1"],
+		"subAgents.steer": ["s1", "a1", "继续检查"],
+		"subAgents.abort": ["s1", "a1"],
+		"subAgents.dismiss": ["s1", "a1"],
+		"subAgents.dismissFinished": ["s1"],
+		"sideChat.setModel": ["s1", null],
+		"sideChat.state": ["s1"],
+		"sideChat.ask": ["s1", "检查一下"],
+		"sideChat.editAndResend": ["s1", 0, "换个问法"],
+		"sideChat.abort": ["s1"],
+		"sideChat.reset": ["s1"],
+		"tasks.list": ["s1"],
+		"tasks.cancel": ["s1", "t1"],
+		"tasks.dismiss": ["s1", "t1"],
+		"tasks.resume": ["s1", "t1"],
+		"commands.list": ["/tmp/project"],
+		"files.list": ["/tmp/project"],
+		"files.read": ["/tmp/project/README.md"],
 		"rules.preview": [{ isCorrection: true, name: "no-any", body: "不用 any。" }],
 		"rules.keep": ["s1", "project", "no-any", "---\n---\n不用 any。\n"],
 		"rules.decline": ["s1"],

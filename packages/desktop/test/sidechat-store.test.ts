@@ -87,3 +87,16 @@ test("disk snapshots reject paths instead of accepting a session id as a filenam
 		assert.throws(() => saveSideChat(id, [said("not a path")]), /Invalid side-chat session id/);
 	}
 });
+
+test("empty model selections persist and message snapshots cannot overwrite queued selections", async () => {
+	const { loadSideChatSnapshot, saveSideChat, saveSideChatTranscript } = await import("../electron/sidechat-store.ts");
+	await saveSideChat("model-choice", [], "qa/side");
+	assert.deepEqual(await loadSideChatSnapshot("model-choice"), { messages: [], modelId: "qa/side" });
+	await Promise.all([
+		saveSideChat("model-choice", [], "qa/changed"),
+		saveSideChatTranscript("model-choice", [said("arrived while saving")], "qa/side"),
+	]);
+	assert.deepEqual(await loadSideChatSnapshot("model-choice"), { messages: [said("arrived while saving")], modelId: "qa/changed" });
+	await saveSideChat("model-choice", [], null);
+	assert.deepEqual(await loadSideChatSnapshot("model-choice"), { messages: [], modelId: null });
+});

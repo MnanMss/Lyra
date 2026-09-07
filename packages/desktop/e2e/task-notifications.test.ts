@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { after, afterEach, before, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { closeListeningServer, startApp, type RunningApp } from "./app.ts";
+import { cleanupFixture } from "./fixture-cleanup.ts";
 import { seedInteractions } from "./interaction-fixture.ts";
 
 let app: RunningApp;
@@ -47,7 +48,7 @@ afterEach(async (t) => {
 		t.diagnostic(await app.evaluate<string>(`document.body.innerText.slice(-3000)`));
 	}
 });
-after(async () => { await app?.stop(); await closeListeningServer(server); });
+after(async () => { await cleanupFixture(() => app?.stop(), () => closeListeningServer(server)); });
 async function frames(count = 3) {
 	await app.evaluate(`new Promise(resolve=>{let n=${count};const frame=()=>--n?requestAnimationFrame(frame):resolve();requestAnimationFrame(frame);})`);
 }

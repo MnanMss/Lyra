@@ -44,7 +44,7 @@ export const Conversation = memo(function Conversation() {
   const separators = useMemo(() => timeSeparators(messages), [messages]);
   const questions = useMemo(() => questionsIn(messages), [messages]);
   const range = useTranscriptWindow(activeSessionId, WINDOW_STEP, allRuns.length);
-  const [jump, setJump] = useState<{ sessionId: string | null; index: number; changedWindow: boolean } | null>(null);
+  const [jump, setJump] = useState<{ sessionId: string | null; index: number } | null>(null);
   const { compact } = useLayout();
   /*
    * The floating card needs its own width plus a readable column left over beside it.
@@ -149,7 +149,7 @@ export const Conversation = memo(function Conversation() {
     if (!el) return;
     const target = el.querySelector<HTMLElement>(`[data-question-index="${jump.index}"]`);
     if (!target) return;
-    scrollTo(el.scrollTop + target.getBoundingClientRect().top - el.getBoundingClientRect().top - 40, jump.changedWindow);
+    scrollTo(el.scrollTop + target.getBoundingClientRect().top - el.getBoundingClientRect().top - 40, true);
     setJump(null);
   }, [jump, activeSessionId, range.start, range.end, scrollRef, scrollTo]);
 
@@ -329,7 +329,7 @@ export const Conversation = memo(function Conversation() {
         if (at < 0) return;
         detach();
         range.reveal(at);
-        setJump({ sessionId: activeSessionId, index, changedWindow: at < range.start || at >= range.end });
+        setJump({ sessionId: activeSessionId, index });
       }} />}
       <BackToLatest
         show={follow.away || range.end < allRuns.length}

@@ -9,14 +9,16 @@
 import { useApp } from "../../store/index.ts";
 
 /**
- * Switching project already blanks the conversation (see `openWorkspace`), so on another project
- * the second call is what makes the rest of the state whole — todos, sub-agents, the turn meter —
- * rather than a second way of doing the same thing. Unfolds the group on the way, because the row
- * about to appear is the point of the press and a folded project would swallow it.
+ * Switching project also resets the conversation before saving recency. Resetting again after
+ * that write could discard a session submitted in the meantime. Unfold the group so its next
+ * session is visible.
  */
 export async function startProjectSession(path: string, expand?: () => void): Promise<void> {
-	const { workspace, openWorkspace, newSession } = useApp.getState();
+	const { workspace, openWorkspace, newSession, setView } = useApp.getState();
 	expand?.();
-	if (workspace?.path !== path) await openWorkspace(path);
-	await newSession();
+	if (workspace?.path !== path) {
+		setView("chat");
+		await openWorkspace(path);
+	}
+	else await newSession();
 }

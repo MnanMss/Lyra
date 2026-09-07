@@ -24,6 +24,7 @@ import { OfferBudget } from "../rules/from-correction.ts";
 import { StreamRuleMonitor } from "../rules/stream.ts";
 import { EMPTY_RULE_SET, type RuleSet } from "../rules/types.ts";
 import { SKILLS_KEY } from "../skills/tool.ts";
+import { backgroundJobs } from "../tools/background-jobs.ts";
 import { invalidateIndex } from "../tools/index.ts";
 import { TOOL_NAMES_KEY } from "../tools/reroute.ts";
 import { RULES_KEY } from "../tools/rule.ts";
@@ -201,15 +202,19 @@ export class SessionCapabilities {
 	}
 
 	async dispose(): Promise<void> {
-		await this.mcp.closeAll();
-		await this.extensions.dispose().catch(() => {});
-		/*
-		 * Language servers are hundreds of megabytes each and outlive the session that started them
-		 * unless something kills them. The manager is created lazily by the `lsp` tool and parked in
-		 * this state map, so this is the only place that knows whether there is one to stop.
-		 */
-		const codeIntel = this.state.get(CODE_INTEL_KEY);
-		if (codeIntel instanceof CodeIntelManager) await codeIntel.dispose().catch(() => {});
+		try { backgroundJobs(this.state).dispose(); }
+		finally {
+			// A process kill failure must not skip unrelated session resources.
+			await this.mcp.closeAll();
+			await this.extensions.dispose().catch(() => {});
+			/*
+			 * Language servers are hundreds of megabytes each and outlive the session that started them
+			 * unless something kills them. The manager is created lazily by the `lsp` tool and parked in
+			 * this state map, so this is the only place that knows whether there is one to stop.
+			 */
+			const codeIntel = this.state.get(CODE_INTEL_KEY);
+			if (codeIntel instanceof CodeIntelManager) await codeIntel.dispose().catch(() => {});
+		}
 	}
 }
 

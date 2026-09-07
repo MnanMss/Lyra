@@ -1,3 +1,4 @@
+import { Input } from "./NativeField.tsx";
 import { Search, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 
@@ -45,7 +46,7 @@ export function SearchField({
 			} ${className}`}
 		>
 			<Search size={comfortable ? 13 : 12} strokeWidth={1.9} className="shrink-0 text-ink-faint" />
-			<input
+			<Input
 				ref={input}
 				value={value}
 				onChange={(event) => onChange(event.target.value)}

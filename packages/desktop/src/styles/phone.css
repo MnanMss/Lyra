@@ -32,32 +32,29 @@
 }
 
 [data-lyra-host="mobile"] .ly-md,
+[data-lyra-host="mobile"] .prose-dw,
 [data-lyra-host="mobile"] pre,
 [data-lyra-host="mobile"] code,
 [data-lyra-host="mobile"] textarea,
 [data-lyra-host="mobile"] input,
+[data-lyra-host="mobile"] .cm-content,
 [data-lyra-host="mobile"] [data-ly-selectable] {
   -webkit-user-select: text;
   user-select: text;
 }
 
 /*
- * Thumb-sized hit areas, without moving anything.
+ * Thumb-sized hit areas.
  *
  * The toolbar marks are 28px squares, which is right for a cursor and small for a thumb — Apple's
- * own guidance is 44pt. Grown with a pseudo-element rather than by resizing the button: the icons
- * are aligned against the row and against each other, and enlarging the boxes would push them
- * apart into a row that no longer reads as one group. The target grows; the drawing does not move.
+ * own guidance is 44pt. The box itself owns that area so neighbouring controls never overlap and
+ * one tap cannot resolve to the wrong button.
  */
 [data-lyra-host="mobile"] [data-ly-toolbar-button] {
-  position: relative;
-}
-
-[data-lyra-host="mobile"] [data-ly-toolbar-button]::after {
-  content: "";
-  position: absolute;
-  /* (44 - 28) / 2 = 8 in each direction. */
-  inset: -8px;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
 }
 
 /*
@@ -113,7 +110,8 @@
  * reads either way.
  */
 [data-lyra-host="mobile"] [data-ly-tip]::before,
-[data-lyra-host="mobile"] [data-ly-tip]::after {
+[data-lyra-host="mobile"] [data-ly-tip]::after,
+[data-lyra-host="mobile"] .ly-tooltip {
   display: none;
 }
 
@@ -124,14 +122,112 @@
  * hit accurately, because a thumb approaches it from below and covers what it is aiming at.
  */
 [data-lyra-host="mobile"] .ly-composer-control {
-  position: relative;
-  min-height: 32px;
+  min-width: 44px;
+  min-height: 44px;
 }
 
-[data-lyra-host="mobile"] .ly-composer-control::after {
-  content: "";
-  position: absolute;
-  inset: -6px -4px;
+/*
+ * The drawer is the phone's primary navigation, so every row and every trailing action owns a
+ * full thumb target. Several of these are deliberately 20–40px on desktop; scaling only the icon
+ * would leave the same hard-to-hit box around it.
+ */
+[data-lyra-host="mobile"] .ly-sidebar-fill button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+[data-lyra-host="mobile"] .ly-sidebar-head {
+  height: 44px;
+  min-height: 44px;
+}
+
+/*
+ * Project and session rows carry trailing actions in an absolute strip. On desktop the strip
+ * overlaps the row only while hovering, which is harmless because the pointer is already over the
+ * chosen action. Those actions are persistent on touch, so the row's own button stops before them:
+ * one coordinate can now resolve to exactly one action.
+ */
+[data-lyra-host="mobile"] .group\/project > button:first-of-type {
+  width: calc(100% - 96px);
+}
+
+[data-lyra-host="mobile"] .group\/session > button:first-of-type {
+  width: calc(100% - 94px);
+  padding-right: 8px;
+}
+
+/* Menus and file rows are navigation too, and need the same target even when their text is short. */
+[data-lyra-host="mobile"] [role="menuitem"],
+[data-lyra-host="mobile"] [role="treeitem"] {
+  min-height: 44px;
+}
+
+/*
+ * Pane chrome shares a 44px title row. Let each action consume that row instead of leaving a
+ * 20px square floating inside it; the drag grip stays narrow because it is a gesture handle.
+ */
+[data-lyra-host="mobile"] [data-dock-header] button:not([data-dock-grip]) {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/*
+ * File tabs sit directly below the pane header, so their close control must not reach back into
+ * that header. Giving the strip and each tab the same 44px row also makes both the filename and
+ * close mark independent thumb targets; horizontal scrolling absorbs the extra width.
+ */
+[data-lyra-host="mobile"] .ly-file-tabs,
+[data-lyra-host="mobile"] .ly-file-tab {
+  height: 44px;
+  min-height: 44px;
+}
+
+[data-lyra-host="mobile"] .ly-file-tab > button {
+  min-height: 44px;
+}
+
+/*
+ * Message actions are always present on touch devices, so their container must grow with their
+ * hit areas instead of keeping the desktop's 24px hover slot and overlapping the next message.
+ */
+@media (hover: none) {
+  [data-lyra-host="mobile"] [data-ly-hover-reveal]:has(button) {
+    min-height: 44px;
+    height: auto;
+  }
+
+  [data-lyra-host="mobile"] button[data-ly-hover-reveal],
+  [data-lyra-host="mobile"] [data-ly-hover-reveal] button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/*
+ * The question rail is capped to a small nearby window, so 44px per question remains bounded and
+ * gives each jump its own target instead of stacking overlapping invisible hit areas on 12px rows.
+ */
+[data-lyra-host="mobile"] .ly-question-rail {
+  width: 44px;
+}
+
+[data-lyra-host="mobile"] .ly-question-mark {
+  width: 44px;
+  height: 44px;
+}
+
+[data-lyra-host="mobile"] [data-trajectory] button,
+[data-lyra-host="mobile"] [data-trajectory] select,
+[data-lyra-host="mobile"] .ly-trace-inspector button,
+[data-lyra-host="mobile"] [data-trace-timeline] button,
+[data-lyra-host="mobile"] [aria-label="重命名会话"] button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+[data-lyra-host="mobile"] [data-trace-inspector-header],
+[data-lyra-host="mobile"] [data-trace-timeline] > div:first-child {
+  height: 44px;
 }
 
 /*
@@ -215,10 +311,6 @@
  * keeps the quieter behaviour it can actually use.
  */
 @media (hover: none) {
-  [data-lyra-host="mobile"] [class~="opacity-0"][class*="group-hover"] {
-    opacity: 1;
-  }
-
   /*
    * Quieter than on the desktop, where they are only ever seen deliberately.
    *

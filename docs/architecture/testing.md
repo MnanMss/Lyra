@@ -60,7 +60,7 @@ Electron 43 携带的 V8 尚未包含 [536271637 的修复](https://chromium-rev
 
 CI 的 `windows-ui` 在 push、PR 和手动执行时运行真实 Windows Electron，并纳入 `all-green`。
 它跑 `desktop-compatibility.test.ts`、`transcript-stability.test.ts`、`interaction-polish.test.ts`、
-`session-startup.test.ts`、`definition-actions.test.ts`、`command-workflow.test.ts`、`visual-details.test.ts`、`agent-profiles-sidechat.test.ts`、`menu-scroll.test.ts` 与 `cdp-lifetime.test.ts`：
+`session-startup.test.ts`、`definition-actions.test.ts`、`command-workflow.test.ts`、`visual-details.test.ts`、`agent-profiles-sidechat.test.ts`、`navigation-models.test.ts`、`model-menu-polish.test.ts`、`usage-dashboard.test.ts`、`workspace-quality.test.ts`、`browser-workspace.test.ts`、`menu-scroll.test.ts` 与 `cdp-lifetime.test.ts`：
 
 - 100%、125%、150%、200% Chromium 显示缩放，深浅主题和 380px 起的窗口宽度。
 - 从 Window Controls Overlay API 读取系统按钮区域，验证应用按钮没有进入它。
@@ -71,8 +71,12 @@ CI 的 `windows-ui` 在 push、PR 和手动执行时运行真实 Windows Electro
 - 15 刻度邻域与首尾导航、问答预览、图片气泡与时间分隔、发版弹窗逐帧尺寸、模态焦点/嵌套/窄屏/减少动画，以及项目记忆开关与压缩占比。
 - 子智能体的供应商/模型/思考等级选择、真实请求参数、375px 设置布局；侧聊早期记录和工具尾部检索、主会话压缩、切换、冷恢复与编辑重发。
 - 慢 MCP 初始化前的首条提交、取消、折叠状态、同名隔离及后台完成。
+- 最近创建默认排序、记忆文件真实打开、座右铭持久化、Chromium IME、截图开关主进程校验。
+- 工程净差异与报告打开、hover 行高、后续编辑保护、实际服务 listener、跨会话停止拒绝与真实结束。
+- Agent 驱动可见浏览器、原生输入与缩放后点击、标签保留、元素/框选截图、DevTools、书签与无效 IPC。
 - 列表删除的悬停渐变、键盘确认、触摸可见性、固定布局，以及命令、技能目录和规则移入系统废纸篓。
 - 斜杠命令的原生编辑、撤销、光标补全、参数装饰、长草稿滚动、菜单渐隐，以及压缩的参数传递、取消、结果与跨会话隔离。
+- 模型菜单的收藏置顶、供应商折叠和内部滚动，以及用量页的离线计价、缓存分类、图表切换、模型目录同步和窄窗口重排。
 
 设置 `LYRA_E2E_ARTIFACTS` 可以保存真实应用截图；CI 保留 7 天。测试使用临时项目和合成会话
 日志，经真实应用加载，退出后清理。模型请求只发给测试启动的本地协议服务，不使用用户密钥。
@@ -81,7 +85,7 @@ CI 的 `windows-ui` 在 push、PR 和手动执行时运行真实 Windows Electro
 
 ```bash
 pnpm build
-pnpm --filter @lyra/desktop exec node --test --test-concurrency=1 --experimental-strip-types e2e/desktop-compatibility.test.ts e2e/transcript-stability.test.ts e2e/interaction-polish.test.ts e2e/session-startup.test.ts e2e/definition-actions.test.ts e2e/command-workflow.test.ts e2e/visual-details.test.ts e2e/agent-profiles-sidechat.test.ts e2e/menu-scroll.test.ts e2e/cdp-lifetime.test.ts
+pnpm --filter @lyra/desktop exec node --test --test-concurrency=1 --experimental-strip-types e2e/desktop-compatibility.test.ts e2e/transcript-stability.test.ts e2e/interaction-polish.test.ts e2e/session-startup.test.ts e2e/definition-actions.test.ts e2e/command-workflow.test.ts e2e/visual-details.test.ts e2e/agent-profiles-sidechat.test.ts e2e/navigation-models.test.ts e2e/model-menu-polish.test.ts e2e/usage-dashboard.test.ts e2e/workspace-quality.test.ts e2e/browser-workspace.test.ts e2e/menu-scroll.test.ts e2e/cdp-lifetime.test.ts
 ```
 
 macOS 上运行这些测试可验证共享 Chromium 布局，不能证明 Windows 的 DirectWrite、GPU 驱动、
@@ -110,3 +114,40 @@ Activity 会保留隐藏页面的 DOM。全局 `querySelectorAll` 可能读到�
 
 首次读取的骨架屏要用真实慢输入或受控 deferred 响应验证；缓存命中不应被要求重播骨架。
 数值证据与本次范围见 [交互质量与验证](interaction-quality.md)。
+
+
+### 导航与模型配置的回归
+
+`navigation-models.test.ts` 在真实 Electron 中加载隔离的 120 个问题和 60 个模型。点击采样从
+真实鼠标 click 的捕获阶段开始，记录点击前刻度宽度及接下来 24 帧落点、刻度身份、宽度和
+预览透明度；同时覆盖窗口内外目标、hover 未结束就点击、15 个刻度的数量上限。Markdown
+断言读取真实 strong、h3、code 节点；不从 React 内部状态推断画面。
+
+同一测试验证角色与子智能体的收藏/搜索菜单、420px 高度上限、375px 布局、明确配置的推理
+等级，以及配置选择不修改当前会话模型。`model-menu.test.ts` 回归聊天侧原有搜索与收藏，
+`agent-profiles-sidechat.test.ts` 检查子智能体实际 HTTP 请求和侧聊历史。各文件仍须串行执行，
+构建完成后才能启动，使用 `LYRA_E2E_ARTIFACTS` 保存真实截图。`thinking-wire.test.ts` 另对
+Responses、Chat Completions、Anthropic 的出站参数做断言，并覆盖无效自定义预算的请求前拒绝。
+
+### 工作区交付与浏览器的隔离
+
+[工作区工具](workspace-tools.md)的两组端到端测试启动本地协议服务提供确定的工具调用，实际执行
+Lyra 工具、写入隔离 Git 仓库、启动并结束真实 HTTP 服务。浏览器页面为明确的本地 web fixture，
+通过正式 BrowserPanel 渲染，截图不使用替代 UI。测试实例去掉 NODE_TEST_CONTEXT，避免子进程
+中真正执行的 `node --test` 被上层测试环境静默跳过。用户配置、会话与密钥不用于这些测试。
+
+### 用量统计与离线模型目录
+
+`usage-pricing.test.ts`、`usage-scan.test.ts` 和 core 的 `model-catalog.test.ts`、`pricing.test.ts` 覆盖
+输入、输出、缓存命中、缓存写入、长上下文阶梯价格，以及供应商返回、历史快照、手动价格和离线
+目录的优先级。价格快照中的合法 0 必须保留；缺少任一费率的旧记录不能伪装成完整快照。目录匹配
+以供应商端点和模型 ID 为边界，未知 relay 即使复用上游模型名也保持未匹配。
+
+`usage-dashboard.test.ts` 使用真实 Electron 和隔离会话日志，验证首次骨架、费用与 Token 趋势切换、
+模型与日期明细、刷新不清空页面、未计价提示，以及模型编辑器同步目录值。1440×900 下指标栏为
+5 列，760×900 下为 2 列；两者都断言没有横向溢出。测试数据包含供应商返回成本、手动价格、
+离线目录价格、只有历史总价和完全未计价五类记录，模型请求不会访问外网或用户供应商。
+
+离线快照由仓库根目录的 `pnpm catalog:update` 从 models.dev 的公开 MIT 数据生成，JSON 同时记录
+源仓库 commit 和更新时间。更新目录后必须运行目录、计价、扫描单测与用量页面 E2E；目录版本和
+用户模型价格会进入用量缓存 key，任一变化都会使旧聚合缓存失效并从原始会话日志重新计价。

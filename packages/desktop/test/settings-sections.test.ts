@@ -37,7 +37,7 @@ test("the phone loses the pages about a machine it is not holding", () => {
 
 test("and keeps the ones that are about the app rather than the machine", () => {
 	const shown = ids(groupsFor(GROUPS, true));
-	for (const kept of ["general", "appearance", "models", "plugins", "usage"] as SettingsSection[]) {
+	for (const kept of ["general", "appearance"] as SettingsSection[]) {
 		assert.ok(shown.includes(kept), `${kept} 应该留在手机上`);
 	}
 });
@@ -58,8 +58,7 @@ test("arriving at a hidden page lands somewhere real instead of blank", () => {
 });
 
 test("a page that is fine stays where it is", () => {
-	assert.equal(sectionFor(GROUPS, "models", true), "models");
-	assert.equal(sectionFor(GROUPS, "usage", true), "usage");
+	assert.equal(sectionFor(GROUPS, "appearance", true), "appearance");
 });
 
 test("the desktop is never redirected, even to a page the phone hides", () => {
@@ -72,12 +71,25 @@ test("the hidden list is about capability, not taste", () => {
 	 * Each of these is hidden because the phone cannot carry it out, not because it would be
 	 * cluttered — the test states the reason so a later change has to disagree with it out loud.
 	 */
-	for (const id of ["screenshot", "browser", "worktrees", "index", "formatting", "commands", "hooks", "sync"]) {
+	for (const id of [
+		"screenshot",
+		"browser",
+		"worktrees",
+		"index",
+		"formatting",
+		"models",
+		"forges",
+		"plugins",
+		"commands",
+		"hooks",
+		"search",
+		"access",
+		"sync",
+		"usage",
+	]) {
 		assert.ok(HIDDEN_ON_MOBILE.has(id as SettingsSection), `${id} 应在隐藏列表里`);
 	}
-	// And things that merely look advanced are not hidden: an agent's permissions matter more on a
-	// phone, not less, because that is where you approve things away from the keyboard.
-	for (const id of ["access", "agents", "personalization", "forges"]) {
+	for (const id of ["general", "appearance", "agents", "personalization", "archived", "about"]) {
 		assert.ok(!HIDDEN_ON_MOBILE.has(id as SettingsSection), `${id} 不该被隐藏`);
 	}
 });
@@ -89,7 +101,7 @@ test("every visible platform setting resolves to its own page", async () => {
 		for (const phone of [false, true]) {
 			const groups = settingsGroups(platform, phone);
 			for (const id of ids(groups)) assert.equal(sectionFor(groups, id, phone), id);
-			assert.equal(ids(groups).includes("screenshot"), platform === "darwin" && !phone);
+			assert.equal(ids(groups).includes("screenshot"), !phone);
 		}
 	}
 });

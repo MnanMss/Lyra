@@ -81,7 +81,7 @@ export async function describeContext(session: SessionFacts): Promise<ContextBre
 	const resolved = resolveModel(session.settings, session.meta.modelId || session.settings.defaultModelId);
 	if (!resolved) return null;
 
-	const { memorySnippet, projectMemory } = await gatherMemory(session.cwd, session.settings.personalization?.enableMemory !== false, Date.now(), projectMemoryEnabled(session.settings), false);
+	const { memorySnippet, projectMemory, projectMemoryFiles } = await gatherMemory(session.cwd, session.settings.personalization?.enableMemory !== false, Date.now(), projectMemoryEnabled(session.settings), false);
 	const projectInstructions = await loadProjectInstructions(session.cwd);
 	const tools = session.tools.filter((tool) => tool.name !== "learn" || projectMemoryEnabled(session.settings));
 	const mcpNames = new Set(session.mcp.allTools().map((tool) => tool.name));
@@ -109,6 +109,7 @@ export async function describeContext(session: SessionFacts): Promise<ContextBre
 		skillCatalogue: formatSkillCatalogue(session.skills),
 		projectInstructions,
 		projectMemory,
+		projectMemoryFiles,
 	});
 }
 

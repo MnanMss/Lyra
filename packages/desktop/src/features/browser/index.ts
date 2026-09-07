@@ -8,3 +8,6 @@
  */
 
 export { BrowserPanel } from "./BrowserPanel.tsx";
+export { useBrowserWorkspace } from "./browser-store.ts";
+
+export { commandBrowser } from "./browser-store.ts";

@@ -6,9 +6,10 @@
  * and the chooser and the add menu all disable the same things for the same stated reason.
  */
 
-import { allPanels, type PanelDefinition } from "./registry.ts";
+import { allPanels, panelsForHost, type PanelDefinition } from "./registry.ts";
 import type { PanelKind } from "../sideStore.ts";
 import { useApp } from "../../../store/index.ts";
+import { onPhone } from "../../../services/host.ts";
 import "./builtin.tsx";
 
 /** A panel with its availability already decided, which is all a view needs. */
@@ -23,7 +24,7 @@ export function usePanelDefinitions(): ResolvedPanel[] {
 		cwd: Boolean(workspace ?? scratchCwd),
 		session: Boolean(activeSessionId),
 	};
-	return allPanels().map((panel) => ({ ...panel, unavailable: panel.unavailable?.(state) }));
+	return panelsForHost(allPanels(), onPhone()).map((panel) => ({ ...panel, unavailable: panel.unavailable?.(state) }));
 }
 
 /**

@@ -138,7 +138,7 @@ export function PluginsSettings({ filter = "" }: { filter?: string }) {
 			) : scan === null ? null : plugins.length === 0 ? (
 				<div className="py-10 text-center">
 					<p className="text-label leading-relaxed text-ink-muted">
-						{needle ? "没有匹配的插件。" : "还没有插件。去插件市场装一个，或把插件目录放进 ~/.lyra/plugins。"}
+						{needle ? "没有匹配的插件" : "暂无已安装插件"}
 					</p>
 				</div>
 			) : (

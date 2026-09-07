@@ -2,12 +2,14 @@
  * Personalization settings: custom global instructions, local persistent memory management, and tone.
  */
 
+import { Textarea, Input } from "../../ui/inputs/NativeField.tsx";
 import { useEffect, useState } from "react";
 import { Brain, Check, Info, Plus, Trash2 } from "lucide-react";
 import { useApp } from "../../store/index.ts";
 import { Card, GhostButton, InlineSelect, PrimaryButton, Row, SectionTitle, Toggle } from "./controls.tsx";
 import { bridge } from "../../services/index.ts";
 import { MemoryMeta, type MemorySource } from "./MemoryMeta.tsx";
+import { SidebarMotto } from "./SidebarMotto.tsx";
 
 export function PersonalizationSettings() {
 	const settings = useApp((s) => s.settings);
@@ -149,6 +151,7 @@ export function PersonalizationSettings() {
 
 	return (
 		<div className="space-y-6">
+			<SidebarMotto />
 			{/* Custom Instructions */}
 			<div>
 				<div className="mb-2 flex items-center justify-between">
@@ -174,7 +177,7 @@ export function PersonalizationSettings() {
 				</div>
 
 				<Card className="p-3.5 space-y-2">
-					<textarea
+					<Textarea
 						value={customInstructions}
 						onChange={(e) => setCustomInstructions(e.target.value)}
 						placeholder="# 全局 Agent 规则与偏好&#10;&#10;- 默认使用中文回答；代码、命令与错误日志保留原文。&#10;- 遵循最小改动原则，标准库与原生依赖优先，不做过度抽象。&#10;- 遇到问题主动检索本地代码与文档，给出经过验证的方案。"
@@ -252,7 +255,7 @@ export function PersonalizationSettings() {
 				{personalization.enableMemory !== false && (
 					<div className="mt-3 space-y-2">
 						<div className="flex items-center gap-2">
-							<input
+							<Input
 								type="text"
 								value={newMemory}
 								onChange={(e) => setNewMemory(e.target.value)}
@@ -295,7 +298,7 @@ export function PersonalizationSettings() {
 							</div>
 						) : (
 							<div className="rounded-xl border border-line/60 bg-card/40 py-8 text-center text-caption text-ink-faint">
-								{loadingMemory ? "正在读取记忆..." : "暂无持久化记忆条目，可在此手动添加或在对话中自动沉淀。"}
+								{loadingMemory ? "正在读取记忆..." : "暂无用户记忆"}
 							</div>
 						)}
 					</div>

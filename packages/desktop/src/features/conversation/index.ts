@@ -22,5 +22,7 @@ export { MessageEditor } from "./message/MessageEditor.tsx";
 export { ThinkingLine } from "./message/ThinkingLine.tsx";
 export { ToolRun } from "./runs.tsx";
 export { TrajectoryPanel } from "./trajectory/TrajectoryPanel.tsx";
+export { TraceText } from "./detail/TraceText.tsx";
+export { showTrace } from "./trajectory/navigation.ts";
 export { Conversation, ConversationSkeleton } from "./Conversation.tsx";
 export { EmptyState } from "./EmptyState.tsx";

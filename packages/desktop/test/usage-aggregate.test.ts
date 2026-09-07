@@ -14,6 +14,7 @@ import {
 	dailySeries,
 	dayTotals,
 	modelRanking,
+	providerRanking,
 	providerLabel,
 	rangeStart,
 	summarise,
@@ -32,7 +33,19 @@ function bucket(day: string, key: string, over: Partial<UsageBucket> = {}): Usag
 		output: 0,
 		cacheRead: 0,
 		cacheWrite: 0,
+		reasoning: 0,
 		cost: 0,
+		inputCost: 0,
+		outputCost: 0,
+		cacheReadCost: 0,
+		cacheWriteCost: 0,
+		rawCost: 0,
+		cacheSavings: 0,
+		providerPricedTokens: 0,
+		catalogPricedTokens: 0,
+		manualPricedTokens: 0,
+		recordedPricedTokens: 0,
+		unpricedTokens: 0,
 		replies: 0,
 		...over,
 	};
@@ -49,6 +62,10 @@ describe("rangeStart", () => {
 
 	it("「最近 30 天」 likewise", () => {
 		assert.equal(rangeStart(30, now), "2026-08-04");
+	});
+
+	it("「最近 90 天」 likewise", () => {
+		assert.equal(rangeStart(90, now), "2026-06-05");
 	});
 
 	it("「全部」 has no start", () => {
@@ -74,10 +91,13 @@ describe("withinRange", () => {
 
 describe("totalsFor", () => {
 	it("counts cache reads as tokens, because they are tokens the model read", () => {
-		const totals = totalsFor([bucket("2026-09-01", "relay/m", { input: 10, output: 5, cacheRead: 100, cacheWrite: 2 })], []);
+		const totals = totalsFor([bucket("2026-09-01", "relay/m", { input: 10, output: 5, cacheRead: 100, cacheWrite: 2, reasoning: 3, rawCost: 2, cost: 0.5, cacheSavings: 1.5, catalogPricedTokens: 117 })], []);
 		assert.equal(totals.tokens, 117);
 		assert.equal(totals.input, 10);
 		assert.equal(totals.cacheRead, 100);
+		assert.equal(totals.reasoning, 3);
+		assert.equal(totals.cacheSavings, 1.5);
+		assert.equal(totals.quality.catalog, 117);
 	});
 
 	it("a day with messages is an active day; one without is not", () => {
@@ -160,6 +180,19 @@ describe("modelRanking", () => {
 	it("all-zero usage does not divide by zero", () => {
 		const ranked = modelRanking([bucket("2026-09-01", "relay/m")]);
 		assert.equal(ranked[0].share, 0);
+	});
+});
+
+describe("providerRanking", () => {
+	it("groups models by their configured provider and ranks by cost", () => {
+		const ranked = providerRanking([
+			bucket("2026-09-01", "one/a", { input: 100, cost: 2 }),
+			bucket("2026-09-01", "one/b", { input: 50, cost: 1 }),
+			bucket("2026-09-01", "two/c", { input: 500, cost: 0.5 }),
+		]);
+		assert.deepEqual(ranked.map((row) => row.id), ["one", "two"]);
+		assert.equal(ranked[0].tokens, 150);
+		assert.ok(Math.abs(ranked.reduce((sum, row) => sum + row.share, 0) - 1) < 1e-9);
 	});
 });
 

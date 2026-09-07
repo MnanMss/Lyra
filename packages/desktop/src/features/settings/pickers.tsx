@@ -12,6 +12,7 @@
  * `aria-valuenow`, none of which is worth reimplementing badly.
  */
 
+import { Input } from "../../ui/inputs/NativeField.tsx";
 import { Minus, Plus } from "lucide-react";
 import { useRef, type JSX } from "react";
 
@@ -118,7 +119,7 @@ export function NumberField({
 			className="flex h-[30px] items-center rounded-lg border border-line bg-input focus-within:border-ink-faint"
 			style={{ width }}
 		>
-			<input
+			<Input
 				type="text"
 				inputMode="numeric"
 				value={String(value)}

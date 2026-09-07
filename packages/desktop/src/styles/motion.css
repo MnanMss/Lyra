@@ -165,3 +165,6 @@
 		transform: translateX(-4px);
 	}
 }
+
+/* Clicking navigation has no exit motion; hover alone owns the preview transition. */
+.ly-question-preview[data-dismissed="true"] { transition: none; }

@@ -126,3 +126,8 @@ export function sha256Hex(text: string): string {
 export function roomFor(token: string): string {
 	return sha256Hex(token);
 }
+
+/** A separate bearer capability for the public renderer bundle carried through a relay. */
+export function assetKeyFor(token: string): string {
+	return sha256Hex(`lyra-assets\0${roomFor(token)}`);
+}

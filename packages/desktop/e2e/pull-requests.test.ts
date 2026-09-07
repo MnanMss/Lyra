@@ -308,7 +308,7 @@ test("with no account left, the pane is the sign-in screen rather than an empty 
 	assert.equal(screen.rows, 0, "rows nobody can act on are not left on screen");
 	assert.equal(screen.tabs, 0);
 	assert.ok(screen.button, "there is one thing to do here, and it is a button");
-	assert.match(screen.text, /还没有添加代码托管账号/);
+	assert.match(screen.text, /未添加代码托管账号/);
 	// The message that used to be here named a CLI and a Homebrew command, which told a GitLab
 	// user the app did not work rather than that they were one token away.
 	assert.doesNotMatch(screen.text, /gh CLI|brew install/);

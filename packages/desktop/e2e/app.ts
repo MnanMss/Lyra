@@ -15,7 +15,7 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { access, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -49,19 +49,24 @@ export async function stopProcessGroup(
 	});
 	if (process.platform === "win32") {
 		// Node's child.kill only terminates the parent on Windows; Electron owns renderer/GPU children.
-		await new Promise<void>((resolve, reject) => {
-			const killer = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore", timeout: 5_000 });
-			killer.once("error", reject);
-			killer.once("exit", (code) => {
-				if (code !== 0 && child.exitCode === null && child.signalCode === null) {
-					reject(new Error(`taskkill failed for test process ${pid} (exit ${code})`));
-				} else resolve();
+		try {
+			const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null; output: string }>((resolve, reject) => {
+				const killer = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"], timeout: 5_000 });
+				let output = "";
+				const record = (chunk: Buffer) => { output = (output + chunk.toString()).slice(-8_000); };
+				killer.stdout.on("data", record); killer.stderr.on("data", record);
+				killer.once("error", reject);
+				killer.once("close", (code, signal) => resolve({ code, signal, output }));
 			});
-		});
-		await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 1_000))]);
-		child.stdout?.destroy();
-		child.stderr?.destroy();
-		child.unref();
+			// Windows queues each process exit independently; taskkill can close before the target's notification.
+			await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 1_000))]);
+			if (result.code !== 0 && child.exitCode === null && child.signalCode === null) {
+				throw new Error(`taskkill failed for test process ${pid} (exit ${result.code}, signal ${result.signal}): ${result.output}`);
+			}
+		} finally {
+			// A failed process-tree kill must still release the runner's own pipe handles.
+			child.stdin?.destroy(); child.stdout?.destroy(); child.stderr?.destroy(); child.unref();
+		}
 		return;
 	}
 
@@ -217,6 +222,17 @@ export async function startApp({
 	const home = await mkdtemp(join(tmpdir(), "lyra-e2e-"));
 	try {
 		await seed?.(home);
+		const settingsPath = join(home, "settings.json");
+		const raw = await readFile(settingsPath, "utf8").catch((error: NodeJS.ErrnoException) => {
+			if (error.code === "ENOENT") return "{}";
+			throw error;
+		});
+		const settings: unknown = JSON.parse(raw);
+		if (!settings || typeof settings !== "object" || Array.isArray(settings)) throw new Error("E2E settings must be an object");
+		const appearance = "appearance" in settings ? settings.appearance : {};
+		if (!appearance || typeof appearance !== "object" || Array.isArray(appearance)) throw new Error("E2E appearance must be an object");
+		// Text and animation assertions share defaults across runners; explicit fixtures still win.
+		await writeFile(settingsPath, JSON.stringify({ uiLocale: "zh-CN", ...settings, appearance: { reduceMotion: "off", ...appearance } }));
 	} catch (error) {
 		await rm(home, { recursive: true, force: true });
 		throw error;
@@ -228,9 +244,12 @@ export async function startApp({
 	 * Launch the binary directly: Windows cannot spawn a pnpm.cmd shim without a shell, and
 	 * electron-vite preview silently rebuilds per suite instead of testing the requested build.
 	 */
+	const childEnv: NodeJS.ProcessEnv = { ...process.env, LYRA_HOME: home, ELECTRON_ENABLE_LOGGING: "1" };
+	// The app may run node --test itself; inheriting this suppresses every nested test.
+	delete childEnv.NODE_TEST_CONTEXT;
 	const app: ChildProcess = spawn(executable, argv, {
 		cwd: ROOT,
-		env: { ...process.env, LYRA_HOME: home, ELECTRON_ENABLE_LOGGING: "1" },
+		env: childEnv,
 		stdio: "pipe",
 		detached: true,
 	});
@@ -250,33 +269,7 @@ export async function startApp({
 		await rm(home, { recursive: true, force: true });
 		throw error;
 	}
-	const evaluate = <T>(expression: string) => call(target, async (send) => {
-		type Answer = { exceptionDetails?: { text: string }; result?: { value: T; objectId?: string; subtype?: string } };
-		const objectGroup = "lyra-e2e-evaluation";
-		try {
-			// V8 bug 536271637: awaitPromise alone holds a weak reference in Electron 43's V8.
-			// A remote handle owns the result until this same connection has awaited and released it.
-			let answer = await send<Answer>("Runtime.evaluate", {
-				expression, objectGroup, awaitPromise: false, returnByValue: false, userGesture: true,
-			});
-			if (!answer.exceptionDetails && answer.result?.objectId && answer.result.subtype !== "promise") {
-				// An async identity preserves awaitPromise's thenable assimilation as well as objects.
-				answer = await send<Answer>("Runtime.callFunctionOn", {
-					objectId: answer.result.objectId, functionDeclaration: "async function() { return this; }",
-					objectGroup, returnByValue: false, userGesture: true,
-				});
-			}
-			if (!answer.exceptionDetails && answer.result?.objectId) {
-				answer = await send<Answer>("Runtime.awaitPromise", {
-					promiseObjectId: answer.result.objectId, returnByValue: true,
-				});
-			}
-			if (answer.exceptionDetails) throw new Error(answer.exceptionDetails.text);
-			return answer.result?.value as T;
-		} finally {
-			await send("Runtime.releaseObjectGroup", { objectGroup });
-		}
-	});
+	const evaluate = <T>(expression: string) => evaluateRenderer<T>(target, expression);
 	try {
 		await waitForShell(evaluate);
 	} catch (error) {
@@ -288,7 +281,7 @@ export async function startApp({
 	return {
 		home,
 		evaluate,
-		send: <T>(method: string, params?: Record<string, unknown>) => call(target, (send) => send<T>(method, params ?? {})),
+		send: <T>(method: string, params?: Record<string, unknown>) => call<T>(target, method, params ?? {}),
 		stop: async () => {
 			await stopProcessGroup(app);
 			await rm(home, { recursive: true, force: true }).catch(() => {});
@@ -337,8 +330,47 @@ async function waitForShell(evaluate: <T>(expression: string) => Promise<T>): Pr
 	throw new Error(`the shell never rendered. What was on screen:\n${last}`);
 }
 
+/** Desktop and mobile evaluations share the same remote-handle lifetime. */
+export function evaluateRenderer<T>(target: string, expression: string): Promise<T> {
+	return withConnection(target, async (send) => {
+		type Answer = { exceptionDetails?: { exception?: { description?: string }; text: string }; result?: { value: T; objectId?: string; subtype?: string } };
+		const objectGroup = "lyra-e2e-evaluation";
+		try {
+			// V8 bug 536271637: awaitPromise alone holds a weak reference in Electron 43's V8.
+			// A remote handle owns the result until this same connection has awaited and released it.
+			let answer = await send<Answer>("Runtime.evaluate", {
+				expression, objectGroup, awaitPromise: false, returnByValue: false, userGesture: true,
+			});
+			if (!answer.exceptionDetails && answer.result?.objectId && answer.result.subtype !== "promise") {
+				// An async identity preserves awaitPromise's thenable assimilation as well as objects.
+				answer = await send<Answer>("Runtime.callFunctionOn", {
+					objectId: answer.result.objectId, functionDeclaration: "async function() { return this; }",
+					objectGroup, returnByValue: false, userGesture: true,
+				});
+			}
+			if (!answer.exceptionDetails && answer.result?.objectId) {
+				answer = await send<Answer>("Runtime.awaitPromise", {
+					promiseObjectId: answer.result.objectId, returnByValue: true,
+				});
+			}
+			if (answer.exceptionDetails) {
+				const { text, exception } = answer.exceptionDetails;
+				throw new Error(exception?.description ? `${text}\n${exception.description}` : text);
+			}
+			return answer.result?.value as T;
+		} finally {
+			await send("Runtime.releaseObjectGroup", { objectGroup });
+		}
+	});
+}
+
+/** A raw protocol call, also used by the mobile renderer without the desktop preload. */
+export function call<T>(target: string, method: string, params: Record<string, unknown>): Promise<T> {
+	return withConnection(target, (send) => send<T>(method, params));
+}
+
 /** One operation, one socket: remote handles belong to the session that created them. */
-async function call<T>(target: string, operation: (send: <R>(method: string, params: Record<string, unknown>) => Promise<R>) => Promise<T>): Promise<T> {
+async function withConnection<T>(target: string, operation: (send: <R>(method: string, params: Record<string, unknown>) => Promise<R>) => Promise<T>): Promise<T> {
 	const socket = new WebSocket(target);
 	try {
 		await new Promise<void>((resolve, reject) => {

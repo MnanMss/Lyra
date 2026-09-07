@@ -23,6 +23,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { closeListeningServer, startApp, type RunningApp } from "./app.ts";
+import { cleanupFixture } from "./fixture-cleanup.ts";
 // The app's own threshold, so tuning it moves this wait with it rather than quietly stranding it.
 import { STALL_MS } from "../src/features/conversation/answering.ts";
 
@@ -178,9 +179,11 @@ before(async () => {
 });
 
 after(async () => {
-	await app?.stop();
-	for (const res of open) res.destroy();
-	await closeListeningServer(model);
+	await cleanupFixture(
+		() => app?.stop(),
+		() => { for (const res of open) res.destroy(); },
+		() => closeListeningServer(model),
+	);
 });
 
 // ---------------------------------------------------------------------------

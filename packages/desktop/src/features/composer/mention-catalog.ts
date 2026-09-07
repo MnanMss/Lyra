@@ -96,6 +96,10 @@ export function rankMentions(
 		items.push({ id: "action:pick-directory", title: "选择文件夹", kind: "action" });
 	}
 
+	if (options.allowAction && (!lower || "compact".includes(lower) || "压缩上下文".includes(lower))) {
+		items.push({ id: "action:compact", title: "compact", description: "压缩上下文", kind: "action" });
+	}
+
 	// Subagents
 	for (const sub of options.agents ?? []) {
 		if (!lower || sub.name.toLowerCase().includes(lower) || sub.description.toLowerCase().includes(lower)) {

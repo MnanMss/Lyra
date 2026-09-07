@@ -1,7 +1,7 @@
 /**
  * The index, as a column you read downwards.
  */
-import { Check, FolderTree, List, Minus, Plus, RotateCcw } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Check, FolderTree, List, Minus, Plus, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type { GitStatus, GitStatusFile, WorkspaceDiffFile } from "../../../electron/ipc-types.ts";
@@ -134,6 +134,7 @@ export function ChangesView({
         action={
           plan.empty.action
             ? {
+                icon: plan.empty.action.kind === "push" ? ArrowUpFromLine : ArrowDownToLine,
                 label: plan.empty.action.label,
                 onClick: plan.empty.action.kind === "push" ? onPush : onPull,
                 disabled: busy,
@@ -152,25 +153,27 @@ export function ChangesView({
     <>
       <Scroller className="ly-enter flex-1" contentClassName="px-2 pb-2" top="fade" bottom="fade">
         {stagedPaths.length > 0 && (
-          <div className="flex items-center justify-between">
-            <GroupHeader
-              label="已暂存"
-              count={stagedPaths.length}
-              action="取消全部"
-              disabled={busy}
-              onAction={() =>
-                void act(() => bridge.git.unstage(cwd, stagedPaths))
-              }
-            />
-            <button
-              type="button"
-              data-ly-tip={treeView ? "切换为扁平列表" : "切换为树状视图"}
-              onClick={() => setTreeView((v) => !v)}
-              className="flex h-6 w-6 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-card-hover hover:text-ink"
-            >
-              {treeView ? <List size={13} strokeWidth={1.9} /> : <FolderTree size={13} strokeWidth={1.9} />}
-            </button>
-          </div>
+					<GroupHeader
+						label="已暂存"
+						count={stagedPaths.length}
+						actions={
+							<>
+								<IconButton
+									label={treeView ? "切换为扁平列表" : "切换为树状视图"}
+									icon={treeView ? <List size={13} strokeWidth={1.9} /> : <FolderTree size={13} strokeWidth={1.9} />}
+									size="sm"
+									onClick={() => setTreeView((v) => !v)}
+								/>
+								<IconButton
+									label="全部取消暂存"
+									icon={<Minus size={13} strokeWidth={1.9} />}
+									size="sm"
+									disabled={busy}
+									onClick={() => void act(() => bridge.git.unstage(cwd, stagedPaths))}
+								/>
+							</>
+						}
+					/>
         )}
         {stagedPaths.length > 0 && (
           treeView ? (
@@ -209,27 +212,29 @@ export function ChangesView({
         )}
 
         {unstagedPaths.length > 0 && (
-          <div className="flex items-center justify-between">
-            <GroupHeader
-              label="未暂存"
-              count={unstagedPaths.length}
-              action="全部暂存"
-              disabled={busy}
-              onAction={() =>
-                void act(() => bridge.git.stage(cwd, unstagedPaths))
-              }
-            />
-            {stagedPaths.length === 0 && (
-              <button
-                type="button"
-                data-ly-tip={treeView ? "切换为扁平列表" : "切换为树状视图"}
-                onClick={() => setTreeView((v) => !v)}
-                className="flex h-6 w-6 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-card-hover hover:text-ink"
-              >
-                {treeView ? <List size={13} strokeWidth={1.9} /> : <FolderTree size={13} strokeWidth={1.9} />}
-              </button>
-            )}
-          </div>
+					<GroupHeader
+						label="未暂存"
+						count={unstagedPaths.length}
+						actions={
+							<>
+								{stagedPaths.length === 0 && (
+									<IconButton
+										label={treeView ? "切换为扁平列表" : "切换为树状视图"}
+										icon={treeView ? <List size={13} strokeWidth={1.9} /> : <FolderTree size={13} strokeWidth={1.9} />}
+										size="sm"
+										onClick={() => setTreeView((v) => !v)}
+									/>
+								)}
+								<IconButton
+									label="全部暂存"
+									icon={<Plus size={13} strokeWidth={1.9} />}
+									size="sm"
+									disabled={busy}
+									onClick={() => void act(() => bridge.git.stage(cwd, unstagedPaths))}
+								/>
+							</>
+						}
+					/>
         )}
         {unstagedPaths.length > 0 && (
           treeView ? (

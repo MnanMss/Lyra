@@ -1,6 +1,7 @@
 import { Link, Redirect } from "expo-router";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { useMobile } from "../src/store";
+import { mobileTranslator } from "../src/i18n";
 
 /**
  * One decision: is there a desktop to show?
@@ -13,6 +14,7 @@ import { useMobile } from "../src/store";
  * So this screen either invites you to pair or hands over to `/desk`, and nothing else.
  */
 export default function HomeScreen() {
+	const t = mobileTranslator();
 	const hydrated = useMobile((s) => s.hydrated);
 	const connection = useMobile((s) => s.connection);
 
@@ -30,18 +32,17 @@ export default function HomeScreen() {
 
 	return (
 		<View className="flex-1 items-center justify-center bg-shell px-8">
-			<Text className="text-center text-[22px] font-semibold text-ink">连接你的桌面端</Text>
+			<Text className="text-center text-[22px] font-semibold text-ink">{t("home.title")}</Text>
 			<Text className="mt-3 text-center text-[13.5px] leading-6 text-ink-muted">
-				Lyra 的文件、终端和 MCP 都跑在电脑上。{"\n"}
-				手机连上以后，看到的就是电脑上那个 Lyra。
+				{t("home.body")}
 			</Text>
 			<Link href="/pair" asChild>
 				<Pressable className="mt-8 rounded-xl bg-ink px-5 py-3 active:opacity-85">
-					<Text className="text-[14px] font-medium text-shell">开始配对</Text>
+					<Text className="text-[14px] font-medium text-shell">{t("home.start")}</Text>
 				</Pressable>
 			</Link>
 			<Text className="mt-6 text-center text-[12px] leading-5 text-ink-faint">
-				在桌面端打开「设置 → 移动端同步」{"\n"}启用服务后扫一下那张二维码
+				{t("home.hint")}
 			</Text>
 		</View>
 	);

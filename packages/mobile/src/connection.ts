@@ -10,7 +10,7 @@
  * saved. Both of those are about *pairing*, which is the one job this app still has of its own.
  */
 
-import { roomFor } from "./sha256.ts";
+import { assetKeyFor, roomFor } from "./sha256.ts";
 
 export interface Connection {
 	host: string;
@@ -44,6 +44,24 @@ export interface Connection {
 /** The origin the WebView loads the interface from. */
 export function originOf(connection: Connection): string {
 	return `${connection.tls ? "https" : "http"}://${connection.host}:${connection.port}`;
+}
+
+/** The shared renderer shell, direct from the desktop or through the relay's asset capability. */
+export function appUrlOf(connection: Connection): string {
+	const origin = originOf(connection);
+	return connection.relay ? `${origin}/app/${assetKeyFor(connection.token)}/` : `${origin}/app/`;
+}
+
+/** A relay origin hosts multiple desktops; only the paired capability may receive the bridge. */
+export function isAppUrl(url: string, connection: Connection): boolean {
+	if (url === "about:blank") return true;
+	try {
+		const target = new URL(url);
+		const app = new URL(appUrlOf(connection));
+		return target.origin === app.origin && target.pathname.startsWith(app.pathname);
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -120,7 +138,7 @@ export function pingRelay(host: string, port: number, tls: boolean, token: strin
 		// ten seconds before it hangs up on a socket that has said nothing.
 		const timer = setTimeout(() => done(false), 8000);
 
-		socket.onopen = () => socket.send(JSON.stringify({ type: "hello", room: roomFor(token) }));
+		socket.onopen = () => socket.send(JSON.stringify({ type: "hello", room: roomFor(token), role: "mobile" }));
 		socket.onerror = () => done(false);
 		socket.onclose = () => done(false);
 		socket.onmessage = (event) => {

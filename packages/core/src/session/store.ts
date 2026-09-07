@@ -17,6 +17,7 @@ import type { AgentEvent, CommandRun } from "../agent/events.ts";
 import type { Message, ThinkingLevel, Usage } from "../types.ts";
 import type { SessionStorage } from "./storage.ts";
 import { addUsage, emptyUsage } from "../types.ts";
+import { readRecordChanges, type SessionReadCursor, type SessionRecordChanges } from "./read-changes.ts";
 
 export interface SessionMeta {
 	id: string;
@@ -229,6 +230,11 @@ export class SessionStore implements SessionStorage {
 		this.latestMeta.set(key, next);
 		await this.writeIndex(next);
 		return next;
+	}
+
+	/** Read the appended tail without rescanning the committed prefix. */
+	readChanges(projectId: string, sessionId: string, cursor?: SessionReadCursor): Promise<SessionRecordChanges<SessionRecord>> {
+		return readRecordChanges(this.fileFor(projectId, sessionId), cursor);
 	}
 
 	/** Stream records, optionally only those newer than `sinceSeq`. */

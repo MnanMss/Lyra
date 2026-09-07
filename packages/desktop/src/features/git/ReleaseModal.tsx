@@ -1,3 +1,4 @@
+import { Input, Textarea } from "../../ui/inputs/NativeField.tsx";
 import {
 	Check,
 	CheckCircle2,
@@ -276,7 +277,7 @@ export function ReleaseModal({ cwd, onClose }: ReleaseModalProps) {
 										</button>
 									</div>
 
-									<div className="mt-2 h-7">{selectedType === "custom" ? <input aria-label="自定义版本" value={customVersion} onChange={(event) => setCustomVersion(event.target.value)} placeholder="x.y.z" className="h-7 w-full rounded-lg border border-line bg-input px-3 font-mono text-detail" /> : <p className="flex h-7 items-center text-caption text-ink-faint">{selectedType === "patch" ? "问题修复" : selectedType === "minor" ? "兼容的新功能" : "包含不兼容变更"}</p>}</div>
+									<div className="mt-2 h-7">{selectedType === "custom" ? <Input aria-label="自定义版本" value={customVersion} onChange={(event) => setCustomVersion(event.target.value)} placeholder="x.y.z" className="h-7 w-full rounded-lg border border-line bg-input px-3 font-mono text-detail" /> : <p className="flex h-7 items-center text-caption text-ink-faint">{selectedType === "patch" ? "问题修复" : selectedType === "minor" ? "兼容的新功能" : "包含不兼容变更"}</p>}</div>
 								</div>
 							</div>
 
@@ -347,7 +348,7 @@ export function ReleaseModal({ cwd, onClose }: ReleaseModalProps) {
 										<Markdown text={notes || "*(无内容)*"} />
 									</Scroller>
 								) : (
-									<textarea
+									<Textarea
 										value={notes}
 										onChange={(e) => { notesRevision.current++; setNotes(e.target.value); }}
 										aria-label="更新日志内容"

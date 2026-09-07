@@ -14,7 +14,7 @@ import { useSide } from "../dock/index.ts";
 import { useApp } from "../../store/index.ts";
 import { openViewer } from "../image/index.ts";
 import { ComposerSend, ComposerShell } from "../composer/index.ts";
-import { ModelIcon } from "../models/index.ts";
+import { ModelSelect } from "../models/index.ts";
 
 interface SideAttachment {
 	id: string;
@@ -41,6 +41,8 @@ export function SideComposer({
 }) {
 	const settings = useApp((s) => s.settings);
 	const meta = useApp((s) => s.meta);
+	const modelId = useSide((s) => s.modelId);
+	const loading = useSide((s) => s.loading);
 	const [text, setText] = useState("");
 	const [attachments, setAttachments] = useState<SideAttachment[]>([]);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -210,13 +212,8 @@ export function SideComposer({
 								e.target.value = "";
 							}}
 						/>
-						<span
-							data-ly-tip={modelName ? `跟随主会话：${modelName}` : undefined}
-							className="flex h-7 min-w-0 items-center gap-1.5 px-2 text-label text-ink-faint"
-						>
-							<ModelIcon model={model?.modelId} name={modelName} />
-							<span className="min-w-0 truncate">{modelName ?? "未配置模型"}</span>
-						</span>
+						<ModelSelect ariaLabel="侧边聊天模型" value={modelId ?? ""} inheritLabel="跟随主会话" inheritDetail={modelName ?? "未配置模型"}
+							disabled={disabled || loading} onChange={(value) => { void useSide.getState().setModel(value || null); }} />
 					</>
 				}
 				right={

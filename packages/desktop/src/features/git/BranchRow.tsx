@@ -2,7 +2,7 @@
  * One branch, with what it is ahead and behind by.
  */
 
-import { GitBranch, GitCompare, Trash2 } from "lucide-react";
+import { GitBranch, GitCompare, GitPullRequestArrow, ArrowRightLeft, Trash2 } from "lucide-react";
 import { IconButton } from "../../ui/primitives/IconButton.tsx";
 import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
 import { Text } from "../../ui/primitives/Text.tsx";
@@ -60,14 +60,13 @@ export function BranchRow({
               onClick={onDelete}
             />
           )}
-          <button
-            type="button"
+          <IconButton
+            size="sm"
+            icon={remote ? <GitPullRequestArrow size={13} strokeWidth={1.9} /> : <ArrowRightLeft size={13} strokeWidth={1.9} />}
+            label={remote ? "检出远程分支" : "切换到此分支"}
             disabled={busy}
             onClick={onSwitch}
-            className="h-[22px] w-9 rounded text-right text-caption text-ink-muted transition-colors hover:bg-elevated hover:text-ink disabled:opacity-40"
-          >
-            {remote ? "检出" : "切换"}
-          </button>
+          />
         </span>
       )}
     </div>

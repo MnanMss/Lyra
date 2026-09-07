@@ -2,7 +2,7 @@
  * IPC handlers for screenshot capabilities.
  */
 
-import { dialog, ipcMain } from "electron";
+import { app, dialog, ipcMain } from "electron";
 import type { ScreenshotSettings, Settings } from "@lyra/core";
 import { captureLog } from "../screenshot-debug.ts";
 import {
@@ -13,6 +13,7 @@ import {
 	revealScreenshotOverlay,
 	startScreenshotSession,
 } from "../screenshot.ts";
+import { nativeTranslator } from "../i18n.ts";
 
 export interface ScreenshotIpcDeps {
 	settings: () => Settings;
@@ -20,20 +21,14 @@ export interface ScreenshotIpcDeps {
 }
 
 export function registerScreenshotIpc(deps: ScreenshotIpcDeps): void {
-	/*
-	 * A capture that cannot start says so in the log, not on the user's screen.
-	 *
-	 * `ipcMain.handle` sends a throw back across the bridge, where the caller — the composer's
-	 * button — does not await it, so it lands as an unhandled rejection in the renderer. The
-	 * commonest reason to get here is screen recording access not being granted yet, and macOS is
-	 * already showing its own dialog about exactly that.
-	 */
+	// Callers surface the failure; resolving here would report a disabled or failed capture as started.
 	ipcMain.handle("screenshot:start", async (_event, customSettings?: ScreenshotSettings): Promise<void> => {
 		const current = customSettings ?? deps.settings().screenshot;
 		try {
 			await startScreenshotSession(current);
 		} catch (err) {
 			console.error("[screenshot] 无法开始截图:", err);
+			throw err;
 		}
 	});
 
@@ -102,8 +97,9 @@ export function registerScreenshotIpc(deps: ScreenshotIpcDeps): void {
 	});
 
 	ipcMain.handle("screenshot:pickDirectory", async (): Promise<string | null> => {
+		const current = deps.settings();
 		const res = await dialog.showOpenDialog({
-			title: "选择截图保存位置",
+			title: nativeTranslator(current.uiLocale, app.getLocale())("dialog.screenshotDirectory"),
 			properties: ["openDirectory", "createDirectory"],
 		});
 		if (res.canceled || res.filePaths.length === 0) return null;

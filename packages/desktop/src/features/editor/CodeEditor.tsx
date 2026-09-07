@@ -29,6 +29,11 @@ import { EditorMenu } from "./EditorMenu.tsx";
 import { useContextMenu } from "../../ui/overlay/ContextMenu.tsx";
 import { OverlayScrollbar } from "../../ui/scroll/OverlayScrollbar.tsx";
 
+/** Keep both the document model and its DOM semantics read-only. */
+export function editorAccess(readOnly: boolean): Extension[] {
+	return [EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)];
+}
+
 /**
  * Format the buffer and say what happened, in one line.
  *
@@ -170,7 +175,7 @@ export function CodeEditor({
 				 */
 				EditorState.phrases.of(SEARCH_PHRASES),
 				highlightCompartment.current.of(syntaxHighlighting(highlightStyle(codeLightTheme, codeDarkTheme))),
-				EditorState.readOnly.of(Boolean(readOnly)),
+				...editorAccess(Boolean(readOnly)),
 				wrapping.current.of(wrap ? EditorView.lineWrapping : []),
 				language.current.of([]),
 				keymap.of([

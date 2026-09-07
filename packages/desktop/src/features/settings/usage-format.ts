@@ -33,5 +33,10 @@ export function formatCompact(value: number): string {
 export function formatCost(value: number): string | null {
 	if (!(value > 0.0001)) return null;
 	if (value < 0.005) return "<$0.01";
-	return value >= 100 ? `$${value.toFixed(0)}` : `$${value.toFixed(2)}`;
+	return new Intl.NumberFormat("en-US", {
+		style: "currency",
+		currency: "USD",
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 2,
+	}).format(value);
 }

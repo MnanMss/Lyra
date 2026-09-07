@@ -8,4 +8,4 @@
  */
 
 export { countBySource, filterTrajectory, matchRanges, type TrajectoryFilter } from "./trajectory/filter.ts";
-export { SOURCE_LABEL, SOURCE_ORDER, type Entry, type Source } from "./trajectory/types.ts";
+export { SOURCE_LABEL, SOURCE_ORDER, STATUS_LABEL, entryKey, type Entry, type Source } from "./trajectory/types.ts";

@@ -17,6 +17,7 @@ import { createServer, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { closeListeningServer, startApp, type RunningApp } from "./app.ts";
+import { cleanupFixture } from "./fixture-cleanup.ts";
 
 const MODEL_PORT = 9873;
 const CDP_PORT = 9463;
@@ -149,8 +150,7 @@ before(async () => {
 });
 
 after(async () => {
-	await app?.stop();
-	await closeListeningServer(model);
+	await cleanupFixture(() => app?.stop(), () => closeListeningServer(model));
 });
 
 async function ask(text: string): Promise<void> {

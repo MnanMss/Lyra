@@ -8,6 +8,7 @@
 
 import { Bell, Search } from "lucide-react";
 import { SearchField } from "../../ui/inputs/SearchField.tsx";
+import { useI18n } from "../../i18n/index.ts";
 
 export function SidebarHead({
 	searching,
@@ -21,15 +22,16 @@ export function SidebarHead({
 	/** Opens the field, and — pressed again or on Escape — closes it and clears what was typed. */
 	onToggleSearch: () => void;
 }) {
+	const { t } = useI18n();
 	return (
 		<>
-			<div className="flex h-[34px] shrink-0 items-center justify-between px-4">
+			<div className="ly-sidebar-head flex h-[34px] shrink-0 items-center justify-between px-4">
 				<span className="text-title font-semibold tracking-tight text-ink">Lyra</span>
 				<div className="flex items-center gap-0.5">
 					<button
 						type="button"
-						data-ly-tip="搜索会话"
-						aria-label="搜索会话"
+						data-ly-tip={t("sidebar.search")}
+						aria-label={t("sidebar.search")}
 						aria-pressed={searching}
 						onClick={onToggleSearch}
 						className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-card-hover hover:text-ink ${
@@ -40,8 +42,8 @@ export function SidebarHead({
 					</button>
 					<button
 						type="button"
-						data-ly-tip="通知"
-						aria-label="通知"
+						data-ly-tip={t("sidebar.notifications")}
+						aria-label={t("sidebar.notifications")}
 						className="flex h-7 w-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-card-hover hover:text-ink"
 					>
 						<Bell size={15} strokeWidth={1.9} />
@@ -57,7 +59,7 @@ export function SidebarHead({
 						value={query}
 						onChange={onQuery}
 						onEscape={onToggleSearch}
-						placeholder="搜索会话…"
+						placeholder={t("sidebar.searchPlaceholder")}
 					/>
 				</div>
 			)}

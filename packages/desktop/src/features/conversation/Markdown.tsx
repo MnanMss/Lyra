@@ -9,16 +9,19 @@
  * decided in `markdown-blocks.ts` and `markdown-inline.ts`, where they can be tested.
  */
 
-import { ChevronRight, ExternalLink } from "lucide-react";
+import { FileText, ChevronRight, ExternalLink } from "lucide-react";
 import { createContext, Fragment, memo, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { CodeBlock } from "./CodeBlock.tsx";
 import type { Block, ListItem } from "../../lib/markdown/blocks.ts";
 import { parseMarkdown } from "../../lib/markdown/blocks.ts";
-import { resolveAsset } from "../../lib/markdown/assets.ts";
+import { resolveAsset, isAbsolutePath } from "../../lib/markdown/assets.ts";
 import { type Inline, parseInline } from "../../lib/markdown/inline.ts";
 import { renderMath } from "../../lib/markdown/math.ts";
 import { stripEmoji } from "../../lib/markdown/strip-emoji.ts";
 import { bridge } from "../../services/index.ts";
+import { useApp } from "../../store/index.ts";
+import { useOpenFile } from "../../store/openFile.ts";
+import { companionOf, useDock } from "../dock/index.ts";
 
 /**
  * What this text is, beyond the characters in it.
@@ -37,6 +40,7 @@ interface DocumentContext {
 	baseDir?: string;
 	/** Whether an https `src` may be fetched (through the main process) and drawn. */
 	remoteImages: boolean;
+	preview?: boolean;
 }
 
 const Doc = createContext<DocumentContext>({ remoteImages: false });
@@ -55,6 +59,7 @@ export const Markdown = memo(function Markdown({
 	className = "",
 	baseDir,
 	remoteImages = false,
+	preview = false,
 }: {
 	text: string;
 	className?: string;
@@ -75,6 +80,8 @@ export const Markdown = memo(function Markdown({
 	 * process either way — see `system:remoteImage`.
 	 */
 	remoteImages?: boolean;
+	/** A bounded, non-interactive excerpt without code tools or image loading. */
+	preview?: boolean;
 }) {
 	/*
 	 * System emoji come out first.
@@ -100,20 +107,20 @@ export const Markdown = memo(function Markdown({
 	 */
 	// Memoised because a new object here re-renders every picture in the document on every keystroke
 	// of a streaming reply — which for a remote one means dropping and re-requesting it.
-	const doc = useMemo(() => ({ baseDir, remoteImages }), [baseDir, remoteImages]);
+	const doc = useMemo(() => ({ baseDir, remoteImages, preview }), [baseDir, remoteImages, preview]);
 
 	return (
 		<Doc.Provider value={doc}>
-			<div className={`prose-dw min-w-0 ${className}`}>{renderBlocks(clean)}</div>
+			<div className={`prose-dw min-w-0 ${className}`}>{renderBlocks(clean, preview)}</div>
 		</Doc.Provider>
 	);
 });
 
-function renderBlocks(source: string): ReactNode {
-	return parseMarkdown(source).map((block, index) => <Fragment key={index}>{renderBlock(block)}</Fragment>);
+function renderBlocks(source: string, preview = false): ReactNode {
+	return parseMarkdown(source).map((block, index) => <Fragment key={index}>{renderBlock(block, preview)}</Fragment>);
 }
 
-function renderBlock(block: Block): ReactNode {
+function renderBlock(block: Block, preview = false): ReactNode {
 	switch (block.kind) {
 		case "heading": {
 			const Tag = `h${Math.min(block.level, 4)}` as "h1" | "h2" | "h3" | "h4";
@@ -130,28 +137,28 @@ function renderBlock(block: Block): ReactNode {
 			return (
 				<div className="ly-md-html" style={block.align ? { textAlign: block.align } : undefined}>
 					{block.children.map((child, index) => (
-						<Fragment key={index}>{renderBlock(child)}</Fragment>
+						<Fragment key={index}>{renderBlock(child, preview)}</Fragment>
 					))}
 				</div>
 			);
 		case "paragraph":
 			return <p>{inline(block.text)}</p>;
 		case "code":
-			return <CodeBlock lang={block.lang} code={block.code} />;
+			return preview ? <pre><code>{block.code}</code></pre> : <CodeBlock lang={block.lang} code={block.code} />;
 		case "rule":
 			return <hr />;
 		case "quote":
-			return <blockquote>{renderBlocks(block.text)}</blockquote>;
+			return <blockquote>{renderBlocks(block.text, preview)}</blockquote>;
 		case "math":
 			return <MathBlock tex={block.tex} />;
 		case "details":
-			return <Details summary={block.summary} blocks={block.children} />;
+			return preview ? <p>{inline(block.summary)}</p> : <Details summary={block.summary} blocks={block.children} />;
 		case "list": {
 			const Tag = block.ordered ? "ol" : "ul";
 			return (
 				<Tag>
 					{block.items.map((item, index) => (
-						<Item key={index} item={item} />
+						<Item key={index} item={item} preview={preview} />
 					))}
 				</Tag>
 			);
@@ -188,12 +195,12 @@ function renderBlock(block: Block): ReactNode {
 	}
 }
 
-function Item({ item }: { item: ListItem }) {
+function Item({ item, preview }: { item: ListItem; preview: boolean }) {
 	const body = (
 		<>
 			{inline(item.text)}
 			{item.children.map((child, index) => (
-				<Fragment key={index}>{renderBlock(child)}</Fragment>
+				<Fragment key={index}>{renderBlock(child, preview)}</Fragment>
 			))}
 		</>
 	);
@@ -286,16 +293,28 @@ function renderToken(token: Inline): ReactNode {
 	}
 }
 
-/** Only http(s) opens, and it opens outside — nothing navigates this window away from the app. */
+/** Local artifacts use the bounded file reader; executable URI schemes never navigate the app. */
 function Link({ href, children }: { href: string; children: ReactNode }) {
+	const { baseDir, preview } = useContext(Doc);
+	const workspace = useApp((state) => state.workspace?.path);
 	const safe = href.startsWith("http://") || href.startsWith("https://");
-	if (!safe) return <>{children}</>;
+	const path = safe ? null : resolveAsset(baseDir ?? workspace ?? (isAbsolutePath(href) ? "/" : undefined), href.replace(/:\d+(?:-\d+)?$/, ""));
+	if (preview || (!safe && !path)) return <>{children}</>;
+	if (path) return <a href={href} data-ly-tip={path} onClick={(event) => {
+		event.preventDefault();
+		const name = path.split(/[/\\]/).pop() || path;
+		void useOpenFile.getState().open({ path, name }).catch((error: unknown) => useApp.getState().notify(String(error), "error"));
+		useDock.getState().open("file", companionOf("file"));
+	}}><FileText size={13} className="mr-1 inline-block align-text-bottom" />{children}</a>;
 	return (
 		<a
 			href={href}
 			onClick={(event) => {
 				event.preventDefault();
-				void bridge.system.openExternal(href);
+				const state = useApp.getState();
+				if (state.settings?.browser?.openLinks === "builtin" && !event.shiftKey) {
+					void bridge.browser.command({ type: "open", url: href, sessionId: state.activeSessionId, newTab: true }).catch((error: unknown) => state.notify(String(error), "error"));
+				} else void bridge.system.openExternal(href);
 			}}
 		>
 			{children}
@@ -319,13 +338,15 @@ function Link({ href, children }: { href: string; children: ReactNode }) {
  * reference and its filename instead of leaving a broken image behind.
  */
 function Image({ src, alt, width, height }: { src: string; alt: string; width?: number; height?: number }) {
-	const { baseDir, remoteImages } = useContext(Doc);
-	const remote = remoteImages && src.startsWith("https://") ? src : null;
+	const { baseDir, remoteImages, preview } = useContext(Doc);
+	const remote = !preview && remoteImages && src.startsWith("https://") ? src : null;
 	const fetched = useRemoteImage(remote);
 
 	const direct = src.startsWith("data:") || src.startsWith("blob:") ? src : null;
 	const onDisk = direct || remote ? null : resolveAsset(baseDir, src);
 	const resolved = direct ?? fetched ?? (onDisk ? bridge.files.mediaUrl(onDisk) : null);
+
+	if (preview) return <span>{alt || "图片"}</span>;
 
 	if (resolved) {
 		return (

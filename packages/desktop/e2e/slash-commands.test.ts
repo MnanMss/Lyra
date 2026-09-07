@@ -128,9 +128,9 @@ test("a slash opens the list, and it holds commands from both conventions", asyn
 });
 
 test("typing filters, and reaches into the middle of a name", async () => {
-	await type("/diff");
+	await type("/w-diff");
 	const rows = await menu();
-	assert.equal(rows.length, 1, `only one command contains "diff" (${rows.join(" | ")})`);
+	assert.equal(rows.length, 1, `only one command contains "w-diff" (${rows.join(" | ")})`);
 	assert.ok(rows[0].includes("review-diff"));
 	assert.ok(rows[0].includes("审查当前改动"), "the description shares the command row");
 
@@ -156,7 +156,7 @@ test("a namespaced command is reachable by its last segment", async () => {
 });
 
 test("Enter picks the highlighted command instead of sending the message", async () => {
-	await type("/diff");
+	await type("/w-diff");
 	await press("Enter");
 
 	assert.equal(await value(), "/review-diff ", "the name is in the field, with room for arguments");

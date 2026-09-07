@@ -25,10 +25,28 @@ export interface ThinkingOption {
 	label: string;
 	detail: string;
 	isDefault?: boolean;
+	/** Required for a nonstandard effort name on the budget-based Anthropic adapter. */
+	budgetTokens?: number;
 }
 
 export interface ModelPricing {
 	/** USD per million tokens. */
+	input: number;
+	output: number;
+	cacheRead?: number;
+	cacheWrite?: number;
+	/** Higher rates selected when one request crosses a context threshold. */
+	tiers?: ModelPricingTier[];
+	/** Manual values always take precedence over catalogue defaults. */
+	source?: "manual" | "catalog";
+	catalogProvider?: string;
+	catalogVersion?: string;
+	/** The exact reference entry, including when the endpoint uses a relay alias. */
+	catalogModel?: string;
+}
+
+export interface ModelPricingTier {
+	aboveTokens: number;
 	input: number;
 	output: number;
 	cacheRead?: number;
@@ -49,6 +67,10 @@ export interface ModelConfig {
 	supportsImages: boolean;
 	supportsTools: boolean;
 	pricing?: ModelPricing;
+	/** Explicit upstream identity for opaque relay aliases; never changes the wire modelId. */
+	catalogRef?: { providerId: string; modelId: string };
+	/** Whether limits and capabilities follow the catalogue or an intentional local override. */
+	metadataSource?: "catalog" | "manual";
 	/** Custom thinking options supported by this specific model. */
 	thinkingOptions?: ThinkingOption[];
 	/** Extra sampling parameters merged verbatim into the request body. */

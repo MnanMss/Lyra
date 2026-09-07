@@ -44,8 +44,8 @@ async function* streamChatCompletions(
 		timestamp: startTime,
 	};
 
-	const thinkingEnabled = model.supportsThinking && options.thinking && options.thinking !== "off";
-	const reasoningEffort = thinkingEnabled ? resolveReasoningEffort(options.thinking, model) : undefined;
+	const reasoningEffort = resolveReasoningEffort(options.thinking, model);
+	const thinkingEnabled = reasoningEffort !== undefined;
 
 	const body: Record<string, unknown> = {
 		model: model.modelId,
@@ -117,9 +117,10 @@ async function* streamChatCompletions(
 						partial.usage.input = event.usage.prompt_tokens ?? 0;
 						partial.usage.output = event.usage.completion_tokens ?? 0;
 						partial.usage.cacheRead = event.usage.prompt_tokens_details?.cached_tokens ?? 0;
-						partial.usage.cacheWrite = 0;
-						// Cached tokens are reported inside prompt_tokens; keep the two buckets disjoint.
+						// OpenAI-compatible APIs report cached tokens inside prompt_tokens. Keep the
+						// buckets disjoint or both the usage page and the price calculator count them twice.
 						partial.usage.input = Math.max(0, partial.usage.input - partial.usage.cacheRead);
+						partial.usage.cacheWrite = 0;
 						if (typeof event.usage.completion_tokens_details?.reasoning_tokens === "number") {
 							partial.usage.reasoning = event.usage.completion_tokens_details.reasoning_tokens;
 						}

@@ -16,6 +16,7 @@
  * （第三个是节流，在 core 的 `OfferBudget` 里：一个会话最多三次，连着拒两次就此打住。）
  */
 
+import { Textarea } from "../../ui/inputs/NativeField.tsx";
 import { useEffect, useState } from "react";
 import { ChevronDown, Sparkles } from "lucide-react";
 import { bridge } from "../../services/host.ts";
@@ -121,7 +122,7 @@ export function RuleSuggestion() {
 
         {/* 展开的是完整文件，包括 frontmatter：批准的和写进去的必须是同一段文本。 */}
         {open && (
-          <textarea
+          <Textarea
             value={draft ?? ""}
             onChange={(event) => setDraft(event.target.value)}
             spellCheck={false}

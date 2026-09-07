@@ -31,6 +31,7 @@ import { SidebarHead } from "./SidebarHead.tsx";
 import { SidebarTabs, StripButton, type SidebarTab } from "./SidebarTabs.tsx";
 import { useSidebarLists } from "./useSidebarLists.ts";
 import { useStickyFade } from "./useStickyFade.ts";
+import { useI18n } from "../../i18n/index.ts";
 
 /** Where the folded-project list is remembered. */
 const COLLAPSED_KEY = "ly-collapsed-projects";
@@ -40,6 +41,7 @@ const TAB_KEY = "ly-sidebar-tab";
 const SORT_KEY = "ly-sidebar-sort";
 
 export function Sidebar() {
+	const { t } = useI18n();
 	const workspace = useApp((s) => s.workspace);
 	const activeSessionId = useApp((s) => s.activeSessionId);
 	const scratchRoots = useApp((s) => s.scratchRoots);
@@ -72,7 +74,7 @@ export function Sidebar() {
 	/** Which timestamp orders both halves and the archive. Persisted: it is a preference, not a mode. */
 	const [sort, setSort] = useState<SortKey>(() => {
 		const val = localStorage.getItem(SORT_KEY);
-		return val === "createdAt" ? "createdAt" : val === "manual" ? "manual" : "updatedAt";
+		return val === "updatedAt" ? "updatedAt" : val === "manual" ? "manual" : "createdAt";
 	});
 	const hasManual = useApp((state) => Object.keys(state.settings?.sessionOrder ?? {}).length > 0);
 	const menu = usePopover();
@@ -199,18 +201,18 @@ export function Sidebar() {
 
 	const pad = compact ? "px-3" : "px-2.5";
 	const empty = query.trim() ? (
-		<p className="px-2 py-6 text-center text-detail text-ink-faint">没有匹配的会话</p>
+		<p className="px-2 py-6 text-center text-detail text-ink-faint">{t("sidebar.noMatches")}</p>
 	) : archiveOpen ? (
 		<div className="px-2 py-8 text-center">
 			<Archive size={22} strokeWidth={1.5} className="mx-auto text-ink-faint" />
-			<p className="mt-2.5 text-detail text-ink-muted">还没有归档的聊天</p>
-			<p className="mt-1 text-caption leading-relaxed text-ink-faint">把鼠标移到会话上，点归档图标</p>
+			<p className="mt-2.5 text-detail text-ink-muted">{t("sidebar.noArchived")}</p>
+			<p className="mt-1 text-caption leading-relaxed text-ink-faint">{t("sidebar.archiveHint")}</p>
 		</div>
 	) : (
 		<p className="px-2 py-6 text-center text-detail leading-relaxed text-ink-faint">
-			还没有会话。
+			{t("sidebar.noSessions")}
 			<br />
-			点击「新对话」开始。
+			{t("sidebar.newChatHint")}
 		</p>
 	);
 	return (
@@ -234,7 +236,7 @@ export function Sidebar() {
 			<nav className={`flex flex-col pb-1 ${pad}`}>
 				<NavItem
 					icon={<SquarePen size={15} strokeWidth={1.8} />}
-					label="新对话"
+					label={t("sidebar.newChat")}
 					onClick={() => {
 						void newSession();
 						dismissNav();
@@ -280,7 +282,7 @@ export function Sidebar() {
 						onChange={changeTab}
 						trailing={
 							<>
-								<StripButton label="列表设置" active={menu.open} onClick={menu.toggle}>
+								<StripButton label={t("sidebar.listSettings")} active={menu.open} onClick={menu.toggle}>
 									<ListFilter size={14} strokeWidth={1.9} />
 								</StripButton>
 								<ArchiveToggle

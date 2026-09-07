@@ -46,6 +46,20 @@ async function connect(): Promise<{ socket: WebSocket; messages: unknown[] }> {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 60));
 
+test("a foreground ping without an RPC id receives pong", async () => {
+	const sync = server();
+	await sync.start(PORT, TOKEN);
+	const { socket, messages } = await connect();
+	try {
+		socket.send(JSON.stringify({ type: "ping" }));
+		await settle();
+		assert.ok(messages.some((message) => JSON.stringify(message) === '{"type":"pong"}'));
+		sync.broadcastSessionChange({ id: "removed", projectId: "project", meta: null });
+		await settle();
+		assert.ok(messages.some((message) => JSON.stringify(message) === '{"type":"session_changed","change":{"id":"removed","projectId":"project","meta":null}}'));
+	} finally { socket.close(); await sync.stop(); }
+});
+
 test("a settings change reaches a connected phone", async () => {
 	const sync = server();
 	await sync.start(PORT, TOKEN);

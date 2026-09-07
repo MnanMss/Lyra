@@ -11,6 +11,7 @@
  * people rename files in the Finder instead.
  */
 
+import { Input } from "../../ui/inputs/NativeField.tsx";
 import { useEffect, useRef, useState } from "react";
 
 import { nameProblem, splitExtension } from "../../lib/paths.ts";
@@ -58,7 +59,7 @@ export function NameEditor({
 	};
 
 	return (
-		<input
+		<Input
 			ref={input}
 			value={value}
 			spellCheck={false}

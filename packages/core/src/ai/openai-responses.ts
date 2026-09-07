@@ -50,8 +50,8 @@ async function* streamResponses(
 		timestamp: startTime,
 	};
 
-	const thinkingEnabled = model.supportsThinking && options.thinking && options.thinking !== "off";
-	const reasoningEffort = thinkingEnabled ? resolveReasoningEffort(options.thinking, model) : undefined;
+	const reasoningEffort = resolveReasoningEffort(options.thinking, model);
+	const thinkingEnabled = reasoningEffort !== undefined;
 	const modelId = (model.modelId || model.id || "").toLowerCase();
 	const isGemini = modelId.includes("gemini") || modelId.includes("gemma");
 

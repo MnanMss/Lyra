@@ -12,6 +12,7 @@ import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import type { ProviderConfig } from "@lyra/core";
 import { scanUsage } from "../electron/usage-scan.ts";
 
 let home = "";
@@ -34,7 +35,7 @@ function userLine(at: number): string {
 	return `${JSON.stringify({ seq: 1, ts: at, type: "message", message: { role: "user", content: [], timestamp: at } })}\n`;
 }
 
-function replyLine(at: number, over: { provider?: string; model?: string; input?: number; output?: number; cacheRead?: number; cost?: number } = {}): string {
+function replyLine(at: number, over: { provider?: string; model?: string; input?: number; output?: number; cacheRead?: number; cacheWrite?: number; reasoning?: number; cost?: number } = {}): string {
 	const message = {
 		role: "assistant",
 		content: [],
@@ -44,13 +45,37 @@ function replyLine(at: number, over: { provider?: string; model?: string; input?
 			input: over.input ?? 100,
 			output: over.output ?? 20,
 			cacheRead: over.cacheRead ?? 0,
-			cacheWrite: 0,
+			cacheWrite: over.cacheWrite ?? 0,
+			reasoning: over.reasoning ?? 0,
 			total: (over.input ?? 100) + (over.output ?? 20),
 			cost: { total: over.cost ?? 0.25 },
 		},
 		timestamp: at,
 	};
 	return `${JSON.stringify({ seq: 2, ts: at, type: "message", message })}\n`;
+}
+
+function pricedProvider(price: number, baseUrl = "https://relay.example/v1"): ProviderConfig {
+	return {
+		id: "relay",
+		name: "Relay",
+		baseUrl,
+		api: "openai-responses",
+		apiKey: "",
+		enabled: true,
+		models: [{
+			id: "relay/gemini-3.7",
+			providerId: "relay",
+			modelId: "gemini-3.7",
+			name: "Gemini",
+			contextWindow: 1_000_000,
+			maxOutputTokens: 100_000,
+			supportsThinking: true,
+			supportsImages: true,
+			supportsTools: true,
+			pricing: { input: price, output: price * 2, cacheRead: price / 10, cacheWrite: price * 1.25, source: "manual" },
+		}],
+	};
 }
 
 /** A record that is not a message, which is most of a real log. */
@@ -81,7 +106,43 @@ describe("scanUsage", () => {
 		assert.equal(scan.buckets[0].input, 100);
 		assert.equal(scan.buckets[0].output, 20);
 		assert.equal(scan.buckets[0].cost, 0.25);
+		assert.equal(scan.buckets[0].recordedPricedTokens, 120);
 		assert.equal(scan.buckets[0].replies, 1);
+	});
+
+	it("estimates old zero-cost logs from an exact configured model price", async () => {
+		await writeFile(log("s1"), replyLine(AT, { input: 100, output: 100, cacheRead: 900, cost: 0 }));
+		const scan = await scanUsage(home, [pricedProvider(1)]);
+		const bucket = scan.buckets[0];
+		assert.equal(bucket.manualPricedTokens, 1_100);
+		assert.ok(Math.abs(bucket.cost - 0.00039) < 1e-12);
+		assert.ok(Math.abs(bucket.rawCost - 0.0012) < 1e-12);
+		assert.ok(Math.abs(bucket.cacheSavings - 0.00081) < 1e-12);
+	});
+
+	it("uses a catalogue reference for both official endpoints and relays", async () => {
+		await writeFile(log("s1"), replyLine(AT, { provider: "openai-local", model: "gpt-5.2", input: 1_000_000, output: 0, cost: 0 }));
+		const official: ProviderConfig = { ...pricedProvider(1, "https://api.openai.com/v1"), id: "openai-local", models: [] };
+		const priced = await scanUsage(home, [official]);
+		assert.equal(priced.buckets[0].catalogPricedTokens, 1_000_000);
+		assert.equal(priced.buckets[0].cost, 1.75);
+
+		const relay = { ...official, baseUrl: "https://relay.example/v1" };
+		const reference = await scanUsage(home, [relay]);
+		assert.equal(reference.buckets[0].catalogPricedTokens, 1_000_000);
+		assert.equal(reference.buckets[0].unpricedTokens, 0);
+		assert.equal(reference.buckets[0].cost, 1.75);
+	});
+
+	it("invalidates the file cache when configured prices change", async () => {
+		await writeFile(log("s1"), replyLine(AT, { input: 1_000_000, output: 0, cost: 0 }));
+		const first = await scanUsage(home, [pricedProvider(1)]);
+		assert.equal(first.buckets[0].cost, 1);
+
+		const second = await scanUsage(home, [pricedProvider(2)]);
+		assert.equal(second.scanned, 1, "a price change must re-evaluate unchanged logs");
+		assert.equal(second.cached, 0);
+		assert.equal(second.buckets[0].cost, 2);
 	});
 
 	it("title request usage reaches model totals without inflating conversation messages", async () => {

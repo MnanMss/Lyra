@@ -1,3 +1,5 @@
+import { nativeTranslator, type NativeLocale } from "./i18n.ts";
+
 /**
  * What the status bar menu offers, as data.
  *
@@ -46,6 +48,8 @@ export interface TrayState {
 	/** The most recent conversations, newest first. Already filtered and sorted by the caller. */
 	recent: { id: string; title: string }[];
 	launchAtLogin: boolean;
+	/** Already-resolved locale for the native menu. */
+	locale?: NativeLocale;
 }
 
 /**
@@ -57,59 +61,58 @@ export interface TrayState {
  */
 export const RECENT_LIMIT = 5;
 
-/** A session with no title yet, which is any conversation before its first reply. */
-const UNTITLED = "新对话";
-
 /**
- * Menu labels are one line, and a conversation's title is a sentence someone typed.
+ * Menu labels are one line, and a conversation's title is a sentence someone typed. An untitled
+ * conversation uses the menu's own locale rather than borrowing the renderer's language.
  *
  * Cut rather than wrapped, because a system menu does not wrap: an untrimmed title stretches the
  * menu to the width of the longest thing anyone has ever asked, which on this app is a paragraph.
  */
-export function trayTitle(title: string | undefined, limit = 28): string {
+export function trayTitle(title: string | undefined, limit = 28, untitled = "新对话"): string {
 	const text = (title ?? "").trim();
-	if (!text) return UNTITLED;
+	if (!text) return untitled;
 	return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
 }
 
 export function trayMenu(state: TrayState): TrayItem[] {
 	const recent = state.recent.slice(0, RECENT_LIMIT);
+	const t = nativeTranslator(state.locale ?? "zh-CN", "en");
 
 	return [
 		{
 			type: "item",
 			// Names what pressing it will do, not what is currently true.
-			label: state.windowVisible ? "隐藏 Lyra" : "打开 Lyra",
+			label: state.windowVisible ? t("tray.hide") : t("tray.show"),
 			action: { kind: "toggle-window" },
 		},
 		{ type: "separator" },
-		{ type: "item", label: "新对话", action: { kind: "command", command: "new-session" } },
+		{ type: "item", label: t("tray.newChat"), action: { kind: "command", command: "new-session" } },
 		{
 			type: "submenu",
-			label: "最近会话",
+			label: t("tray.recent"),
 			items:
 				recent.length > 0
 					? recent.map((session) => ({
 							type: "item" as const,
-							label: trayTitle(session.title),
+							label: trayTitle(session.title, 28, t("tray.newChat")),
 							action: { kind: "open-session" as const, id: session.id },
 						}))
 					: // A disabled row rather than an empty menu, which reads as a menu that failed to load.
-						[{ type: "item" as const, label: "还没有会话", action: { kind: "toggle-window" as const }, enabled: false }],
+						[{ type: "item" as const, label: t("tray.noChats"), action: { kind: "toggle-window" as const }, enabled: false }],
 		},
 		{ type: "separator" },
-		{ type: "item", label: "拉取请求", action: { kind: "command", command: "pull-requests" } },
-		{ type: "item", label: "已安排", action: { kind: "command", command: "scheduled" } },
+		{ type: "item", label: t("tray.pullRequests"), action: { kind: "command", command: "pull-requests" } },
+		{ type: "item", label: t("tray.scheduled"), action: { kind: "command", command: "scheduled" } },
 		{ type: "separator" },
-		{ type: "item", label: "设置…", action: { kind: "command", command: "settings" } },
-		{ type: "item", label: "检查更新…", action: { kind: "command", command: "updates" } },
+		{ type: "item", label: t("tray.settings"), action: { kind: "command", command: "settings" } },
+		{ type: "item", label: t("tray.updates"), action: { kind: "command", command: "updates" } },
 		{
 			type: "item",
-			label: "开机时启动",
+			label: t("tray.launchAtLogin"),
 			action: { kind: "toggle-login" },
 			checked: state.launchAtLogin,
 		},
 		{ type: "separator" },
-		{ type: "item", label: "退出 Lyra", action: { kind: "quit" } },
+		{ type: "item", label: t("tray.quit"), action: { kind: "quit" } },
 	];
 }

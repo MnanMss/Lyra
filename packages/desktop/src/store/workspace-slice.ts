@@ -24,8 +24,10 @@ export function workspaceSlice(set: Set, get: Get) {
   },
 
   async openWorkspace(path: string) {
+    const epoch = get().selectionEpoch + 1;
+    set({ selectionEpoch: epoch });
     const workspace = await bridge.workspace.info(path);
-    if (!workspace) return;
+    if (!workspace || get().selectionEpoch !== epoch) return;
 
     /*
      * On screen first, remembered second.
@@ -36,19 +38,12 @@ export function workspaceSlice(set: Set, get: Get) {
      * project until the write came back — a visible pause on the one click whose entire content is
      * "show me this one now".
      */
-    set({
-      // Leaving the project-less mode: a session opened from here belongs to the project.
-      scratchCwd: null,
-      workspace,
-      activeSessionId: null,
-      meta: null,
-      messages: [],
-      toolRuns: {},
-      approvals: [],
-      loadingSession: false,
-      pendingUserMessage: null,
-    });
-    useSubAgents.getState().clear();
+    const view = get().view;
+    set({ scratchCwd: null, workspace });
+    // Park the previous session and finish resetting before the new draft can accept a send.
+    await get().newSession();
+    // Workspace pickers also serve settings and PR views; selecting a folder does not leave them.
+    set({ view });
 
     const settings = get().settings;
     if (!settings) return;
@@ -126,7 +121,10 @@ export function workspaceSlice(set: Set, get: Get) {
   },
 
   async clearWorkspace() {
+    const epoch = get().selectionEpoch + 1;
+    set({ selectionEpoch: epoch });
     const scratchCwd = await bridge.git.generalScratch().catch(() => null);
+    if (get().selectionEpoch !== epoch) return;
     set({
       scratchCwd,
       workspace: null,
@@ -328,4 +326,3 @@ export function workspaceSlice(set: Set, get: Get) {
   },
   };
 }
-

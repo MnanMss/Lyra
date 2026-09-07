@@ -10,6 +10,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parsePairingCode } from "../src/pairing.ts";
+import { appUrlOf, isAppUrl } from "../src/connection.ts";
+import { assetKeyFor } from "../src/sha256.ts";
 
 const ok = (raw: string) => {
 	const result = parsePairingCode(raw);
@@ -48,6 +50,33 @@ test("a relay code carries the socket, and says it is a relay", () => {
 test("a relay with no port takes the one its scheme implies", () => {
 	assert.equal(ok(`lyra://pair?relay=${encodeURIComponent("wss://relay.example.com")}&token=abc`).port, 443);
 	assert.equal(ok(`lyra://pair?relay=${encodeURIComponent("ws://10.0.0.5")}&token=abc`).port, 80);
+});
+
+test("the renderer URL uses the desktop directly or a separate relay capability", () => {
+	assert.equal(appUrlOf({ host: "10.0.0.5", port: 4517, token: "abc" }), "http://10.0.0.5:4517/app/");
+	assert.equal(
+		appUrlOf({ host: "relay.example.com", port: 443, token: "abc", tls: true, relay: true }),
+		`https://relay.example.com:443/app/${assetKeyFor("abc")}/`,
+	);
+});
+
+test("WebView navigation compares origins rather than trusting a host prefix", () => {
+	const connection = { host: "lyra.example.com", port: 443, token: "abc", tls: true };
+	assert.equal(isAppUrl("https://lyra.example.com:443/app/assets/a.js", connection), true);
+	assert.equal(isAppUrl("https://lyra.example.com.evil.test:443/app/", connection), false);
+	assert.equal(isAppUrl("javascript:alert(1)", connection), false);
+	assert.equal(isAppUrl("about:blank", connection), true);
+});
+
+test("WebView bridge stays inside the paired relay capability", () => {
+	const connection = { host: "relay.example.com", port: 443, token: "owner", tls: true, relay: true };
+	const app = appUrlOf(connection);
+	assert.equal(isAppUrl(`${app}#/session/123`, connection), true);
+	assert.equal(isAppUrl(`${app}assets/app.js`, connection), true);
+	assert.equal(isAppUrl(appUrlOf({ ...connection, token: "attacker" }), connection), false);
+	assert.equal(isAppUrl(`${app}../${assetKeyFor("attacker")}/`, connection), false);
+	assert.equal(isAppUrl(`${app}%2e%2e/${assetKeyFor("attacker")}/`, connection), false);
+	assert.equal(isAppUrl("https://relay.example.com/health", connection), false);
 });
 
 test("whitespace around the code is what a clipboard adds, not an error", () => {

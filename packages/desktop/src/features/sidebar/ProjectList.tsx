@@ -199,8 +199,9 @@ function SectionLabel({
 					collapsed ? "" : "rotate-90"
 				}`}
 			/>
-			<span className="ml-auto"><GroupActivity sessions={sessions} /></span>
-			<span className="min-w-5 text-right tabular-nums">{collapsed && count > 0 ? count : ""}</span>
+			<span className="ml-auto flex min-w-5 items-center justify-end tabular-nums">
+				<GroupActivity sessions={sessions} collapsed={collapsed} count={count} />
+			</span>
 		</button>
 	);
 }

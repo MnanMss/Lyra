@@ -1,3 +1,4 @@
+import { Input } from "../../ui/inputs/NativeField.tsx";
 import { Database, RefreshCw, Search } from "lucide-react";
 import { Scroller } from "../../ui/scroll/Scroller.tsx";
 import { useCallback, useEffect, useState } from "react";
@@ -53,7 +54,7 @@ export function IndexSettings() {
 
 			{!workspace ? (
 				<Card>
-					<EmptyHint>先选择一个项目。</EmptyHint>
+					<EmptyHint>先选择一个项目</EmptyHint>
 				</Card>
 			) : (
 				<>
@@ -120,7 +121,7 @@ export function IndexSettings() {
 									strokeWidth={1.9}
 									className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-ink-faint"
 								/>
-								<input
+								<Input
 									value={query}
 									onChange={(e) => setQuery(e.target.value)}
 									placeholder="输入符号名，例如 runAgent"
@@ -132,10 +133,10 @@ export function IndexSettings() {
 						{hits.length === 0 ? (
 							<EmptyHint>
 								{query.trim().length < 2
-									? "输入至少两个字符开始搜索"
+									? "输入至少两个字符"
 									: stats?.exists
 										? "没有匹配的符号"
-										: "还没有索引，先点上面的「建立索引」"}
+										: "先建立索引"}
 							</EmptyHint>
 						) : (
 							<Scroller className="max-h-[340px]">
