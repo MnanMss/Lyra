@@ -66,7 +66,8 @@ export class LocalSandbox implements Sandbox {
 				if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
 				// A shell owns a process tree. Killing only the shell leaves its dev server running.
 				if (process.platform === "win32") {
-					execFile("taskkill", ["/PID", String(child.pid), "/T", ...(signal === "SIGKILL" ? ["/F"] : [])], { windowsHide: true }, (error) => {
+					// Windows has no POSIX SIGTERM; without /F, taskkill cannot stop console children.
+					execFile("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true }, (error) => {
 						if (error && child.exitCode === null && child.signalCode === null) child.emit("error", error);
 					});
 				} else {

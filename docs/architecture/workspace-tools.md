@@ -30,7 +30,9 @@ Agent 的点击、悬停、输入与按键走 Chromium 原生输入。选择器�
 
 core 的 BackgroundJobs 持有实际 SandboxProcess，记录 UUID、PID、命令、状态和退出时间。
 停止只接受该会话自己持有的句柄，不能传入任意 PID；进程结束后即使操作系统复用 PID 也不再操作。
-POSIX 结束进程组，Windows 使用 `taskkill /PID /T`，强制结束附加 `/F`。
+POSIX 结束进程组，普通停止使用 `SIGTERM`，强制结束使用 `SIGKILL`。Windows 不提供 POSIX
+`SIGTERM`，普通和强制停止都使用 `taskkill /PID /T /F` 终止该任务的进程树；不带 `/F` 的
+窗口关闭请求无法停止没有窗口的控制台子进程。停止失败保留错误，只有真实退出才记录结束时间。
 信号退出保留空 exitCode，用 finishedAt 表示结束，不能写成 exit 0。
 
 主进程通过系统进程树和 TCP listener 关联任务：macOS 为 ps/lsof，Linux 为 ps/ss，Windows
@@ -39,7 +41,7 @@ POSIX 结束进程组，Windows 使用 `taskkill /PID /T`，强制结束附加 `
 查询失败会显示原因，不伪造端口。每项最多展示 16 个 listener，面板最多查询最近 30 个任务。
 
 任务面板在待办列表上方展示运行服务，包含 PID、IP:port、复制、打开和停止操作。可见时约每
-2 秒查询，切换保留上次快照。普通停止和强制结束区分，结束后移除运行项。应用重启不把历史 PID
+2 秒查询，切换保留上次快照。普通停止和强制结束按上述平台语义执行，结束后移除运行项。应用重启不把历史 PID
 当作可操作进程。只有经本会话 background bash 启动的进程在此管理，外部自行启动的服务不归属。
 
 ## 工程交付记录

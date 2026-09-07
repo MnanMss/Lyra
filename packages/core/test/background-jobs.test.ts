@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { connect } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { BackgroundJobs, backgroundJobs, type BackgroundJob } from "../src/tools/background-jobs.ts";
 import type { SandboxProcess } from "../src/kernel/services.ts";
 import { useSandbox } from "../src/sandbox/index.ts";
@@ -45,4 +50,46 @@ test("a signalled command keeps its missing exit code instead of reporting exit 
 		assert.equal(result.details.exitCode, null);
 		assert.match(result.content.flatMap((part) => part.type === "text" ? [part.text] : []).join(""), /terminated without an exit code/);
 	} finally { useSandbox(null); }
+});
+
+test("ordinary stop closes a real descendant listener without stopping a sibling session's service", { timeout: 30_000 }, async t => {
+	const root = await mkdtemp(join(tmpdir(), "lyra-owned-services-"));
+	const ownedState = new Map<string, unknown>(), siblingState = new Map<string, unknown>();
+	const registries = [backgroundJobs(ownedState), backgroundJobs(siblingState)];
+	const until = async (condition: () => boolean, label: string) => {
+		const deadline = Date.now() + 10_000;
+		while (!condition() && Date.now() < deadline) await delay(25);
+		assert.ok(condition(), `${label}: ${JSON.stringify(registries.map(jobs => jobs.list()))}`);
+	};
+	t.after(async () => {
+		for (const jobs of registries) jobs.dispose();
+		await until(() => registries.every(jobs => jobs.list().every(job => job.finishedAt !== undefined)), "fixture processes did not exit");
+		await rm(root, { recursive: true, force: true });
+	});
+	await writeFile(join(root, "server.cjs"), `const {createServer}=require('node:http');
+const server=createServer((request,response)=>response.end(process.argv[2]));
+server.listen(0,'127.0.0.1',()=>console.log('SERVICE_READY '+process.pid+' '+server.address().port));
+`);
+	await writeFile(join(root, "launcher.cjs"), "require('node:child_process').spawn(process.execPath,['server.cjs','owned'],{stdio:'inherit'});\n");
+	const executable = process.platform === "win32" ? `& '${process.execPath.replaceAll("'", "''")}'` : `'${process.execPath.replaceAll("'", "'\\''")}'`;
+	await bashTool.execute({ command: `${executable} launcher.cjs`, run_in_background: true }, { cwd: root, sessionId: "owned", state: ownedState });
+	await bashTool.execute({ command: `${executable} server.cjs sibling`, run_in_background: true }, { cwd: root, sessionId: "sibling", state: siblingState });
+	const jobs = registries.map(registry => registry.list()[0]);
+	await until(() => registries.every(registry => /SERVICE_READY \d+ \d+/.test(registry.list()[0]?.output ?? "")), "services did not listen");
+	const endpoints = registries.map(registry => {
+		const match = registry.list()[0].output.match(/SERVICE_READY (\d+) (\d+)/); assert.ok(match);
+		return { pid: Number(match[1]), port: Number(match[2]) };
+	});
+	assert.notEqual(endpoints[0].pid, jobs[0].pid, "the listener must belong to a descendant rather than the shell");
+	assert.equal(await (await fetch(`http://127.0.0.1:${endpoints[0].port}`)).text(), "owned");
+	assert.equal(registries[1].stop(jobs[0].id), false, "another session cannot stop this process handle");
+	assert.equal(registries[0].stop(jobs[0].id), true);
+	await until(() => registries[0].get(jobs[0].id)?.finishedAt !== undefined, "ordinary stop did not close the process tree");
+	await assert.rejects(new Promise<void>((resolve, reject) => {
+		const socket = connect(endpoints[0].port, "127.0.0.1");
+		socket.once("connect", () => { socket.destroy(); resolve(); });
+		socket.once("error", reject);
+	}), { code: "ECONNREFUSED" });
+	assert.equal(await (await fetch(`http://127.0.0.1:${endpoints[1].port}`)).text(), "sibling");
+	assert.equal(registries[1].get(jobs[1].id)?.finishedAt, undefined);
 });
