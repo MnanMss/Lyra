@@ -5,6 +5,13 @@
 只收录 0.8.0 及之后的版本：更早的提交信息还没有统一格式，勉强解析出来的条目比留白更容易误导。
 那些版本的说明在 [GitHub Releases](https://github.com/kittors/Lyra/releases) 里。
 
+## [0.9.2](https://github.com/kittors/Lyra/releases/tag/v0.9.2) - 2026-09-07
+
+### 修复
+
+- **desktop**: 全屏的面板不再被系统按钮压住，窄列的正文回到中间 ([4aa28a7](https://github.com/kittors/Lyra/commit/4aa28a73e4a7ca6f8e11d695eb0fef82dba6d6a4))
+- **desktop**: 交付卡片的预览贴回文件行，审核弹窗改成读代码的版式 ([b9eaa56](https://github.com/kittors/Lyra/commit/b9eaa56ea721f809fa70d6f05cf62cd9f649f649))
+
 ## [0.9.1](https://github.com/kittors/Lyra/releases/tag/v0.9.1) - 2026-09-07
 
 ### 新功能
