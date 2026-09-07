@@ -275,7 +275,15 @@ export function DockView({
 	 * This is the whole of what used to be a delayed handover of the window's own buttons between
 	 * the toolbar and the panel — 220ms of it, timed to a slide. A pane either starts at the
 	 * origin or it does not.
+	 *
+	 * Asked of where the pane is *drawn*, not of where the tree keeps it. Full screen moves a pane
+	 * to the origin without touching the tree, and this used to read the tree — so maximising any
+	 * pane that was not already at the top-left (a browser on the right, a terminal at the bottom)
+	 * covered the corner with a pane that had reserved nothing, and its title, its tab strip and
+	 * the sidebar toggle beside them were drawn underneath the three buttons the system paints
+	 * there. `focusBox` is the same function the layout below uses, so the two cannot disagree.
 	 */
+	const at = (box: Box & { kind: PaneKind }) => focusBox(box.kind) ?? box;
 	const corner =
 		navOpen || nativeFullScreen
 			? null
@@ -289,7 +297,7 @@ export function DockView({
 					 * three buttons the system paints there.
 					 */
 					focusedPane
-				: (boxes.find((box) => box.left === 0 && box.top === 0)?.kind ?? null);
+				: (boxes.find((box) => at(box).left === 0 && at(box).top === 0)?.kind ?? null);
 
 	/*
 	 * And which pane has to make room for the buttons at the *other* end.
@@ -302,13 +310,16 @@ export function DockView({
 	 * Unlike the left corner the sidebar can never cover this one, so it belongs to whichever pane
 	 * reaches the right edge on the top row — always. Zero on macOS, where the system puts nothing
 	 * there, which leaves every one of these lines a no-op.
+	 *
+	 * Off the drawn geometry for the same reason as the corner above: a maximised pane reaches both
+	 * edges whatever the tree says about it.
 	 */
 	const endCorner =
 		titlebar.end === 0
 			? null
 			: compact
 				? focusedPane
-				: (boxes.find((box) => box.top === 0 && Math.abs(box.left + box.width - 1) < 0.001)?.kind ?? null);
+				: (boxes.find((box) => at(box).top === 0 && Math.abs(at(box).left + at(box).width - 1) < 0.001)?.kind ?? null);
 
 
 

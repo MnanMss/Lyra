@@ -2,9 +2,11 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { questionWindow, type questionsIn } from "./question-navigation.ts";
 import { markdownExcerpt } from "../../lib/markdown/excerpt.ts";
 
-export function QuestionNav({ questions, viewport, onSelect }: {
+export function QuestionNav({ questions, viewport, edge, onSelect }: {
 	questions: ReturnType<typeof questionsIn>;
 	viewport: React.RefObject<HTMLDivElement | null>;
+	/** Sit against the very edge, for a column too narrow to indent it — see `NARROW_COLUMN`. */
+	edge?: boolean;
 	onSelect: (index: number) => void;
 }) {
 	const [active, setActive] = useState<number | null>(null);
@@ -98,8 +100,17 @@ export function QuestionNav({ questions, viewport, onSelect }: {
 		}
 		onSelect(questions[next].index);
 	};
+	/*
+	 * Against the very edge when the column is narrow.
+	 *
+	 * The rail is 28px wide and the transcript pads 48px on the left to clear it, against 16px on
+	 * the right — a 32px difference nobody notices in a wide column and nobody can miss in a 380px
+	 * one, where it is a twelfth of the width and the reading column is visibly shoved to the right
+	 * of its own pane. Giving the rail the first 4px instead lets the column sit in symmetric 28px
+	 * margins, which is what `Conversation` pads to at that width.
+	 */
 	return (
-		<nav ref={nav} className="ly-question-nav absolute inset-y-3 left-3 z-20 flex w-7 items-center" aria-label="用户问题导航">
+		<nav ref={nav} className={`ly-question-nav absolute inset-y-3 z-20 flex w-7 items-center ${edge ? "left-0" : "left-3"}`} aria-label="用户问题导航">
 			<div ref={rail} role="toolbar" tabIndex={-1} aria-label="选择问题" className="ly-question-rail relative w-full"
 			onMouseLeave={() => { engaged.current = false; setHovered(null); setClickedWidths(null); setCenter(position); }}
 			onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) { engaged.current = false; setHovered(null); setClickedWidths(null); setCenter(position); } }}

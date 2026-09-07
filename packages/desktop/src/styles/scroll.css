@@ -81,8 +81,17 @@
   margin-right: 4px;
 }
 
+/*
+ * Just enough to clear the thumb, not a column of its own.
+ *
+ * It was 20px, and the thumb is 8px of it (6 wide, 2 in from the edge) with 4 more already given
+ * by the margin above — so a menu with a scrollbar left a 24px gutter down its right side while
+ * its rows started 9px from the left. Every row read as pushed left, and the bar floated in the
+ * middle of the empty strip rather than at the edge of the list it scrolls. 4px puts the rows'
+ * own padding beside the thumb with a hair's gap, which is where a scrollbar belongs.
+ */
 .ly-menu-scroll:has(.ly-thumb) > .ly-scroll-view {
-  padding-right: 20px;
+  padding-right: 4px;
 }
 
 /* Approval prose must stay outside the scrollbar's widened drag target. */
