@@ -104,7 +104,7 @@ export async function readSelectedSession(meta: SessionMeta, set: Set, get: Get)
 		// No event to go on here, so the transcript answers on its own: a reply the log records as
 		// `aborted` was stopped by hand, however long ago.
 		stopped: advanced ? current.stopped : snapshot.running ? null : howItStopped(messages),
-		running: advanced ? current.running : snapshot.running,
+		running: advanced ? current.running : cached && !cached.state?.running ? false : snapshot.running,
 		commandRuns: advanced ? current.commandRuns : snapshot.commandRuns ?? [],
 		approvals: advanced ? current.approvals : snapshot.pendingApprovals,
 		toolRuns,
@@ -117,7 +117,7 @@ export async function readSelectedSession(meta: SessionMeta, set: Set, get: Get)
 					messages,
 					toolRuns,
 					state: {
-						running: advanced ? current.running : snapshot.running,
+						running: advanced ? current.running : cached && !cached.state?.running ? false : snapshot.running,
 						commandRuns: advanced ? current.commandRuns : snapshot.commandRuns ?? [],
 						todos: advanced ? current.todos : todosFrom(messages),
 						compactions: advanced ? current.compactions : (snapshot.compactions ?? []).map((at) => ({ at, before: 0, after: 0 })),

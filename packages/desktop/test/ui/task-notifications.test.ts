@@ -176,3 +176,55 @@ for (const failed of [false, true]) {
 		assert.equal(useApp.getState().notices.length, 0);
 	});
 }
+
+test("jumping to background-completed session from notification clears running status", async () => {
+	useApp.setState({
+		activeSessionId: "a",
+		sessions: [meta("a"), meta("b")],
+		activity: { b: "running" },
+		sessionCache: {
+			b: {
+				meta: meta("b"),
+				messages: [],
+				toolRuns: {},
+				state: {
+					running: true,
+					approvals: [],
+					todos: [],
+					compactions: [],
+					stopped: null,
+					retrying: null,
+					capabilities: null,
+					pendingUserMessage: null,
+				},
+			},
+		},
+	});
+
+	// Background session b completes, emitting agent_end
+	applyAgentEvent("b", { type: "agent_end", reason: "done" }, useApp.setState, useApp.getState);
+
+	// Toast is displayed
+	assert.equal(useApp.getState().notices.length, 1);
+	assert.equal(useApp.getState().notices[0]?.sessionId, "b");
+
+	// Even if live backend transcript snapshot still races with running: true during post-processing
+	Object.defineProperty(window, "lyra", {
+		configurable: true,
+		value: {
+			onTrayCommand: () => () => {},
+			sessions: {
+				list: () => list(),
+				transcript: async () => ({ meta: meta("b"), messages: [], running: true, pendingApprovals: [] }),
+				capabilities: async () => null,
+			},
+			subAgents: { list: async () => [] },
+		},
+	});
+
+	// Jump to session b via openSessionById
+	const opened = await useApp.getState().openSessionById("b");
+	assert.equal(opened, true);
+	assert.equal(useApp.getState().activeSessionId, "b");
+	assert.equal(useApp.getState().running, false, "cached settled state must prevent ghost running revival");
+});

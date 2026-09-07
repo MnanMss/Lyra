@@ -253,9 +253,9 @@ export async function abortSession(sessionId: string): Promise<void> {
 	const session = sessions.get(sessionId);
 	if (session) {
 		session.abort();
-		if (!session.meta.pendingPrompt) return;
-		await session.cancelPendingPrompt();
-	} else {
+		if (session.meta.pendingPrompt) {
+			await session.cancelPendingPrompt();
+		}
 		const store = deps.store();
 		const meta = (await store.listSessions()).find((meta) => meta.id === sessionId);
 		if (!meta?.pendingPrompt) return;
