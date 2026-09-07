@@ -245,7 +245,19 @@ export function ScreenshotOverlay() {
 	 * before the overlay can be shown at all.
 	 */
 	const annotator = useAnnotator(initData?.snapshot ?? null, { session: initData?.session });
-	const { ready: snapshotReady, image: snapshotImage } = annotator;
+	/*
+	 * `revision` and not just `ready`, and the difference is a whole capture.
+	 *
+	 * A second capture started while the first is still up hands this hook a new snapshot, which
+	 * decodes in about five milliseconds — quickly enough that the `false` it sets on the way in and
+	 * the `true` it sets on the way out land in the same React pass. `ready` is then true before and
+	 * true after, the effect below never runs again, and the overlay goes on showing the *previous*
+	 * capture's frozen desktop while everything it delivers is cropped out of the current one's. It
+	 * also never sends the `ready` handshake, so the window is revealed by its 1500ms failsafe rather
+	 * than by having drawn — which, now that a superseding capture makes the overlay transparent
+	 * while it takes its snapshot, is a second and a half of the real desktop showing through.
+	 */
+	const { ready: snapshotReady, image: snapshotImage, revision: snapshotRevision } = annotator;
 
 	/*
 	 * The frozen screen, at the resolution it was captured at.
@@ -296,7 +308,7 @@ export function ScreenshotOverlay() {
 		 * written the snapshot into the canvas's bitmap, so the first frame after `show()` has it.
 		 */
 		bridge.screenshot?.ready?.();
-	}, [initData, snapshotReady, snapshotImage]);
+	}, [initData, snapshotReady, snapshotRevision, snapshotImage]);
 
 	/*
 	 * The way in and the way out, as a fade rather than a cut.
@@ -937,6 +949,16 @@ export function ScreenshotOverlay() {
 			<canvas
 				ref={bgCanvasRef}
 				draggable={false}
+				/*
+				 * Named, so the snapshot itself can be read rather than inferred.
+				 *
+				 * What is in this bitmap is the whole question behind one class of report: a capture
+				 * started while another was on screen used to photograph that one's selection frame and
+				 * grips, and from outside "the picture contains them" and "something is drawing them over
+				 * the picture" look identical. `e2e/screenshot-restart-probe.ts` settles it by reading
+				 * these pixels.
+				 */
+				data-screenshot-backdrop
 				className="absolute inset-0 block h-full w-full pointer-events-none"
 				/*
 				 * Taken away the instant leaving starts, without a fade.

@@ -480,17 +480,19 @@ try {
 	 * app to the front first is what makes this the real path rather than the easy one.
 	 */
 	/*
-	 * End the last capture properly first, and wait for the overlay to actually be off screen.
+	 * And straight on from the capture that is still up, rather than ending it first.
 	 *
-	 * Starting a capture while one is up is a supported thing to do — two presses of the shortcut —
-	 * but the second snapshot is taken while the first overlay is still displayed, so it contains
-	 * that overlay's own selection frame and grips. The picture pinned below would then have a blue
-	 * rectangle with round handles baked into it, and it would look exactly like something this
-	 * feature was drawing wrongly. (It is not; it is what the screen contained. Worth knowing about,
-	 * and not this probe's subject.)
+	 * This used to cancel and wait 900ms, to dodge something real: the second snapshot was taken
+	 * while the first overlay was still displayed, so it contained that overlay's selection frame and
+	 * eight grips, and the picture pinned below came out with a blue rectangle and round dots baked
+	 * into it. It looked exactly like this feature drawing something wrongly and was not — it was
+	 * what the screen contained.
+	 *
+	 * `clearOverlayForSnapshot` in `screenshot.ts` empties the window before the picture is taken, so
+	 * the case can be walked through instead of stepped around, and pinning gets exercised on the
+	 * harder path: a capture that supersedes another *and* comes from outside Lyra.
+	 * `e2e/screenshot-restart-probe.ts` is what checks the pixels; here it just has to work.
 	 */
-	await app.evaluate(`window.lyra.screenshot.cancel()`);
-	await pause(900);
 	await execFileAsync("open", ["-a", "Finder"]).catch(() => {});
 	await pause(1_200);
 	await app.evaluate(`window.lyra.screenshot.start()`);
@@ -660,7 +662,8 @@ try {
 	// ---- 5. 下载到设置好的目录 -------------------------------------------
 	await beat();
 	note("\n【5】下载截图");
-	await pause(900);
+	// Also straight on: the capture above ended itself once the pinned picture was taken, and if it
+	// has not, starting over one that is up is now a path with pixels behind it rather than a hazard.
 	await app.evaluate(`window.lyra.screenshot.start()`);
 	await pause(1_200);
 	await drag(socket, [region[0], region[1]], [region[2], region[3]]);

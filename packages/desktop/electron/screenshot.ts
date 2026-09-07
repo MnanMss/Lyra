@@ -736,6 +736,89 @@ function stepMainAside(overlayWindow: BrowserWindow): void {
 }
 
 /**
+ * How long a cleared overlay is given to leave the screen before the picture is taken.
+ *
+ * `setOpacity` is not a paint. It sets the window's alpha and returns; the screen changes on the
+ * window server's next commit, and a snapshot taken before that still has the overlay in it. So the
+ * wait is for the compositor rather than for the call, and it is measured rather than guessed:
+ * `e2e/screenshot-restart-probe.ts` counts the accent colour where the last capture's frame and
+ * grips would be. At zero it is still there — 332 pixels on the frame line against a control of 42 —
+ * and at one frame there is nothing left, twice over. Two frames are kept as the margin, on a path
+ * that already spends 60-180ms inside `getSources`.
+ */
+const CLEAR_SETTLE_MS = 32;
+
+/**
+ * Take the overlay out of the picture that is about to be taken through it.
+ *
+ * A capture started while one is already up supersedes it, and `closeScreenshotOverlay({ restoreFocus: false })`
+ * leaves that window on screen on purpose — hiding it would uncover the desktop for the length of a
+ * snapshot, and one window that is never hidden between captures is the whole arrangement this file
+ * is built on. What that overlooked is that `desktopCapturer` photographs the screen *as composited*,
+ * and at that moment the composited screen includes the last capture's selection frame, its eight
+ * round grips and its toolbar. Drag out the same region again and pin it, and they are in the
+ * picture — reported as a pinned shot with a blue border and dots around it, which reads as this
+ * feature drawing something wrong and is really just what the screen contained.
+ *
+ * Opacity rather than `hide()`, for the reason the rest of the file hides nothing: a window that
+ * keeps its place keeps its surface, and a hidden one has to be presented again — which is the cost
+ * measured in `ensureOverlay` and the reason the overlay is permanent at all. It stays transparent
+ * until `overlayPainted`, so what fills the gap is the real desktop and not a stale selection
+ * flashing back for the frames between the snapshot and the new picture.
+ *
+ * Returns whether it did anything, because everything downstream has to know: the window is now
+ * invisible, above everything, and still catching the mouse. See `dropClearedOverlay`.
+ */
+async function clearOverlayForSnapshot(): Promise<boolean> {
+	const win = overlay;
+	if (!win || win.isDestroyed() || !win.isVisible()) return false;
+	win.setOpacity(0);
+	captureLog("snapshot: overlay cleared out of the picture");
+	await new Promise((resolve) => setTimeout(resolve, CLEAR_SETTLE_MS));
+	return true;
+}
+
+/**
+ * Put a cleared overlay away, for a capture that is not going to happen.
+ *
+ * What `clearOverlayForSnapshot` leaves behind is the worst window this file knows how to make:
+ * full-screen, at `screen-saver` level, on every workspace, still opaque to the mouse from the
+ * capture that set it so — and now invisible. It is fine for the few frames before this capture's
+ * picture lands on it, and it is a machine that has stopped answering the pointer with nothing on
+ * screen to explain why if that picture never comes. So every way out of `startScreenshotSession`
+ * that does not go on to show the window comes through here. `settleOverlayHidden` says the rest of
+ * why an invisible full-screen window is not a small bug.
+ */
+function dropClearedOverlay(): void {
+	const win = overlay;
+	if (!win || win.isDestroyed()) return;
+	win.setIgnoreMouseEvents(true);
+	win.hide();
+	win.setOpacity(1);
+	// It is off screen, so the page may let go of its picture — the same handover `settleOverlayHidden`
+	// makes at the end of an ordinary capture, for the same twenty-odd megabytes.
+	if (!win.webContents.isDestroyed()) win.webContents.send("screenshot:hidden");
+	captureLog("snapshot: cleared overlay put away — no capture to show");
+}
+
+/**
+ * Hold the window transparent until the renderer reports a composited frame.
+ *
+ * Both ways a capture reaches the screen need this and they need it identically — the fresh one,
+ * which shows the window at zero opacity, and the one that took over an overlay already up, which
+ * `clearOverlayForSnapshot` emptied. The fallback is for a renderer that fails before it gets there,
+ * not for a slow one: the alternative is an invisible full-screen window swallowing every click.
+ */
+function awaitPaint(win: BrowserWindow): void {
+	awaitingPaint = win;
+	paintFallback = setTimeout(() => {
+		paintFallback = null;
+		captureLog("reveal: shown without a paint report");
+		overlayPainted();
+	}, 250);
+}
+
+/**
  * Stop the invisible warm-up right now, because a real capture wants the window.
  *
  * Without this a shortcut pressed inside that window lands on an overlay that `reveal` considers
@@ -929,6 +1012,15 @@ export async function startScreenshotSession(customSettings?: ScreenshotSettings
 
 	const { bounds } = currentDisplay;
 	/*
+	 * Out of the picture before the picture is taken.
+	 *
+	 * Only ever true for a capture that supersedes one already on screen — two presses of the
+	 * shortcut without an Escape in between — and it is what stops the first capture's own selection
+	 * frame and grips ending up inside the second one's snapshot. See `clearOverlayForSnapshot`; the
+	 * cost is `CLEAR_SETTLE_MS` and only on that path.
+	 */
+	const takingOver = await clearOverlayForSnapshot();
+	/*
 	 * All three at once, because the delay before the overlay lands is what makes the desktop appear
 	 * to jump — the picture it shows is from the beginning of this, so everything that happens on
 	 * screen while it is running is undone in one frame when the overlay arrives.
@@ -942,7 +1034,12 @@ export async function startScreenshotSession(customSettings?: ScreenshotSettings
 		listWindows(bounds),
 		ensureOverlay(),
 	]);
-	if (!snapshot || win.isDestroyed()) return;
+	if (!snapshot || win.isDestroyed()) {
+		// The overlay was emptied for a snapshot that never arrived, so it is invisible and in front
+		// of everything. It cannot be left that way.
+		if (takingOver) dropClearedOverlay();
+		return;
+	}
 	// There is a picture and a window to put it in, so from here the overlay is on screen on purpose.
 	// Set before the window is touched rather than when it is shown, so no arrangement of the reveal
 	// can leave it up while this still says nobody asked for it.
@@ -977,7 +1074,15 @@ export async function startScreenshotSession(customSettings?: ScreenshotSettings
 	// Undo a colour pick's pass-through, and any opacity left by the warm-up — the same window served
 	// those, and this capture is meant to be seen and drawn on.
 	win.setIgnoreMouseEvents(false);
-	win.setOpacity(1);
+	/*
+	 * Opaque again, unless this capture is the one that emptied it.
+	 *
+	 * A window cleared for its own snapshot has to stay transparent until it has this capture's
+	 * picture up — restoring it here would put the *previous* capture's selection back on screen for
+	 * the IPC hop and the decode that follow, which is the flicker rather than the fix.
+	 * `overlayPainted` is what brings it back, off the renderer's report that a frame exists.
+	 */
+	if (!takingOver) win.setOpacity(1);
 	captureLog("after setBounds", { asked: bounds, got: win.getBounds() });
 
 	/*
@@ -1015,8 +1120,17 @@ export async function startScreenshotSession(customSettings?: ScreenshotSettings
 			 * activation repaint it guards against has already happened.
 			 */
 			win.focus();
+			/*
+			 * And transparent since this capture took its snapshot, if it superseded one that was up.
+			 *
+			 * `clearOverlayForSnapshot` emptied the window so the picture would not contain the last
+			 * capture's selection frame; the same handshake the fresh path uses brings it back, once
+			 * the page reports a composited frame of *this* capture. So the sequence on screen is the
+			 * desktop, then the new capture — never the old one again.
+			 */
+			if (takingOver) awaitPaint(win);
 			if (!win.webContents.isDestroyed()) win.webContents.send("screenshot:shown");
-			captureLog("reveal: already on screen", { focused: win.isFocused() });
+			captureLog("reveal: already on screen", { focused: win.isFocused(), takingOver });
 			return;
 		}
 		/*
@@ -1054,12 +1168,7 @@ export async function startScreenshotSession(customSettings?: ScreenshotSettings
 		win.showInactive();
 		captureLog("reveal: after showInactive", { bounds: win.getBounds(), visible: win.isVisible() });
 		holdEscape(true);
-		awaitingPaint = win;
-		paintFallback = setTimeout(() => {
-			paintFallback = null;
-			captureLog("reveal: shown without a paint report");
-			overlayPainted();
-		}, 250);
+		awaitPaint(win);
 		setTimeout(() => {
 			if (win.isDestroyed()) return;
 			win.focus();
@@ -1086,9 +1195,16 @@ export async function startScreenshotSession(customSettings?: ScreenshotSettings
 	failsafeTimer = setTimeout(reveal, 1500);
 
 	if (win.webContents.isDestroyed()) {
-		// Nothing will be sent, so nothing will be shown: give the flag back rather than leave it
-		// standing for a capture that never happened.
+		/*
+		 * Nothing will be sent, so nothing will be shown: give the flag back rather than leave it
+		 * standing for a capture that never happened — and the reveal timer with it, which would
+		 * otherwise put this window up a second and a half later with nothing in it. Then whatever
+		 * was cleared for the snapshot goes away too, for the same reason as the branch above.
+		 */
 		captureActive = false;
+		clearFailsafe();
+		revealers.delete(webContentsId);
+		if (takingOver) dropClearedOverlay();
 		return;
 	}
 	// Straight out: the page is already loaded — that is what `ensureOverlay` waited for — so there

@@ -201,6 +201,24 @@ export interface Annotator {
 	mosaicSourceFor(block: number): HTMLCanvasElement | null;
 	ready: boolean;
 	/**
+	 * How many pictures have decoded into this annotator, and the only honest dependency for
+	 * "redraw, the source has changed".
+	 *
+	 * `ready` cannot say it. It goes false while a new source decodes and true again when it lands,
+	 * so between two captures its *value* is true both times — and when the decode is quick enough to
+	 * finish before React has flushed the `false`, both updates land in one pass, the flag never
+	 * changes and an effect watching it never runs again. `image` cannot say it either: it is a ref,
+	 * which is what stops it being a dependency at all.
+	 *
+	 * The screenshot overlay is where that costs something visible. It paints the frozen desktop from
+	 * this bitmap in an effect keyed on `ready`, and a second capture taken while the first was still
+	 * up decoded in five milliseconds — so the overlay went on showing the *previous* capture's
+	 * picture while cropping out of the current one's, and never sent the `ready` handshake that puts
+	 * the window on screen, which then waited out its 1500ms failsafe. `e2e/screenshot-restart-probe.ts`
+	 * checks the log for the repaint.
+	 */
+	revision: number;
+	/**
 	 * The source's natural width, in state rather than read off the ref.
 	 *
 	 * Every size in here — stroke, type, mosaic block — is derived from it, and deriving them from
@@ -259,6 +277,8 @@ export function useAnnotator(src: string | RawPixels | null, options?: Annotator
 	const [history, setHistory] = useState<History>(emptyHistory);
 	const [selected, setSelected] = useState<number | null>(null);
 	const [ready, setReady] = useState(false);
+	/** See `revision` on `Annotator`: the counter `ready` cannot be. */
+	const [revision, setRevision] = useState(0);
 	const [width, setWidth] = useState(0);
 	const [weight, setWeight] = useState(options?.initialWeight ?? 1);
 
@@ -311,6 +331,14 @@ export function useAnnotator(src: string | RawPixels | null, options?: Annotator
 			}
 			setWidth(decoded.width);
 			setReady(true);
+			/*
+			 * And say that it is a *different* picture, which none of the three above can.
+			 *
+			 * `ready` is true again and was true before; `width` is the same screen; the bitmap lives
+			 * in a ref. A consumer that redraws off any of them redraws once and then never again for
+			 * the life of the page — see `revision` on `Annotator` for what that looked like.
+			 */
+			setRevision((n) => n + 1);
 		};
 
 		/*
@@ -504,6 +532,7 @@ export function useAnnotator(src: string | RawPixels | null, options?: Annotator
 		image,
 		mosaicSourceFor,
 		ready,
+		revision,
 		width,
 		block,
 	};
