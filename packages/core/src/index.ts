@@ -1,4 +1,4 @@
-export { DEFAULT_RETRY_POLICY, DEFAULT_RETRY_RULE, normalizeRetryPolicy, policyDelay, type RetryPolicy, type RetryRule, type RetryFailure } from "./config/retry-policy.ts";
+export { DEFAULT_RETRY_POLICY, DEFAULT_RETRY_RULE, normalizeRetryPolicy, policyDelay, type RetryPolicy, type RetryPolicySource, type RetryRule, type RetryFailure } from "./config/retry-policy.ts";
 export {
 	APPROVAL,
 	COMPACTION,

@@ -161,6 +161,26 @@ test("a failed request offers to carry on, not only to start over", async () => 
 	 */
 	assert.ok(offer.includes("继续"), `继续 is offered after a failure:\n${offer.slice(-400)}`);
 	assert.ok(offer.includes("上次请求失败"), "and the row says what happened rather than calling it an interruption");
+
+	/*
+	 * 输入框右下角那个按钮，说的必须是同一件事。
+	 *
+	 * 它以前自己判断该不该显示「继续」，判断反了：条件里的 `!stopped` 把真正把活留在半路的几种
+	 * 情况——你按的暂停、被关掉的窗口、失败的请求——全挡在外面，于是这一行写着「上次请求失败 ·
+	 * 继续」，而右下角还是一支发送箭头。两处说法不一致，按哪个都像是猜。
+	 */
+	const button = await app.evaluate<{ mode: string; label: string; d: string; fill: string } | null>(`(() => {
+		const all = [...document.querySelectorAll("[data-composer-send]")];
+		const b = all[all.length - 1];
+		const p = b?.querySelector("svg path");
+		return b && p ? { mode: b.dataset.composerSend, label: b.getAttribute("aria-label"), d: p.getAttribute("d"), fill: p.getAttribute("fill") ?? "" } : null;
+	})()`);
+	assert.ok(button, "the composer's send button is on screen");
+	assert.equal(button.mode, "continue", `按钮认出这一轮还有活没干完：${JSON.stringify(button)}`);
+	assert.equal(button.label, "接着做完没做完的部分", "按钮和上面那行说的是同一件事");
+	// 实心，和它轮流出现的停止键一样——描边的三角和实心的方块在同一个圆里换来换去是两种画法。
+	assert.equal(button.fill, "currentColor", `继续是实心的：${JSON.stringify(button)}`);
+	assert.ok(!button.d.includes("M12 19V5"), `而不是那支向上的发送箭头：${JSON.stringify(button)}`);
 });
 
 test("重试 asks before throwing the turn away", async () => {

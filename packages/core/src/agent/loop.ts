@@ -1,4 +1,4 @@
-import type { RetryPolicy } from "../config/retry-policy.ts";
+import type { RetryPolicySource } from "../config/retry-policy.ts";
 /**
  * The agent loop.
  *
@@ -42,7 +42,7 @@ export interface AgentRunConfig {
 	thinking?: ThinkingLevel;
 	/** Attempts per request, including the first; see `Settings.retryAttempts`. */
 	retryAttempts?: number;
-	retryPolicy?: RetryPolicy;
+	retryPolicy?: RetryPolicySource;
 	maxTokens?: number;
 	temperature?: number;
 	maxTurns?: number;

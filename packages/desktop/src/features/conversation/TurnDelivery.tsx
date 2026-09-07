@@ -96,7 +96,19 @@ function Delivery({ sessionId, timestamp }: { sessionId: string; timestamp: numb
 				</>}
 			</div>
 		</section>
-		{hover && <Popover anchor={hover.anchor} onClose={() => setHover(null)} role="group" label="文件变更预览" placement="top" align="start" width={720} maxHeight={420} bodyClassName="p-0"
+		{/*
+		 * As wide as the row it came out of, which is as wide as the card.
+		 *
+		 * It was 720 — a number from nowhere, and on an ordinary window some 250px wider than the
+		 * card underneath it. The preview hung off both sides of the thing that produced it and read
+		 * as a surface from some other layout that happened to land there. The card has no width of
+		 * its own to copy: it is as wide as the column, and the column follows the window.
+		 *
+		 * Measured off the anchor at open time, on the same terms as the position — a popover is
+		 * placed by the layout it opened into, and width is part of that placement, not a separate
+		 * thing to keep chasing afterwards.
+		 */}
+		{hover && <Popover anchor={hover.anchor} onClose={() => setHover(null)} role="group" label="文件变更预览" placement="top" align="start" width={hover.anchor.offsetWidth} maxHeight={420} bodyClassName="p-0"
 			header={<div className="flex min-w-0 items-center gap-3 px-3 py-2 text-label" onMouseEnter={() => clearTimeout(hoverTimer.current)} onMouseLeave={closeHover}><FileName path={relative(hover.file.path)} /><Counts added={hover.file.added} removed={hover.file.removed} /></div>}>
 			<div onMouseEnter={() => clearTimeout(hoverTimer.current)} onMouseLeave={closeHover}><DiffView path={hover.file.path} hunks={hover.file.hunks} maxLines={Infinity} /></div>
 		</Popover>}

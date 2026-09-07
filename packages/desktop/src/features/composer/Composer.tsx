@@ -33,6 +33,7 @@ import { findModel } from "../models/index.ts";
 import { fileKind, isReadableAsText, KIND_LABEL, looksBinary, type FileKind } from "./attachments/file-kind.ts";
 import { FileKindIcon } from "./attachments/FileKindIcon.tsx";
 import { useApp } from "../../store/index.ts";
+import { carryOnPrompt } from "../../store/derive.ts";
 import { sessionThinking } from "../../lib/thinking.ts";
 import { bridge } from "../../services/index.ts";
 import { useI18n } from "../../i18n/index.ts";
@@ -57,6 +58,8 @@ export function Composer() {
 	const messages = useApp((s) => s.messages);
 	const running = useApp((s) => s.running);
 	const stopped = useApp((s) => s.stopped);
+	// A count, not the list: a selector that builds an array hands back a new one on every store tick.
+	const unfinished = useApp((s) => s.todos.filter((todo) => todo.status !== "completed").length);
 	const activeSessionId = useApp((s) => s.activeSessionId);
 	// "底部面板" in Settings → 常规. Saved but read by nothing until now.
 	const showBottomPanel = useApp((s) => s.settings?.editor.showBottomPanel) ?? true;
@@ -82,7 +85,23 @@ export function Composer() {
 
 	// Keep a ref of current text and attachments so we can sync them to store on unmount or key change.
 	const lastMessage = messages.at(-1);
-	const continueReady = Boolean(activeSessionId && !running && !stopped && lastMessage?.role === "assistant" && lastMessage.stopReason === "stop" && !text.trim() && !attachments.length && !sessionRefs.length);
+	/*
+	 * 这一轮留下的活，和「继续」该发的那句话——没有就是 `null`。
+	 *
+	 * 条件里原本有个 `!stopped`，意思正好反了：只有模型自己干净收尾时才认继续，而按下暂停、
+	 * 应用被关掉、请求失败——真的把活留在半路的那几种——恰恰全被它挡掉，按钮退回成发送箭头。
+	 * 转录下面那行已经在说「已暂停 · 继续」，右下角却还是一支向上的箭头，同一件事两种说法。
+	 */
+	const carryOn = carryOnPrompt(stopped, unfinished);
+	/*
+	 * 两种「可以继续」，共用一个按钮，发的不是同一句话。
+	 *
+	 * 有活没干完（`carryOn`）是接着做；上一轮好好地结束了、你也什么都没输入，那是问一句还有
+	 * 没有下文——两者都值得一个继续箭头，但把后者说成「从暂停的地方接着做」是在描述没发生过
+	 * 的事。分派在 `submitOnce` 里。
+	 */
+	const continueReady = Boolean(activeSessionId) && !running && !text.trim() && !attachments.length && !sessionRefs.length
+		&& (carryOn !== null || (lastMessage?.role === "assistant" && lastMessage.stopReason === "stop"));
 	const textRef = useRef(text);
 	textRef.current = text;
 	const attachmentsRef = useRef(attachments);
@@ -221,7 +240,20 @@ export function Composer() {
 	async function submitOnce(release: () => void) {
 		const trimmed = text.trim();
 		if (!trimmed && attachments.length === 0 && sessionRefs.length === 0) {
-			if (continueReady) await send([{ type: "text", text: "继续推进当前任务；如果已经完成，请简要说明结果，不要重复执行已完成的操作。" }], { synthetic: true });
+			if (!continueReady) return;
+			/*
+			 * 接着做没做完的部分，和问一句还有没有下文，是两件事。
+			 *
+			 * `carryOn` 那三句会被 `grouping.ts` 按原文认出来，配上 `carryOn: true`，这一轮的耗时
+			 * 和 token 才不会从零重算——否则一个被暂停过一次的任务，报的是它后半段的用时，和一个
+			 * 谁也没跑过的 tokens/s。转录下面那行「继续」走的就是这条路；两个入口按下去必须是同
+			 * 一件事，不然按哪个还有讲究。
+			 *
+			 * 另一半是上一轮好好结束的情况：那不是继续，重新计时是对的，说辞也得换成不假设有活
+			 * 没干完的。
+			 */
+			if (carryOn) await send([{ type: "text", text: carryOn }], { synthetic: true, carryOn: true });
+			else await send([{ type: "text", text: "继续推进当前任务；如果已经完成，请简要说明结果，不要重复执行已完成的操作。" }], { synthetic: true });
 			return;
 		}
 
@@ -783,7 +815,8 @@ export function Composer() {
 							<ComposerSend
 								running={running}
 								continueReady={continueReady}
-								tip={continueReady ? "继续" : undefined}
+								// 有活没干完时说的和转录下面那行「继续」一样，因为按下去是同一件事。
+								tip={continueReady ? (carryOn ? "接着做完没做完的部分" : "继续") : undefined}
 								disabled={!continueReady && !text.trim() && attachments.length === 0 && sessionRefs.length === 0}
 								onSend={() => void submit()}
 								onStop={() => void abort()}

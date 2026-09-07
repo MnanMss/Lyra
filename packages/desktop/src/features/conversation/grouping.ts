@@ -12,6 +12,7 @@
  */
 
 import type { AssistantContent, AssistantMessage, CommandRun, Message, UserContent } from "@lyra/core";
+import { CARRY_ON_PROMPTS } from "../../store/derive.ts";
 
 type ToolCallBlock = Extract<AssistantContent, { type: "toolCall" }>;
 
@@ -101,17 +102,11 @@ function accumulate(into: TurnStats, message: AssistantMessage): TurnStats {
 	};
 }
 
-/**
- * The wordings 「继续」 sends, which are the same act as an automatic nudge.
- *
- * Exported and imported by `ResumeRow` rather than written out twice: two copies of a sentence
- * that has to match exactly is a mismatch waiting for the day somebody improves the wording.
+/*
+ * The sentences 「继续」 sends live in `store/derive.ts`, next to the stop reasons that choose
+ * between them — three places need them now (this file to recognise them, the row under the
+ * transcript and the composer's button to send them), and only one of the three is here.
  */
-export const CARRY_ON_PROMPTS = [
-	"继续，从暂停的地方接着做。",
-	"继续，从中断的地方接着做。",
-	"继续，把清单里没做完的做完。",
-] as const;
 
 /** The text of a user message, joined. */
 function userText(message: Message): string {

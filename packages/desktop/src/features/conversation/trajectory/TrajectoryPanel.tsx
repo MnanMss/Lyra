@@ -1,5 +1,6 @@
 import { History, Coins, Terminal, Zap } from "lucide-react";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { freshTokens } from "@lyra/core/tokens";
 import { countBySource, entryKey, filterTrajectory, type Entry, type Source, type TrajectoryFilter } from "@lyra/core/trajectory-view";
 import { PanelEmpty } from "../../../ui/layout/PanelEmpty.tsx";
 import { SearchField } from "../../../ui/inputs/SearchField.tsx";
@@ -45,7 +46,9 @@ function SessionTrajectory() {
 	const totals = useMemo(() => {
 		const requests = new Set(all.filter(entry => entry.source === "request").flatMap(entry => entry.linkedSeqs ?? []));
 		return all.reduce((total, entry) => {
-			if (entry.usage && (entry.source === "request" || !requests.has(entry.seq))) { total.tokens += entry.usage.total; total.cost += entry.usage.cost.total; }
+			// Fresh tokens, as everywhere else — see `freshTokens`. Cost is unaffected: it already
+			// prices each bucket at its own rate.
+			if (entry.usage && (entry.source === "request" || !requests.has(entry.seq))) { total.tokens += freshTokens(entry.usage); total.cost += entry.usage.cost.total; }
 			if (entry.source === "tool-call") total.tools++;
 			return total;
 		}, { tokens: 0, cost: 0, tools: 0 });

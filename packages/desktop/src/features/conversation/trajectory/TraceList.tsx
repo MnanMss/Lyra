@@ -1,5 +1,5 @@
 import { onPhone } from "../../../services/index.ts";
-import { ChevronRight } from "lucide-react";
+import { ArrowDown, ChevronRight } from "lucide-react";
 import { memo, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { entryKey, SOURCE_LABEL, STATUS_LABEL, type Entry } from "@lyra/core/trajectory-view";
 import { SourceIcon } from "./SourceIcon.tsx";
@@ -54,7 +54,7 @@ export const TraceList = memo(function TraceList({ entries, selected, onSelect, 
 	const indices = Array.from({ length: Math.max(0, range.end - range.start) }, (_, i) => range.start + i).filter(index => index < rows.length);
 	const focusedIndex = rows.findIndex(row => row.id === focused);
 	if (focusedIndex >= 0 && !indices.includes(focusedIndex)) indices.push(focusedIndex);
-	return <><Scroller scrollRef={viewport} className="min-h-0 flex-1" contentClassName="pl-2 pr-3" onScroll={el => { follow.current = !paused && el.scrollHeight - el.clientHeight - el.scrollTop < 4; onFollowing?.(follow.current); if (follow.current) setSeen(entries.length); }}>
+	return <div className="relative flex min-h-0 flex-1 flex-col"><Scroller scrollRef={viewport} className="min-h-0 flex-1" contentClassName="pl-2 pr-3" onScroll={el => { follow.current = !paused && el.scrollHeight - el.clientHeight - el.scrollTop < 4; onFollowing?.(follow.current); if (follow.current) setSeen(entries.length); }}>
 		<div data-trace-list role="list" aria-label="轨迹记录" className="relative" style={{ height: rows.length * height }}>
 			{indices.map(index => {
 				const row = rows[index];
@@ -79,5 +79,15 @@ export const TraceList = memo(function TraceList({ entries, selected, onSelect, 
 				</div>;
 			})}
 		</div>
-	</Scroller>{entries.length > seen && !paused && <button type="button" className="shrink-0 self-center rounded-full border border-line bg-shell px-3 py-1 text-caption text-info" onClick={() => { follow.current = true; onFollowing?.(true); setSeen(entries.length); if (viewport.current) viewport.current.scrollTop = viewport.current.scrollHeight; }}>有 {entries.length - seen} 条新记录 ↓</button>}</>;
+	</Scroller>
+	{/* Floated over the ledger rather than stacked under it: as a flex sibling it was pinned flat
+	    against the bottom edge with nothing under it, and every appearance shortened the scroller by
+	    its own height — a jump in the rows at the moment new ones arrive. Same shape as the
+	    transcript's `BackToLatest`, which does this job one panel over. */}
+	{entries.length > seen && !paused && <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center">
+		<button type="button" className="ly-composer ly-enter pointer-events-auto flex h-7 items-center gap-1.5 rounded-full border border-line-soft bg-float px-3 text-caption text-ink-muted transition-colors duration-[var(--ly-t-quick)] hover:text-ink" onClick={() => { follow.current = true; onFollowing?.(true); setSeen(entries.length); if (viewport.current) viewport.current.scrollTop = viewport.current.scrollHeight; }}>
+			<span className="h-[6px] w-[6px] shrink-0 rounded-full bg-accent" /><ArrowDown size={12} strokeWidth={2} />{entries.length - seen} 条新记录
+		</button>
+	</div>}
+	</div>;
 });

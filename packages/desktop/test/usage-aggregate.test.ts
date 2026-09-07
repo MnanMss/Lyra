@@ -90,14 +90,23 @@ describe("withinRange", () => {
 });
 
 describe("totalsFor", () => {
-	it("counts cache reads as tokens, because they are tokens the model read", () => {
-		const totals = totalsFor([bucket("2026-09-01", "relay/m", { input: 10, output: 5, cacheRead: 100, cacheWrite: 2, reasoning: 3, rawCost: 2, cost: 0.5, cacheSavings: 1.5, catalogPricedTokens: 117 })], []);
-		assert.equal(totals.tokens, 117);
+	/*
+	 * This used to assert the opposite — cache reads counted toward the headline total, "because
+	 * they are tokens the model read". True, and it made the figure useless: a long agentic session
+	 * re-reads its context on every tool call, so the total became a measure of how much caching
+	 * happened rather than of how much work was done, running twenty times the fresh input.
+	 *
+	 * Cache reads are still here in full, as their own bucket, next to what they saved. They are
+	 * just no longer added to the number the page leads with.
+	 */
+	it("leaves cache reads out of the total while keeping them as their own figure", () => {
+		const totals = totalsFor([bucket("2026-09-01", "relay/m", { input: 10, output: 5, cacheRead: 100, cacheWrite: 2, reasoning: 3, rawCost: 2, cost: 0.5, cacheSavings: 1.5, catalogPricedTokens: 17 })], []);
+		assert.equal(totals.tokens, 17, "input + cacheWrite + output; the 100 re-read is not work done again");
 		assert.equal(totals.input, 10);
-		assert.equal(totals.cacheRead, 100);
+		assert.equal(totals.cacheRead, 100, "still reported, just not folded into the total");
 		assert.equal(totals.reasoning, 3);
 		assert.equal(totals.cacheSavings, 1.5);
-		assert.equal(totals.quality.catalog, 117);
+		assert.equal(totals.quality.catalog, 17, "priced-token figures share the total's denominator");
 	});
 
 	it("a day with messages is an active day; one without is not", () => {
@@ -159,7 +168,7 @@ describe("modelRanking", () => {
 		const ranked = modelRanking(buckets);
 		assert.deepEqual(ranked.map((r) => r.key), ["relay/big", "deer/small"]);
 		assert.equal(ranked[0].replies, 4, "the same model's days are merged");
-		assert.equal(ranked[0].tokens, 11_000);
+		assert.equal(ranked[0].tokens, 2_000, "1000 in + 1000 out; the 9000 cache read is not ranked work");
 		assert.equal(ranked[0].cost, 3);
 	});
 
@@ -244,7 +253,7 @@ describe("dayTotals", () => {
 		const [totals] = dayTotals(scan);
 		assert.equal(totals.messages, 10);
 		assert.equal(totals.sessions, 2);
-		assert.equal(totals.tokens, 150);
+		assert.equal(totals.tokens, 100, "the 50 cache read is excluded");
 		assert.equal(totals.cost, 0.5);
 	});
 

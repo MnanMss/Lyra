@@ -2,6 +2,7 @@ import { Input } from "../../ui/inputs/NativeField.tsx";
 import type { McpServerConfig } from "@lyra/core";
 import { Cable } from "lucide-react";
 import { RowDeleteButton } from "../../ui/primitives/RowDeleteButton.tsx";
+import { Disclosure } from "../../ui/layout/Disclosure.tsx";
 import { useEffect, useState } from "react";
 import type { AgentCapabilities } from "../../../electron/ipc-types.ts";
 import { PluginIcon } from "./PluginIcon.tsx";
@@ -229,11 +230,8 @@ export function McpSettings({ filter = "" }: { filter?: string }) {
 									)}
 
 									{status?.tools && status.tools.length > 0 && (
-										<details>
-											<summary className="cursor-pointer text-detail text-ink-muted">
-												查看 {status.tools.length} 个工具
-											</summary>
-											<div className="mt-2 space-y-1">
+										<Disclosure variant="compact" title="工具" count={status.tools.length}>
+											<div className="space-y-1 py-1">
 												{status.tools.map((tool) => (
 													<div key={tool.name} className="text-detail">
 														<span className="font-mono text-ink">{tool.name}</span>
@@ -241,7 +239,7 @@ export function McpSettings({ filter = "" }: { filter?: string }) {
 													</div>
 												))}
 											</div>
-										</details>
+										</Disclosure>
 									)}
 								</div>
 							</Card>

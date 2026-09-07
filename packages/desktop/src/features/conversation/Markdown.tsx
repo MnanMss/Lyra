@@ -9,9 +9,10 @@
  * decided in `markdown-blocks.ts` and `markdown-inline.ts`, where they can be tested.
  */
 
-import { FileText, ChevronRight, ExternalLink } from "lucide-react";
+import { FileText, ExternalLink } from "lucide-react";
 import { createContext, Fragment, memo, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { CodeBlock } from "./CodeBlock.tsx";
+import { Disclosure } from "../../ui/layout/Disclosure.tsx";
 import type { Block, ListItem } from "../../lib/markdown/blocks.ts";
 import { parseMarkdown } from "../../lib/markdown/blocks.ts";
 import { resolveAsset, isAbsolutePath } from "../../lib/markdown/assets.ts";
@@ -221,26 +222,14 @@ function Item({ item, preview }: { item: ListItem; preview: boolean }) {
 	);
 }
 
-/** `<details>`, folded, with the same motion as every other disclosure in the app. */
+/** `<details>`, folded the way every other section in the app folds rather than the browser's way. */
 function Details({ summary, blocks }: { summary: string; blocks: Block[] }) {
-	const [open, setOpen] = useState(false);
-
 	return (
-		<div className="ly-details" data-open={open}>
-			<button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="ly-details-summary">
-				<ChevronRight size={13} strokeWidth={2} className="ly-details-chevron" />
-				<span>{inline(summary)}</span>
-			</button>
-			<div className="ly-reveal" data-open={open} aria-hidden={!open}>
-				<div>
-					<div className="ly-details-body">
-						{blocks.map((child, index) => (
-							<Fragment key={index}>{renderBlock(child)}</Fragment>
-						))}
-					</div>
-				</div>
-			</div>
-		</div>
+		<Disclosure variant="framed" title={inline(summary)}>
+			{blocks.map((child, index) => (
+				<Fragment key={index}>{renderBlock(child)}</Fragment>
+			))}
+		</Disclosure>
 	);
 }
 

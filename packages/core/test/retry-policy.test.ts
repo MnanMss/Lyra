@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_RETRY_POLICY, DEFAULT_RETRY_RULE, normalizeRetryPolicy, policyDelay } from "../src/config/retry-policy.ts";
+import { DEFAULT_RETRY_POLICY, DEFAULT_RETRY_RULE, normalizeRetryPolicy, policyDelay, type RetryPolicy } from "../src/config/retry-policy.ts";
 import { normalizeSettings } from "../src/config/settings.ts";
 import { RetryBudget, fetchWithRetry, retryStream, isRetryableError } from "../src/ai/retry.ts";
 const socket = () => new Error("fetch failed");
@@ -52,6 +52,36 @@ test("the old default upgrades to ten retries, explicit alternatives migrate, an
 	assert.equal(normalizeRetryPolicy({ upstream: { intervalMs: 40000, maxIntervalMs: 30000 } }).upstream.maxIntervalMs, 40000);
 });
 
+
+/*
+ * The reason the budget reads rather than copies.
+ *
+ * A request retrying on the unlimited network rule can sit there for hours, which is exactly when
+ * someone opens the settings page — and under a snapshot their edit would have reached it after it
+ * finished, i.e. never. Both halves of the rule have to move: the interval it waits next, and the
+ * ceiling that decides whether there is a next one at all.
+ */
+test("a policy edited mid-request applies from the next retry, and tightening the limit ends it", async () => {
+	let live: RetryPolicy = { ...DEFAULT_RETRY_POLICY };
+	const budget = new RetryBudget(() => live);
+	const waits: number[] = []; let calls = 0;
+	await assert.rejects(fetchWithRetry(async () => {
+		calls++;
+		if (calls === 2) live = { ...live, network: { retries: 3, strategy: "fixed", intervalMs: 1000, maxIntervalMs: 30_000 } };
+		throw socket();
+	}, "https://example.test", {}, { budget, sleep: async ms => { waits.push(ms); } }), /fetch failed/);
+	// The first wait was quoted before the edit; every one after it is the new interval, and the
+	// three retries the new rule allows are counted from the start rather than from the edit.
+	assert.deepEqual(waits, [5000, 1000, 1000]); assert.equal(calls, 4);
+});
+
+test("an explicit low-level attempt count still bounds both categories, whatever the settings say", () => {
+	const bounded = new RetryBudget(undefined, 3).policy;
+	assert.equal(bounded.upstream.retries, 2); assert.equal(bounded.network.retries, 2);
+	// A live source that has nothing to say falls back to the same bounded lifetime.
+	assert.equal(new RetryBudget(() => undefined, 3).policy.network.retries, 2);
+	assert.equal(new RetryBudget(() => DEFAULT_RETRY_POLICY, 3).policy.network.retries, null);
+});
 
 test("fault categories keep independent limits, and certificate errors are not transient network outages", async () => {
 	const policy = { network: { ...DEFAULT_RETRY_RULE, retries: 2, intervalMs: 1000 }, upstream: { ...DEFAULT_RETRY_RULE, retries: 1, intervalMs: 3000 } };

@@ -21,6 +21,21 @@ export function UsageSettings() {
 	const [refreshing, setRefreshing] = useState(false);
 	const [range, setRange] = useState<Range>(30);
 	const [metric, setMetric] = useState<TrendMetric>("cost");
+	/*
+	 * 图例里被关掉的供应商。
+	 *
+	 * 图例本来只是一排色点和名字——看着像能点，点了什么也不发生。而它恰恰是这张图最需要的那个
+	 * 操作：一个花掉大头的供应商会把其余几个压成贴着底边的一条线，关掉它，剩下的才有刻度可读。
+	 * 状态放在这里而不是图表里面，因为图例和图是两个兄弟节点，共同的父亲只有这里。
+	 */
+	const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
+	const toggleProvider = useCallback((id: string) => {
+		setHidden((current) => {
+			const next = new Set(current);
+			if (!next.delete(id)) next.add(id);
+			return next;
+		});
+	}, []);
 	const [breakdown, setBreakdown] = useState<"model" | "day">("model");
 	const slow = useSlowLoad(scan === null && !failed);
 
@@ -77,7 +92,7 @@ export function UsageSettings() {
 			</header>
 
 			{view ? (
-				<Dashboard view={view} providers={providers} metric={metric} setMetric={setMetric} breakdown={breakdown} setBreakdown={setBreakdown} grid={grid} busiestDay={busiestDay} />
+				<Dashboard view={view} providers={providers} metric={metric} setMetric={setMetric} hidden={hidden} onToggleProvider={toggleProvider} breakdown={breakdown} setBreakdown={setBreakdown} grid={grid} busiestDay={busiestDay} />
 			) : slow || failed ? (
 				<UsageSkeleton failed={failed} />
 			) : null}
@@ -92,6 +107,8 @@ function Dashboard({
 	providers,
 	metric,
 	setMetric,
+	hidden,
+	onToggleProvider,
 	breakdown,
 	setBreakdown,
 	grid,
@@ -101,6 +118,8 @@ function Dashboard({
 	providers: { id: string; name: string }[] | undefined;
 	metric: TrendMetric;
 	setMetric: (metric: TrendMetric) => void;
+	hidden: ReadonlySet<string>;
+	onToggleProvider: (id: string) => void;
 	breakdown: "model" | "day";
 	setBreakdown: (breakdown: "model" | "day") => void;
 	grid: DayUsage[][];
@@ -126,15 +145,24 @@ function Dashboard({
 						{pricedTokens > 0 ? costLabel(totals.cost) : "暂无价格"}
 					</div>
 					<div className="mt-1 text-detail text-ink-faint">已记录成本与目录参考价合并估算，中转账单以供应商为准</div>
+					{/*
+					 * The top three, not the top four.
+					 *
+					 * The two cards share a row, so the taller one sets the height of both — and this
+					 * one is a list, which grows, while the chart beside it is a fixed shape. A fourth
+					 * provider added a row here and an equal band of empty card over there. Three
+					 * spends and the chart end at about the same place.
+					 */}
 					<div className="mt-4 space-y-3">
-						{view.providers.slice(0, 4).map((provider, index) => (
+						{view.providers.slice(0, 3).map((provider, index) => (
 							<ProviderSpend key={provider.id} name={providerLabel(providers, provider.id)} provider={provider} color={trendColor(index)} />
 						))}
 						{view.providers.length === 0 && <div className="py-5 text-center text-label text-ink-faint">这个区间没有用量</div>}
 					</div>
 				</Card>
 
-				<Card>
+				{/* A column, so the chart can have whatever height the spend list beside it leaves over. */}
+				<Card className="flex flex-col">
 					<div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-3.5">
 						<div>
 							<div className="text-label font-medium text-ink">每日趋势</div>
@@ -142,15 +170,44 @@ function Dashboard({
 						</div>
 						<Segmented value={metric} onChange={setMetric} options={[{ value: "cost", label: "费用" }, { value: "tokens", label: "Token" }]} />
 					</div>
-					<div className="flex flex-wrap gap-x-4 gap-y-1 px-4 pt-2 text-detail text-ink-muted">
-						{view.providerTrends.map((provider, index) => (
-							<span key={provider.id} className="flex items-center gap-1.5">
-								<span className="h-2 w-2 rounded-full" style={{ background: trendColor(index) }} />
-								{providerLabel(providers, provider.id)}
-							</span>
-						))}
+					{/*
+					 * 图例是开关，不是标注。
+					 *
+					 * 它一直长着一副能点的样子——一排色点配名字，和所有图表里那种点一下就能过滤的
+					 * 图例一模一样——而点下去什么也不发生。现在点下去就是关掉那条线：它淡出，纵轴
+					 * 按剩下的重新分配，留下的曲线跟着长起来，而那段长起来正好说明了刚才被压掉多少。
+					 *
+					 * `aria-pressed` 而不是勾选框：这是一个开着或关着的开关，读屏念出来也该是这样。
+					 */}
+					<div className="flex flex-wrap gap-x-1 gap-y-1 px-3 pt-2 text-detail text-ink-muted">
+						{view.providerTrends.map((provider, index) => {
+							const off = hidden.has(provider.id);
+							return (
+								<button
+									key={provider.id}
+									type="button"
+									aria-pressed={!off}
+									data-usage-legend={provider.id}
+									data-off={off || undefined}
+									onClick={() => onToggleProvider(provider.id)}
+									data-ly-tip={off ? "在图上显示这个供应商" : "从图上隐藏这个供应商"}
+									className={`flex items-center gap-1.5 rounded-md px-1.5 py-0.5 transition-[color,background-color,transform] duration-[var(--ly-t-quick)] hover:bg-card-hover active:scale-[0.96] ${off ? "text-ink-faint" : "text-ink-muted hover:text-ink"}`}
+								>
+									{/* 关掉时留一个空心圈：位置和颜色都还在，只是这条线现在不在图上。 */}
+									<span
+										className="h-2 w-2 rounded-full transition-all duration-[var(--ly-t-base)] ease-[var(--ly-e-out)]"
+										style={off ? { boxShadow: `inset 0 0 0 1.5px ${trendColor(index)}` } : { background: trendColor(index) }}
+									/>
+									{providerLabel(providers, provider.id)}
+								</button>
+							);
+						})}
 					</div>
-					{totals.tokens > 0 ? <UsageTrendChart trends={view.providerTrends} metric={metric} /> : <EmptyHint>这个区间没有趋势数据。</EmptyHint>}
+					{totals.tokens > 0 ? (
+						<UsageTrendChart trends={view.providerTrends} metric={metric} labelOf={(id) => providerLabel(providers, id)} hidden={hidden} />
+					) : (
+						<EmptyHint>这个区间没有趋势数据。</EmptyHint>
+					)}
 				</Card>
 			</div>
 
@@ -162,16 +219,33 @@ function Dashboard({
 				<Metric label="缓存净节省" value={signedCost(totals.cacheSavings)} sub={`无缓存约 ${costLabel(totals.rawCost)}`} />
 			</div>
 
-			<div className="mt-6 grid gap-3 @3xl:grid-cols-[minmax(0,1.55fr)_260px]">
-				<Card>
-					<div className="flex items-center justify-between border-b border-line-soft px-4 py-3">
+			{/*
+			 * `items-start`, so the right-hand card is only as tall as what it says.
+			 *
+			 * A grid stretches its items by default, which paired a twelve-row table with a six-row
+			 * one and gave the shorter card 200px of empty background to hold up. Neither card wants
+			 * to be the other's height — they are two separate readings, not two columns of one.
+			 */}
+			<div className="mt-6 grid items-start gap-3 @3xl:grid-cols-[minmax(0,1.55fr)_260px]">
+				{/*
+				 * Capped and scrolled rather than however long the list happens to be.
+				 *
+				 * Twelve rows at 38px each ran to roughly 500px, which pushed 「使用节奏」 off the
+				 * bottom of the pane — the breakdown is something you consult, and it was setting the
+				 * height of a page it is one part of. The header stays out of the scroller so the
+				 * period switch is always reachable.
+				 */}
+				<Card className="flex max-h-[420px] flex-col" data-usage-breakdown="true">
+					<div className="flex shrink-0 items-center justify-between border-b border-line-soft px-4 py-3">
 						<div className="text-label font-medium text-ink">明细</div>
 						<Segmented value={breakdown} onChange={setBreakdown} options={[{ value: "model", label: "模型" }, { value: "day", label: "日期" }]} />
 					</div>
-					{breakdown === "model" ? <ModelBreakdown rows={view.models} providers={providers} totalCost={totals.cost} /> : <DayBreakdown rows={view.series} totalCost={totals.cost} />}
+					<div className="min-h-0 flex-1 overflow-y-auto">
+						{breakdown === "model" ? <ModelBreakdown rows={view.models} providers={providers} totalCost={totals.cost} /> : <DayBreakdown rows={view.series} totalCost={totals.cost} />}
+					</div>
 				</Card>
 
-				<Card className="p-4">
+				<Card className="p-4" data-usage-quality="true">
 					<div className="text-label font-medium text-ink">计价质量</div>
 					<div className="mt-1 text-detail leading-relaxed text-ink-faint">按 Token 计算覆盖率，未计价用量仍完整保留。</div>
 					<QualityBar totals={totals} />

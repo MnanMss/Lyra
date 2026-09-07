@@ -226,7 +226,10 @@ test("stopping sidechat cancels a summary wait and passes its configured retry p
 		emit: () => {},
 		summaryStream: async function* (_provider, _model, _context, streamOptions) {
 			summarySignal = streamOptions?.signal;
-			assert.deepEqual(streamOptions?.retryPolicy, settings.retryPolicy);
+			// A reader rather than a copy, so a policy edited mid-wait reaches this request.
+			const source = streamOptions?.retryPolicy;
+			assert.equal(typeof source, "function");
+			assert.deepEqual(typeof source === "function" ? source() : source, settings.retryPolicy);
 			started?.();
 			assert.ok(summarySignal);
 			await new Promise<void>(resolve => summarySignal?.addEventListener("abort", () => resolve(), { once: true }));

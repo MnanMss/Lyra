@@ -248,13 +248,13 @@ export class SideChat {
 				messages: reading,
 				thinking: options.thinking ?? this.main.meta.thinking ?? this.settings.thinking,
 				retryAttempts: this.settings.retryAttempts,
-				retryPolicy: this.settings.retryPolicy,
+				retryPolicy: () => this.settings.retryPolicy,
 				signal: controller.signal,
 				maxTurns: 24,
 				streamFn: this.streamFn,
 				compact: async (messages, model) => {
 					const summarizer = resolveModelRef(this.settings, "@compact", { provider: resolved.provider, model });
-					const compacted = await compactWith(messages, model, resolved.provider, (provider, summaryModel, context, streamOptions) => (this.summaryStream ?? streamAssistant)(provider, summaryModel, context, { ...streamOptions, retryPolicy: this.settings.retryPolicy, signal: controller.signal }), textTokens(systemPrompt) + toolTokens(tools), undefined, summarizer);
+					const compacted = await compactWith(messages, model, resolved.provider, (provider, summaryModel, context, streamOptions) => (this.summaryStream ?? streamAssistant)(provider, summaryModel, context, { ...streamOptions, retryPolicy: () => this.settings.retryPolicy, signal: controller.signal }), textTokens(systemPrompt) + toolTokens(tools), undefined, summarizer);
 					reading = [...(compacted?.messages ?? messages)];
 					return compacted;
 				},

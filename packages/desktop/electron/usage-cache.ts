@@ -18,7 +18,8 @@ interface UsageCache {
 	files: UsageFiles;
 }
 
-export const USAGE_CACHE_VERSION = 2 as const;
+/** 3: the priced-token figures switched from every bucket to fresh tokens only. */
+export const USAGE_CACHE_VERSION = 3 as const;
 
 const BUCKET_NUMBERS: (keyof UsageBucket)[] = [
 	"input", "output", "cacheRead", "cacheWrite", "reasoning", "cost", "inputCost", "outputCost",

@@ -1,4 +1,4 @@
-import type { RetryPolicy } from "../config/retry-policy.ts";
+import type { RetryPolicySource } from "../config/retry-policy.ts";
 /**
  * Summarises the opening turn of a conversation into a concise title.
  *
@@ -28,7 +28,7 @@ const SUMMARY_SYSTEM =
 	"3. 仅输出标题纯文本，严禁包含任何前缀（如“标题：”）、严禁包裹书名号《》、引号或反引号、严禁以句号等标点结尾。";
 
 export interface SummarizeTitleOptions {
-	retryPolicy?: RetryPolicy;
+	retryPolicy?: RetryPolicySource;
 	text: string;
 	provider: ProviderConfig;
 	model: ModelConfig;

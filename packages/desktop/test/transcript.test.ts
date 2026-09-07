@@ -5,7 +5,7 @@ import type { AssistantMessage, Message } from "@lyra/core";
 
 import { emptyUsage } from "@lyra/core";
 
-import { hasRetryPoint, howItStopped, rebuildToolRuns, wasCutShort } from "../src/store/derive.ts";
+import { carryOnPrompt, hasRetryPoint, howItStopped, rebuildToolRuns, wasCutShort } from "../src/store/derive.ts";
 import { settleTail } from "../src/lib/transcript.ts";
 
 function reply(stopReason: AssistantMessage["stopReason"], text = "你好！"): AssistantMessage {
@@ -195,4 +195,24 @@ test("there is nothing to re-ask when nobody has asked anything", () => {
 	// The runtime's own nudges are not something anyone typed, so they are not a retry point.
 	const nudged = [{ ...asked, synthetic: true }] as Message[];
 	assert.equal(hasRetryPoint(nudged), false);
+});
+
+/*
+ * 停成这样之后，「继续」说的是哪句——以及什么时候它根本不该出现。
+ *
+ * 转录下面那行和输入框右下角那个按钮问的是同一个函数，所以这里定的是两处共同的规矩。按钮
+ * 以前自己判断，判断反了：只认模型干净收尾的情况，你按下的暂停、被关掉的窗口、失败的请求
+ * 反而都不算，于是那行写着「已暂停 · 继续」，按钮却还是一支发送箭头。
+ */
+test("每一种停法都有它自己的那句「继续」", () => {
+	assert.equal(carryOnPrompt("user", 0), "继续，从暂停的地方接着做。");
+	// 崩溃、退出、睡眠、请求失败——都不是你按的，说辞也就不能是「从暂停的地方」。
+	assert.equal(carryOnPrompt("interrupt", 0), "继续，从中断的地方接着做。");
+	assert.equal(carryOnPrompt("error", 0), "继续，从中断的地方接着做。");
+	// 安静的那一种：什么都没出错，模型自己收了尾，清单上还留着没打勾的。
+	assert.equal(carryOnPrompt(null, 2), "继续，把清单里没做完的做完。");
+	// 第四个答案，也是分界线：结束了就是结束了，这里不该有任何东西提出要接着做。
+	assert.equal(carryOnPrompt(null, 0), null);
+	// 停了就是停了，清单空不空都改不了这件事。
+	assert.equal(carryOnPrompt("user", 5), "继续，从暂停的地方接着做。");
 });

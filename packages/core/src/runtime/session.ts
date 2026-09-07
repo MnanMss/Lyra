@@ -377,7 +377,7 @@ export class AgentSession {
 			history,
 			resolved.model,
 			resolved.provider,
-			summaryStream(this.streamFn, { sessionId: this.meta.id, cwd: this.cwd, retryPolicy: this.settings.retryPolicy, signal }),
+			summaryStream(this.streamFn, { sessionId: this.meta.id, cwd: this.cwd, retryPolicy: () => this.settings.retryPolicy, signal }),
 			0,
 			true,
 			// 剪掉的原文存下来，占位标记里给出 `artifact://` 地址。
@@ -917,7 +917,7 @@ export class AgentSession {
 		const run = async () => {
 			try {
 				const summary = await summarizeTitle({
-					retryPolicy: this.settings.retryPolicy,
+					retryPolicy: () => this.settings.retryPolicy,
 					text,
 					provider: chosen.provider,
 					model: chosen.model,

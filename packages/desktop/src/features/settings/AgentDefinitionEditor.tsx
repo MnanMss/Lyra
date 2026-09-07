@@ -2,6 +2,7 @@ import { ArrowLeft, Save } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { AgentDefinitionRecord, AgentDefinitionSave, AgentDraft } from "@lyra/core";
 import { Input, Textarea } from "../../ui/inputs/NativeField.tsx";
+import { Disclosure } from "../../ui/layout/Disclosure.tsx";
 import { InlineSelect } from "./controls.tsx";
 import { bridge } from "../../services/index.ts";
 
@@ -53,7 +54,7 @@ export function AgentDefinitionEditor({ record, copy, projectId, projectName, to
 				{draft.tools !== "*" && <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg border border-line p-3">{[...new Set([...tools, ...draft.tools])].map(name => <label key={name} className="flex min-w-0 items-center gap-2 text-detail"><Input type="checkbox" checked={draft.tools !== "*" && draft.tools.includes(name)} onChange={event => { if (draft.tools !== "*") patch({ tools: event.target.checked ? [...draft.tools, name] : draft.tools.filter(tool => tool !== name) }); }} /><span className="break-all font-mono">{name}</span></label>)}</div>}
 				<p className="mt-2 text-caption text-ink-muted">离开设置时草稿会保留到本次应用关闭。命令执行和文件写入取决于所选工具；会话的审批规则仍然生效。</p>
 			</div>
-			{definition && <details className="rounded-lg border border-line p-3 text-detail"><summary className="cursor-pointer">高级定义 · 保留现有配置</summary><p className="my-2 text-ink-muted">模型默认引用、输出结构及派发范围随指令保留。本机单独指定的模型优先。</p><pre className="overflow-auto whitespace-pre-wrap break-words text-caption">{JSON.stringify({ model: definition.model, output: definition.output, schemaMode: definition.schemaMode, spawns: definition.spawns }, null, 2)}</pre></details>}
+			{definition && <div className="text-label"><Disclosure variant="framed" title="高级定义 · 保留现有配置"><p className="mb-2 text-detail text-ink-muted">模型默认引用、输出结构及派发范围随指令保留。本机单独指定的模型优先。</p><pre className="overflow-auto whitespace-pre-wrap break-words text-caption">{JSON.stringify({ model: definition.model, output: definition.output, schemaMode: definition.schemaMode, spawns: definition.spawns }, null, 2)}</pre></Disclosure></div>}
 		</fieldset>
 	</form>;
 }

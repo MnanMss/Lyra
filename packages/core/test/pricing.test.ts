@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { addUsage, emptyUsage, type Usage } from "../src/types/message.ts";
+import { freshTokens } from "../src/tokens.ts";
 import type { ModelConfig, ModelPricing } from "../src/types/provider.ts";
 import { computeCost, selectPricingRates } from "../src/utils/pricing.ts";
 
@@ -109,5 +110,30 @@ describe("usage pricing aggregation", () => {
 				assert.equal(addUsage(sum, catalog).cost.source, "mixed");
 			}
 		}
+	});
+});
+
+describe("freshTokens", () => {
+	it("leaves out cache reads and keeps everything that was paid for at full rate", () => {
+		const usage = { ...emptyUsage(), input: 1_000, output: 200, cacheRead: 90_000, cacheWrite: 500 };
+		assert.equal(freshTokens(usage), 1_700);
+	});
+
+	/*
+	 * The case this exists for. A long agentic run re-reads its context on every tool call, so
+	 * `total` is dominated by a bucket billed at a tenth of the input rate — the session this was
+	 * written for reported 524M against 28M of actual input.
+	 */
+	it("is the figure that does not grow with the number of tool calls", () => {
+		const oneRequest = { ...emptyUsage(), input: 1_000, output: 100, cacheRead: 200_000, total: 201_100 };
+		let total = emptyUsage();
+		for (let i = 0; i < 100; i++) total = addUsage(total, oneRequest);
+		assert.equal(total.total, 20_110_000, "what crossed the wire");
+		assert.equal(freshTokens(total), 110_000, "what was actually new");
+	});
+
+	it("counts a cache write as fresh, because it is the first full-price pass over that content", () => {
+		assert.equal(freshTokens({ ...emptyUsage(), cacheWrite: 5_000 }), 5_000);
+		assert.equal(freshTokens({ ...emptyUsage(), cacheRead: 5_000 }), 0);
 	});
 });

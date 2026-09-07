@@ -81,8 +81,18 @@ test("real file changes produce one temporary card with internal expansion and s
 		const point = await app.evaluate<{ x: number; y: number }>(`(()=>{const r=document.querySelector('[data-delivery-file]').getBoundingClientRect();return {x:r.x+50,y:r.y+r.height/2}})()`);
 		await app.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...point });
 		await until(`document.querySelector('[aria-label="文件变更预览"]')?.textContent.includes('export const')`); await frames();
-		const metrics = await app.evaluate<{ preview: DOMRect; overflow: number; cards: number }>(`(()=>{const e=document.querySelector('[aria-label="文件变更预览"]');return {preview:e.getBoundingClientRect().toJSON(),overflow:Math.max(0,e.getBoundingClientRect().right-innerWidth),cards:document.querySelectorAll('[data-turn-delivery]').length}})()`);
+		const metrics = await app.evaluate<{ preview: DOMRect; row: DOMRect; card: DOMRect; overflow: number; cards: number }>(`(()=>{const e=document.querySelector('[aria-label="文件变更预览"]');return {preview:e.getBoundingClientRect().toJSON(),row:document.querySelector('[data-delivery-file]').getBoundingClientRect().toJSON(),card:document.querySelector('[data-turn-delivery]').getBoundingClientRect().toJSON(),overflow:Math.max(0,e.getBoundingClientRect().right-innerWidth),cards:document.querySelectorAll('[data-turn-delivery]').length}})()`);
 		t.diagnostic(JSON.stringify({ theme, ...metrics })); assert.equal(metrics.overflow, 0); assert.ok(metrics.preview.x >= 0 && metrics.preview.y >= 0); assert.equal(metrics.cards, 1);
+		/*
+		 * 预览是从这一行里拉出来的，所以它就是这一行的宽度和这一行的左边缘。
+		 *
+		 * 上面那条「没有超出窗口」拦不住这件事：宽度写死 720 的时候，预览在一个普通宽度的窗口里
+		 * 比它下面的卡片宽出两百多像素、左右都挂在外面，而窗口还宽得很，overflow 一直是 0。要量
+		 * 的是它和卡片的关系，不是它和屏幕的关系。
+		 */
+		assert.ok(Math.abs(metrics.preview.width - metrics.row.width) <= 1, `预览要和文件行同宽：${JSON.stringify({ preview: metrics.preview.width, row: metrics.row.width })}`);
+		assert.ok(Math.abs(metrics.preview.x - metrics.row.x) <= 1, `预览的左边缘要对着这一行：${JSON.stringify({ preview: metrics.preview.x, row: metrics.row.x })}`);
+		assert.ok(metrics.preview.width <= metrics.card.width, `预览不该宽过卡片：${JSON.stringify({ preview: metrics.preview.width, card: metrics.card.width })}`);
 		await app.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: metrics.preview.x + 40, y: metrics.preview.y + 35 });
 		await frames();
 		assert.ok(await app.evaluate(`document.querySelector('[aria-label="文件变更预览"]')?.checkVisibility()`), "the diff remains readable when moving into its popup");

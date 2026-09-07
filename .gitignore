@@ -60,3 +60,6 @@ test/tool-eval/results/
 
 # pnpm 有时在仓库里留下的空 store 桩
 .pnpm-store/
+
+# 探针写出的截图：跑一次几兆的过程产物，看完就没用了
+test-results/

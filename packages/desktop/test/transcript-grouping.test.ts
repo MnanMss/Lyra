@@ -14,6 +14,7 @@ import type { AssistantContent, AssistantMessage, Message, StopReason, ToolCallC
 import { emptyUsage } from "@lyra/core";
 
 import { computeTurnStats, runs, runKey, type Run } from "../src/features/conversation/grouping.ts";
+import { CARRY_ON_PROMPTS } from "../src/store/derive.ts";
 
 function user(text: string): Message {
 	return { role: "user", content: [{ type: "text", text }], timestamp: 1 };
@@ -549,4 +550,29 @@ test("继续 sent as a synthetic message neither shows nor restarts the turn", (
 	const rows = runs(messages, []);
 	const shown = rows.filter((r) => r.kind === "message" && r.message.role === "user");
 	assert.equal(shown.length, 1, "只应该看到你真正写的那一条");
+});
+
+/*
+ * 常量表里的每一句，都要真的能被认出来。
+ *
+ * 上面几条测试各自钉住一句原文，钉不住的是「这张表整体」：往 `CARRY_ON_PROMPTS` 里加第四句、
+ * 或者把这里的匹配从常量换成写死的清单，都不会让它们变红——新那句悄悄地成了一次新提问，而一
+ * 轮被打断过的任务从此只报最后一小段的耗时，和一个谁也没跑过的 tokens/s。统计坏了不报错，它
+ * 只是开始说一些不真实的数字。所以这条遍历常量，有几句测几句。
+ */
+test("每一句「继续」都要被认成接着做，而不是一个新问题", () => {
+	for (const prompt of CARRY_ON_PROMPTS) {
+		const first = assistant([call("a")], "aborted");
+		first.durationMs = 90_000;
+		first.usage = { input: 100, output: 1000, cacheRead: 0, cacheWrite: 0, total: 1100 };
+
+		const second = assistant([text("接着做完了")], "stop");
+		second.durationMs = 30_000;
+		second.usage = { input: 50, output: 200, cacheRead: 0, cacheWrite: 0, total: 250 };
+
+		const messages: Message[] = [user("干这件事"), first, user(prompt), second];
+		const stats = computeTurnStats(messages, 3);
+		assert.equal(stats.durationMs, 120_000, `「${prompt}」没有被认出来`);
+		assert.equal(stats.outputTokens, 1200, `「${prompt}」没有被认出来`);
+	}
 });

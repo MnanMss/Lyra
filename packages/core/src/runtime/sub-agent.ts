@@ -252,7 +252,7 @@ export async function runSubAgent(
 				 */
 				thinking: chosen.thinking,
 				retryAttempts: options.settings.retryAttempts,
-				retryPolicy: options.settings.retryPolicy,
+				retryPolicy: () => (options.getSettings?.() ?? options.settings).retryPolicy,
 				signal: controller.signal,
 				state: subState,
 				/*
@@ -342,7 +342,7 @@ export async function runSubAgent(
 						messages,
 						model,
 						runProvider,
-						(provider, summaryModel, context, streamOptions) => (options.summaryStream ?? streamAssistant)(provider, summaryModel, context, { ...streamOptions, retryPolicy: options.settings.retryPolicy, signal: controller.signal }),
+						(provider, summaryModel, context, streamOptions) => (options.summaryStream ?? streamAssistant)(provider, summaryModel, context, { ...streamOptions, retryPolicy: () => (options.getSettings?.() ?? options.settings).retryPolicy, signal: controller.signal }),
 						textTokens(subAgentPrompt) + toolTokens(allowed),
 						undefined,
 						summarizer,

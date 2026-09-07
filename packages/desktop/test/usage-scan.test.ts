@@ -114,7 +114,9 @@ describe("scanUsage", () => {
 		await writeFile(log("s1"), replyLine(AT, { input: 100, output: 100, cacheRead: 900, cost: 0 }));
 		const scan = await scanUsage(home, [pricedProvider(1)]);
 		const bucket = scan.buckets[0];
-		assert.equal(bucket.manualPricedTokens, 1_100);
+		// Fresh tokens (100 + 100), not the 1100 that crossed the wire: this figure is shown as a
+		// share of the page's total, which excludes cache reads.
+		assert.equal(bucket.manualPricedTokens, 200);
 		assert.ok(Math.abs(bucket.cost - 0.00039) < 1e-12);
 		assert.ok(Math.abs(bucket.rawCost - 0.0012) < 1e-12);
 		assert.ok(Math.abs(bucket.cacheSavings - 0.00081) < 1e-12);

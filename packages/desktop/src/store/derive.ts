@@ -73,6 +73,41 @@ export function without<T>(cache: Record<string, T>, id: string): Record<string,
 export type TurnStop = "user" | "interrupt" | "error" | null;
 
 /**
+ * The wordings 「继续」 sends, which are the same act as an automatic nudge.
+ *
+ * Constants rather than a sentence written next to each button, because `grouping.ts` matches
+ * these exact strings to tell "carrying on" apart from "asking something new" — that is what keeps
+ * a task's elapsed time and tokens whole across an interruption. A second copy is a mismatch
+ * waiting for the day somebody improves the wording.
+ */
+export const CARRY_ON_PROMPTS = [
+	"继续，从暂停的地方接着做。",
+	"继续，从中断的地方接着做。",
+	"继续，把清单里没做完的做完。",
+] as const;
+
+/**
+ * What 「继续」 should say after a turn stopped this way — `null` when there is nothing to carry on.
+ *
+ * Lives next to `TurnStop` because it is the other half of the same distinction: the note above
+ * says why the three stops read differently to a person, and this is what they mean to the model,
+ * which acts on the sentence. 「从中断的地方接着做」 about a pause you performed yourself is a
+ * wrong account of where it stopped, and therefore a wrong instruction.
+ *
+ * The last case is the quiet one: nothing went wrong at all, the model simply ended its turn with
+ * items still on its own list. `null` is the fourth answer — a conversation that finished with
+ * nothing left in it, where the offer should not appear.
+ *
+ * Both the row under the transcript and the composer's button ask this, so that a pause offers the
+ * same thing in both places and sends the same sentence from either.
+ */
+export function carryOnPrompt(stopped: TurnStop, unfinished: number): (typeof CARRY_ON_PROMPTS)[number] | null {
+	if (stopped === "user") return CARRY_ON_PROMPTS[0];
+	if (stopped === "error" || stopped === "interrupt") return CARRY_ON_PROMPTS[1];
+	return unfinished > 0 ? CARRY_ON_PROMPTS[2] : null;
+}
+
+/**
  * The reason lives in two places, and both are needed.
  *
  * `agent_end` carries it exactly, but only while it is happening; the transcript carries it

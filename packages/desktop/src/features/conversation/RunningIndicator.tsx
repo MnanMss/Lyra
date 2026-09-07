@@ -4,6 +4,7 @@ import { describeRetry } from "../../lib/retry-line.ts";
 import { useCountUp } from "../../ui/primitives/useCountUp.ts";
 import { moodFor, phraseFor } from "../../lib/thinking-words.ts";
 import { useApp } from "../../store/index.ts";
+import { freshTokens } from "@lyra/core/tokens";
 import { formatTokens } from "../../lib/format-tokens.ts";
 
 /**
@@ -90,7 +91,7 @@ export function RunningIndicator() {
 	// The reply still streaming has usage of its own; counting it keeps the number moving
 	// between finished messages rather than jumping in steps.
 	const last = messages[messages.length - 1];
-	const live = last?.role === "assistant" && last.stopReason === "pending" ? last.usage.total : 0;
+	const live = last?.role === "assistant" && last.stopReason === "pending" ? freshTokens(last.usage) : 0;
 	const total = tokens + live;
 	// Travelled to, not jumped to: usage lands per message, so this moves in steps of thousands.
 	const counted = useCountUp(total);

@@ -178,7 +178,6 @@ export function GeneralSettings() {
             />
           }
         />
-		<RetrySettings settings={settings} />
         <Row
           title={t("general.autoSummarizeTitle")}
           detail={t("general.autoSummarizeTitleDetail")}
@@ -209,6 +208,15 @@ export function GeneralSettings() {
           }
         />
       </Card>
+
+      {/*
+       * Its own section, because it is two rules rather than one preference.
+       *
+       * It used to sit between 默认推理强度 and 智能标题总结 as a block of form fields inside a
+       * card of label-and-control rows, which broke that card's rhythm in the middle and left its
+       * heading crowded against the rule above it.
+       */}
+      <RetrySettings settings={settings} />
 
       {/*
        * The version and the update controls are not here.

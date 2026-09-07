@@ -119,7 +119,7 @@ export async function driveTurn(input: TurnInputs): Promise<void> {
 		settings: input.settings,
 		provider: input.provider,
 		model: input.model,
-		stream: summaryStream(input.streamFn, { sessionId: log.meta.id, cwd, retryPolicy: input.settings.retryPolicy, signal: input.signal }) ?? streamAssistant,
+		stream: summaryStream(input.streamFn, { sessionId: log.meta.id, cwd, retryPolicy: () => (input.getSettings?.() ?? input.settings).retryPolicy, signal: input.signal }) ?? streamAssistant,
 		budget: input.can.correctionBudget,
 		signal: input.signal,
 		emit: input.emit,
@@ -262,7 +262,7 @@ async function assembleTurn(input: TurnInputs): Promise<{ config: AgentRunConfig
 			streamFn: input.streamFn,
 			requestApproval: input.requestApproval,
 			emit: input.emit,
-			summaryStream: summaryStream(input.streamFn, { sessionId: log.meta.id, cwd, retryPolicy: input.settings.retryPolicy, signal: input.signal }),
+			summaryStream: summaryStream(input.streamFn, { sessionId: log.meta.id, cwd, retryPolicy: () => (input.getSettings?.() ?? input.settings).retryPolicy, signal: input.signal }),
 			// 压缩剪掉的大块输出存进会话，占位标记里给出 `artifact://` 地址。
 			artifacts: { keep: (tool, content) => can.keepArtifact(tool, content) },
 			beforeToolCall: makeBeforeToolCall(settings.hooks, cwd, input.signal, can.extensions),

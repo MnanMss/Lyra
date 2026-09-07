@@ -116,6 +116,38 @@ async function openSide() {
 	await label("侧边聊天", '[role="menuitem"]');
 	await until(`document.querySelector('[data-dock-pane="chat"] textarea')`);
 }
+/**
+ * Unfold one retry rule and wait for it to stop moving.
+ *
+ * `click` scrolls once and then only re-checks; the fold's reveal animation is still growing at
+ * that point, so a field that ends up below the viewport is never scrolled to and every later
+ * click on it times out. Let the transition finish, then bring the card into view.
+ */
+async function openRetryRule(title: string) {
+	// Idempotent: the settings view is retained, so a rule left open earlier is still open, and
+	// clicking its heading again would fold it away rather than reveal it.
+	const head = `[...document.querySelectorAll('[data-retry-settings] button[aria-expanded]')].find(b=>b.textContent.trim().startsWith(${JSON.stringify(title)}))`;
+	if (await app.evaluate(`${head}?.getAttribute('aria-expanded')`) !== "true") await label(title);
+	await frames(30);
+	await app.evaluate(`document.querySelector('[data-retry-settings]').scrollIntoView({block:'center',behavior:'instant'})`);
+	await frames(3);
+}
+/**
+ * The upstream rule as written to disk, once it says what the edit said.
+ *
+ * There is no save button to wait on any more, so the wait is for the file itself — which is the
+ * assertion as much as the mechanism: an edit that never reaches `settings.json` on its own is the
+ * bug this replaced. Polled rather than slept through, because the number fields debounce.
+ */
+async function persistedUpstream(matches: (rule: Record<string, unknown>) => boolean): Promise<Record<string, unknown>> {
+	let last: unknown;
+	for (let attempt = 0; attempt < 80; attempt++) {
+		last = JSON.parse(await readFile(join(app.home, "settings.json"), "utf8")).retryPolicy?.upstream;
+		if (last && matches(last as Record<string, unknown>)) return last as Record<string, unknown>;
+		await new Promise(resolve => setTimeout(resolve, 100));
+	}
+	throw new Error(`retry policy never reached disk; last was ${JSON.stringify(last)}`);
+}
 async function shot(name: string) {
 	const directory = process.env.LYRA_E2E_ARTIFACTS; if (!directory) return;
 	await mkdir(directory, { recursive: true });
@@ -286,26 +318,38 @@ test("sidechat model selection and its default use their actual providers and su
 });
 
 
-test("retry settings persist, fixed waits last five seconds, and completed turns offer Continue", async t => {
+test("retry settings apply without a save button, fixed waits last five seconds, and completed turns offer Continue", async t => {
 	await click('button:has(svg.lucide-settings)'); await label("常规", "nav button");
 	await until(`document.querySelector('[data-retry-settings]')`);
-	assert.equal(await app.evaluate(`document.querySelector('[aria-label="无限重试"]').checked`), true);
-	await click('[aria-label="重试故障类型"]'); await label("上游故障", '[role="menuitem"]');
-	assert.equal(await app.evaluate(`document.querySelector('[aria-label="重试间隔秒数"]').value`), "5");
-	await click('[aria-label="重试次数"]'); await app.evaluate(`document.querySelector('[aria-label="重试次数"]').select()`); await app.send("Input.insertText", { text: "10" });
-	await click('[aria-label="重试间隔方式"]'); await label("逐次递增", '[role="menuitem"]');
-	assert.equal(await app.evaluate(`document.querySelector('[aria-label="最长重试间隔秒数"]').value`), "30");
-	await label("保存重试策略"); await frames();
+	/*
+	 * Both rules, read off the closed card.
+	 *
+	 * This is the thing the old dropdown could not do: say what each fault does without being
+	 * asked. The defaults differ, and the point of the page is that the difference is visible.
+	 */
+	assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('[data-retry-summary]')].map(e=>e.dataset.retrySummary+' → '+e.textContent)`),
+		["network → 无限重试 · 每 5 秒", "upstream → 重试 10 次 · 每 5 秒"]);
+	await openRetryRule("上游故障");
+	assert.equal(await app.evaluate(`document.querySelector('[aria-label="上游故障重试间隔秒数"]').value`), "5");
+	await click('[aria-label="上游故障重试次数"]'); await app.evaluate(`document.querySelector('[aria-label="上游故障重试次数"]').select()`); await app.send("Input.insertText", { text: "4" });
+	await click('[aria-label="上游故障间隔方式"]'); await label("逐次递增", '[role="menuitem"]');
+	assert.equal(await app.evaluate(`document.querySelector('[aria-label="上游故障最长间隔秒数"]').value`), "30");
+	// Nothing was pressed to make this happen, because there is nothing to press.
+	assert.equal(await app.evaluate(`document.querySelectorAll('[data-retry-settings] button[type="submit"], [data-retry-settings] form').length`), 0);
+	assert.deepEqual(await persistedUpstream(rule => rule.retries === 4 && rule.strategy === "linear"), { retries: 4, strategy: "linear", intervalMs: 5000, maxIntervalMs: 30000 });
+	// The rule nobody touched is still the one that shipped.
+	assert.deepEqual(JSON.parse(await readFile(join(app.home, "settings.json"), "utf8")).retryPolicy.network, { retries: null, strategy: "fixed", intervalMs: 5000, maxIntervalMs: 30000 });
 	for (const width of [1280, 375]) {
 		await app.send("Emulation.setDeviceMetricsOverride", { width, height: 850, deviceScaleFactor: 1, mobile: false }); await frames();
-		await click('[aria-label="重试次数"]');
+		await click('[aria-label="上游故障重试次数"]');
 		const measurement = await app.evaluate(`(()=>{const e=document.querySelector('[data-retry-settings]'),r=e.getBoundingClientRect();return {left:r.left,right:r.right,overflow:document.documentElement.scrollWidth-innerWidth};})()`);
 		assert.ok(measurement.left >= 0 && measurement.right <= width && measurement.overflow === 0, JSON.stringify(measurement));
 		await shot(`retry-policy-${width}`);
 	}
 	await app.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 850, deviceScaleFactor: 1, mobile: false });
-	await click('[aria-label="重试间隔方式"]'); await label("固定间隔", '[role="menuitem"]'); await label("保存重试策略"); await frames();
-	assert.deepEqual(JSON.parse(await readFile(join(app.home, "settings.json"), "utf8")).retryPolicy.upstream, { retries: 10, strategy: "fixed", intervalMs: 5000, maxIntervalMs: 30000 });
+	await click('[aria-label="上游故障间隔方式"]'); await label("固定间隔", '[role="menuitem"]'); await frames();
+	assert.deepEqual(await persistedUpstream(rule => rule.strategy === "fixed"), { retries: 4, strategy: "fixed", intervalMs: 5000, maxIntervalMs: 30000 });
+	assert.equal(await app.evaluate(`document.querySelector('[data-retry-summary="upstream"]').textContent`), "重试 4 次 · 每 5 秒");
 	await label("返回工作区", "nav button");
 	await send("RETRY_POLICY_PROBE", '[data-dock-pane="conversation"]');
 	await until(`document.querySelector('[data-dock-pane="conversation"] [aria-label="继续"]')`);
@@ -315,8 +359,9 @@ test("retry settings persist, fixed waits last five seconds, and completed turns
 	const start = requests.length; await click('[data-dock-pane="conversation"] [aria-label="继续"]');
 	await until(`document.querySelector('[data-dock-pane="conversation"] [aria-label="继续"]')`);
 	assert.ok(requests.slice(start).some(request => JSON.stringify(request.body).includes("继续推进当前任务")));
-	await click('button:has(svg.lucide-settings)'); await label("常规", "nav button"); await click('[aria-label="无限重试"]'); await label("保存重试策略"); await frames();
-	assert.equal(JSON.parse(await readFile(join(app.home, "settings.json"), "utf8")).retryPolicy.upstream.retries, null);
+	await click('button:has(svg.lucide-settings)'); await label("常规", "nav button");
+	await openRetryRule("上游故障"); await click('[aria-label="上游故障不限次数"]'); await frames();
+	assert.equal((await persistedUpstream(rule => rule.retries === null)).retries, null);
 	await label("返回工作区", "nav button");
 	await send("RETRY_CANCEL_PROBE", '[data-dock-pane="conversation"]');
 	await until(`document.querySelector('[data-dock-pane="conversation"]').innerText.includes('重试')`);

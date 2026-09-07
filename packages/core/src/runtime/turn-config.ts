@@ -99,7 +99,7 @@ export function buildTurnConfig(
 			messages: turn.messages,
 			thinking: thinking ?? deps.settings.thinking,
 			retryAttempts: deps.settings.retryAttempts,
-				retryPolicy: deps.settings.retryPolicy,
+				retryPolicy: () => (deps.getSettings?.() ?? deps.settings).retryPolicy,
 			signal: deps.signal,
 			state: deps.state,
 			/*

@@ -6,8 +6,12 @@
  * fighting for that space, and several things that were never shown at all, live here instead.
  *
  * A card rather than a tooltip. The app's tips are one string on an inverted surface, which is
- * right for 「关闭」 and wrong for four labelled figures — those want alignment, marks, and a rule
- * between the identity of the thing and the numbers about it.
+ * right for 「关闭」 and wrong for four labelled figures — those want alignment, marks, and room to
+ * separate the identity of the thing from the numbers about it.
+ *
+ * That separation is spacing alone. It was two hairlines, which at this size read as a table drawn
+ * inside something the width of a business card: three rules counting the border, on 248px, around
+ * two short lines and three figures. The gaps were already doing the work.
  *
  * Portalled to `<body>`: the sidebar is a scroller that clips its overflow, and a card pinned
  * beside a row would be cut off at the pane's edge — which is exactly where it needs to be.
@@ -17,6 +21,7 @@ import { Coins, FolderOpen, MessagesSquare, Zap } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { SessionMeta } from "@lyra/core";
+import { freshTokens } from "@lyra/core/tokens";
 import { formatTokens } from "../conversation/index.ts";
 import { portal } from "../../ui/overlay/portal.ts";
 
@@ -51,9 +56,13 @@ function when(at: number): string {
  * Against everything that was sent, not against the total: output tokens are generated rather than
  * read, so counting them in the denominator makes a well-cached session look worse the more it
  * says back. Null when nothing has been sent at all, which is not a 0% hit rate — it is no data.
+ *
+ * Cache writes belong in the denominator. They are input that was sent and paid for at full rate;
+ * leaving them out inflates the rate on exactly the providers that report them — an Anthropic turn
+ * that wrote 5k to the cache and read 20k from it is a 80% hit, not the 99% it used to read as.
  */
 function cacheHitRate(usage: SessionMeta["usage"]): number | null {
-	const sent = usage.input + usage.cacheRead;
+	const sent = usage.input + usage.cacheRead + usage.cacheWrite;
 	if (sent <= 0) return null;
 	return usage.cacheRead / sent;
 }
@@ -172,7 +181,7 @@ export function SessionCard({
 			 * a branch, which this has no way of knowing: `SessionMeta` records where a conversation
 			 * ran, not what was checked out at the time. A stale branch name would be worse than none.
 			 */}
-			<div className="border-t border-line-soft px-3 py-2">
+			<div className="px-3 py-2">
 				<Row icon={<FolderOpen size={11.5} strokeWidth={1.9} />}>{project ?? folderName(session.cwd)}</Row>
 			</div>
 
@@ -182,10 +191,15 @@ export function SessionCard({
 			 * Message count answers "how long is this", tokens answer "what did it cost", and the
 			 * hit rate answers "was most of that re-read for free" — which is the one that changes
 			 * what anyone does next, and the one nothing in the app was showing.
+			 *
+			 * 「用量」 is fresh tokens, not `usage.total`. The total counts every cache read again,
+			 * so a long agentic session reported half a billion tokens beside a 95% hit rate — two
+			 * figures describing the same fact, with nothing connecting them and the alarming one
+			 * first. What is left is the number the hit rate is a comment on.
 			 */}
-			<div className="flex items-start justify-between gap-2 border-t border-line-soft px-3 py-2">
+			<div className="flex items-start justify-between gap-2 px-3 py-2">
 				<Stat icon={<MessagesSquare size={11} strokeWidth={2} />} label="消息" value={String(session.messageCount)} />
-				<Stat icon={<Zap size={11} strokeWidth={2} />} label="用量" value={formatTokens(usage.total)} />
+				<Stat icon={<Zap size={11} strokeWidth={2} />} label="用量" value={formatTokens(freshTokens(usage))} />
 				{hit !== null && (
 					<Stat icon={<Coins size={11} strokeWidth={2} />} label="缓存" value={`${Math.round(hit * 100)}%`} />
 				)}

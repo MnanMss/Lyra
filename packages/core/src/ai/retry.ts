@@ -1,19 +1,36 @@
 /** Shared request/stream budget prevents nested retry loops from multiplying the configured limit. */
-import { normalizeRetryPolicy, policyDelay, type RetryPolicy, type RetryFailure } from "../config/retry-policy.ts";
+import { normalizeRetryPolicy, policyDelay, type RetryPolicy, type RetryPolicySource, type RetryFailure } from "../config/retry-policy.ts";
+
+/** Explicit low-level attempt overrides (e.g. commit titles) retain their bounded lifetime. */
+function resolvePolicy(policy: RetryPolicy | undefined, legacyAttempts: number | undefined): RetryPolicy {
+	const normalized = normalizeRetryPolicy(policy, legacyAttempts);
+	if (policy || legacyAttempts === undefined) return normalized;
+	const retries = Number.isFinite(legacyAttempts) ? Math.max(0, Math.round(legacyAttempts) - 1) : 10;
+	const upstream = { ...normalized.upstream, retries };
+	return { upstream, network: { ...upstream } };
+}
 
 export class RetryBudget {
-	readonly policy: RetryPolicy;
 	private used = { network: 0, upstream: 0 };
-	constructor(policy?: RetryPolicy, legacyAttempts?: number) {
-		this.policy = normalizeRetryPolicy(policy, legacyAttempts);
-		// Explicit low-level attempt overrides (e.g. commit titles) retain their bounded lifetime.
-		if (!policy && legacyAttempts !== undefined) {
-			const retries = Number.isFinite(legacyAttempts) ? Math.max(0, Math.round(legacyAttempts) - 1) : 10;
-			this.policy.upstream = { ...this.policy.upstream, retries };
-			this.policy.network = { ...this.policy.upstream };
-		}
+	private readonly read: () => RetryPolicy | undefined;
+	private readonly legacyAttempts?: number;
+	private cache?: { from: RetryPolicy | undefined; resolved: RetryPolicy };
+	constructor(policy?: RetryPolicySource, legacyAttempts?: number) {
+		this.read = typeof policy === "function" ? policy : () => policy;
+		this.legacyAttempts = legacyAttempts;
 	}
-	available(kind: RetryFailure): boolean { return this.policy[kind].retries === null || this.used[kind] < this.policy[kind].retries; }
+	/**
+	 * The rules in force right now, not the ones this request started under.
+	 *
+	 * Normalising is not free and this is read on every attempt, so the result is kept until the
+	 * settings object itself is replaced — which is what saving the settings page does.
+	 */
+	get policy(): RetryPolicy {
+		const from = this.read();
+		if (!this.cache || this.cache.from !== from) this.cache = { from, resolved: resolvePolicy(from, this.legacyAttempts) };
+		return this.cache.resolved;
+	}
+	available(kind: RetryFailure): boolean { const { retries } = this.policy[kind]; return retries === null || this.used[kind] < retries; }
 	next(kind: RetryFailure): { attempt: number; delayMs: number } { this.used[kind]++; return { attempt: this.used.network + this.used.upstream, delayMs: policyDelay(this.policy[kind], this.used[kind]) }; }
 }
 
