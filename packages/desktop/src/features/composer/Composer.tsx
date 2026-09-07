@@ -83,8 +83,6 @@ export function Composer() {
 	sessionRefsRef.current = sessionRefs;
 	const [attachments, setAttachments] = useState<Attachment[]>(() => (savedDraft?.attachments as Attachment[]) ?? []);
 
-	// Keep a ref of current text and attachments so we can sync them to store on unmount or key change.
-	const lastMessage = messages.at(-1);
 	/*
 	 * 这一轮留下的活，和「继续」该发的那句话——没有就是 `null`。
 	 *
@@ -94,14 +92,23 @@ export function Composer() {
 	 */
 	const carryOn = carryOnPrompt(stopped, unfinished);
 	/*
-	 * 两种「可以继续」，共用一个按钮，发的不是同一句话。
+	 * 「继续」只在真有活没干完时出现，而那正是 `carryOn` 的问题。
 	 *
-	 * 有活没干完（`carryOn`）是接着做；上一轮好好地结束了、你也什么都没输入，那是问一句还有
-	 * 没有下文——两者都值得一个继续箭头，但把后者说成「从暂停的地方接着做」是在描述没发生过
-	 * 的事。分派在 `submitOnce` 里。
+	 * 这里曾经还有一条 `|| lastMessage.stopReason === "stop"`，理由是「上一轮好好地结束了、你
+	 * 也什么都没输入，那就问一句还有没有下文」。听起来无害，实际有三处不对：
+	 *
+	 * 一是 `stop` 是模型最普通的收尾方式，于是每一轮正常对话结束后按钮都成了三角，而向上的
+	 * 箭头——发新消息，输入框最主要的用途——反倒退成了打过字之后才出现的例外。
+	 *
+	 * 二是转录下面那行只问 `carryOn`（见 `ResumeRow`），所以一轮干净结束时它不出现，右下角却
+	 * 画着继续。`ResumeRow` 的注释明说两个入口用同一个判断、不会各说各话，这条分支就是让它
+	 * 们各说各话的东西。
+	 *
+	 * 三是模型收尾时十有八九是在反问——「请问你想查哪座城市？」——这时候按下去发出去的是
+	 * 「继续推进当前任务」，而没有任务在推进，它在等一个地名。一次白跑的往返。
 	 */
 	const continueReady = Boolean(activeSessionId) && !running && !text.trim() && !attachments.length && !sessionRefs.length
-		&& (carryOn !== null || (lastMessage?.role === "assistant" && lastMessage.stopReason === "stop"));
+		&& carryOn !== null;
 	const textRef = useRef(text);
 	textRef.current = text;
 	const attachmentsRef = useRef(attachments);
@@ -240,20 +247,14 @@ export function Composer() {
 	async function submitOnce(release: () => void) {
 		const trimmed = text.trim();
 		if (!trimmed && attachments.length === 0 && sessionRefs.length === 0) {
-			if (!continueReady) return;
+			if (!continueReady || !carryOn) return;
 			/*
-			 * 接着做没做完的部分，和问一句还有没有下文，是两件事。
-			 *
 			 * `carryOn` 那三句会被 `grouping.ts` 按原文认出来，配上 `carryOn: true`，这一轮的耗时
 			 * 和 token 才不会从零重算——否则一个被暂停过一次的任务，报的是它后半段的用时，和一个
 			 * 谁也没跑过的 tokens/s。转录下面那行「继续」走的就是这条路；两个入口按下去必须是同
 			 * 一件事，不然按哪个还有讲究。
-			 *
-			 * 另一半是上一轮好好结束的情况：那不是继续，重新计时是对的，说辞也得换成不假设有活
-			 * 没干完的。
 			 */
-			if (carryOn) await send([{ type: "text", text: carryOn }], { synthetic: true, carryOn: true });
-			else await send([{ type: "text", text: "继续推进当前任务；如果已经完成，请简要说明结果，不要重复执行已完成的操作。" }], { synthetic: true });
+			await send([{ type: "text", text: carryOn }], { synthetic: true, carryOn: true });
 			return;
 		}
 
@@ -815,8 +816,8 @@ export function Composer() {
 							<ComposerSend
 								running={running}
 								continueReady={continueReady}
-								// 有活没干完时说的和转录下面那行「继续」一样，因为按下去是同一件事。
-								tip={continueReady ? (carryOn ? "接着做完没做完的部分" : "继续") : undefined}
+								// 说的和转录下面那行「继续」一样，因为按下去是同一件事。
+								tip={continueReady ? "接着做完没做完的部分" : undefined}
 								disabled={!continueReady && !text.trim() && attachments.length === 0 && sessionRefs.length === 0}
 								onSend={() => void submit()}
 								onStop={() => void abort()}
