@@ -32,7 +32,7 @@ test("a cold pipeline load never paints an empty run-list header before its resp
 	const view = await mount(h(PipelinesView, { cwd }));
 	try {
 		assert.doesNotMatch(view.text(), /CI \/ CD|暂无/);
-		assert.equal(view.host.querySelector('[aria-label="刷新流水线"]'), null);
+		assert.equal(view.find<HTMLButtonElement>('[aria-label="刷新流水线"]').disabled, true);
 		await act(async () => pending[0].resolve([]));
 		assert.match(view.text(), /暂无.*记录/);
 		assert.equal(pending.length, 1);

@@ -15,8 +15,8 @@ test("click preserves the hovered rail targets, closes preview, and keyboard nav
 		await fire(button, new MouseEvent("mouseover", { bubbles: true }));
 		const geometry = () => view.all<HTMLElement>(".ly-question-mark").map((el) => el.dataset.position);
 		const before = geometry();
-		assert.equal(view.find('[role="tooltip"] strong').textContent, "Formatted");
-		assert.equal(view.find('[role="tooltip"] h3').textContent, "Heading");
+		assert.equal(view.find('[role="tooltip"] .ly-question-excerpt').textContent, "Formatted Heading code");
+		assert.equal(view.host.querySelector('[role="tooltip"] hr, [role="tooltip"] h3'), null);
 		await click(button);
 		assert.equal(selected, Number(button.dataset.position));
 		assert.deepEqual(geometry(), before);

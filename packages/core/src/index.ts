@@ -167,7 +167,7 @@ export { computeCost, costAtRates, selectPricingRates, type SelectedPricingRates
 export { hooksFor, makeAfterToolCall, makeBeforeToolCall, runHook } from "./runtime/hooks.ts";
 export type { SessionStatus } from "./runtime/reporting.ts";
 export { AgentSession, type AgentSessionOptions,  } from "./runtime/session.ts";
-export { SideChat, restoredSideChatMessages, type SideChatOptions, type SideChatState, type SideChatEvent } from "./runtime/sidechat.ts";
+export { SideChat, restoredSideChatMessages, type SideChatOptions, type SideChatState, type SideChatEvent, type SideChatUpdate } from "./runtime/sidechat.ts";
 export {
 	lyraHome,
 	projectIdFor,
@@ -260,4 +260,4 @@ export { readExtractedMemory } from "./runtime/memory-extract.ts";
 export { projectMemoryDir } from "./runtime/project-memory.ts";
 export { computeDiff } from "./tools/diff.ts";
 
-export { readFileChange, undoFileChanges, type RecordedChange } from "./tools/file-changes.ts";
+export { readFileChange, undoFileChanges, undoFileChangeBatches, type RecordedChange } from "./tools/file-changes.ts";

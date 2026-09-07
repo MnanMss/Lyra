@@ -123,8 +123,11 @@ async function shot(name: string) {
 
 test("provider and effort controls persist, align, and adapt to narrow settings", async (t) => {
 	await click('[data-ly-row="qa-long"]');
-	await click('button:has(svg.lucide-settings)'); await label("子智能体", "nav button");
+	await click('button:has(svg.lucide-settings)'); await label("智能体", "nav button");
 	await until(`document.querySelector('[data-agent-profile="explore"]')`);
+	assert.equal(await app.evaluate(`document.querySelectorAll('[aria-label="compact 思考等级"]').length`), 0);
+	await click('[aria-label="compact 模型"]'); await click('[data-model="secondary/model"] [role="menuitem"]');
+	await until(`document.querySelector('[aria-label="compact 模型"]').dataset.lyTip.includes('第二供应商')`);
 	await click('[aria-label="explore 模型"]'); await click('[data-model="secondary/model"] [role="menuitem"]');
 	await until(`document.querySelector('[aria-label="explore 模型"]').dataset.lyTip.includes('第二供应商')`);
 	await click('[aria-label="explore 思考等级"]');
@@ -171,9 +174,25 @@ test("sidechat restores old answers, queries early history and full tool tails, 
 	savedProfiles = JSON.parse(await readFile(join(app.home, "settings.json"), "utf8")).subAgentProfiles;
 });
 
-test("manual main compaction preserves the early source available to sidechat", async (t) => {
-	const result = await app.evaluate<{ ok: boolean; before: number; after: number }>(`window.lyra.sessions.compact('qa-long')`);
-	t.diagnostic(JSON.stringify(result)); assert.equal(result.ok, true); assert.ok(result.after < result.before);
+test("@ agents are selectable and @compact executes real compaction with the configured model", async (t) => {
+	const composer = '[data-dock-pane="conversation"] textarea';
+	for (const name of ["fast", "deep"]) {
+		await click(composer); await app.send("Input.insertText", { text: "@" + name });
+		await until(`document.querySelector('[data-mention-kind="subagent"][aria-label^="${name}，"]')?.checkVisibility()`);
+		await app.evaluate(`document.querySelector(${JSON.stringify(composer)}).select()`);
+		await app.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Backspace", windowsVirtualKeyCode: 8 });
+		await app.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Backspace", windowsVirtualKeyCode: 8 });
+	}
+	const start = requests.length;
+	await click(composer); await app.send("Input.insertText", { text: "@compact" });
+	await click('[data-mention-kind="action"][aria-label^="compact，"]');
+	await app.send("Input.insertText", { text: "保留 EARLY_MAIN_DECISION" });
+	await app.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", windowsVirtualKeyCode: 13, text: "\r" });
+	await app.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", windowsVirtualKeyCode: 13 });
+	await until(`document.querySelector('[data-command-status="done"]')?.innerText.includes('保留 EARLY_MAIN_DECISION')`);
+	const compact = requests.slice(start).find(request => request.path.startsWith("/secondary"));
+	assert.ok(compact); assert.match(JSON.stringify(compact.body), /保留 EARLY_MAIN_DECISION/);
+	t.diagnostic(JSON.stringify({ command: "@compact", provider: compact.path }));
 	const previous = await app.evaluate<number>(`document.querySelector('[data-dock-pane="chat"]').innerText.split('查到早期决策').length`);
 	await send("EARLY_REQUEST 压缩后再次核对原始决策");
 	await until(`document.querySelector('[data-dock-pane="chat"]').innerText.split('查到早期决策').length > ${previous}`);
@@ -201,4 +220,31 @@ test("a fresh Electron process restores persisted answers and can edit the first
 	assert.match(JSON.stringify(state.messages), /编辑后查询早期决策/);
 	assert.deepEqual(await app.evaluate(`window.lyra.settings.get().then(s=>s.subAgentProfiles)`), savedProfiles);
 	await shot("sidechat-restored-edit");
+});
+
+test("sidechat model selection and its default use their actual providers and survive restarting", async (t) => {
+	await click('[aria-label="侧边聊天模型"]'); await click('[data-model="secondary/model"] [role="menuitem"]');
+	await until(`document.querySelector('[aria-label="侧边聊天模型"]').dataset.lyTip?.includes('第二供应商')`);
+	const start = requests.length;
+	await send("SIDE_MODEL_PROBE 使用侧聊独立模型");
+	await until(`document.querySelector('[data-dock-pane="chat"]').innerText.includes('SUBAGENT_DONE')`);
+	const actual = requests.slice(start).find(request => JSON.stringify(request.body).includes("SIDE_MODEL_PROBE"));
+	assert.ok(actual); assert.ok(actual.path.startsWith("/secondary"));
+	assert.equal(await app.evaluate(`window.lyra.sideChat.state('qa-long').then(s=>s.modelId)`), "secondary/model");
+	await click('button:has(svg.lucide-settings)'); await label("智能体", "nav button");
+	await click('[aria-label="侧边聊天默认模型"]'); await click('[data-model="secondary/model"] [role="menuitem"]');
+	await until(`document.querySelector('[aria-label="侧边聊天默认模型"]').dataset.lyTip?.includes('第二供应商')`);
+	const stored = JSON.parse(await readFile(join(app.home, "settings.json"), "utf8")); assert.equal(stored.sideChatModelId, "secondary/model");
+	await label("返回工作区", "nav button");
+	await click('[aria-label="新的侧边聊天"]');
+	await until(`!document.querySelector('[data-dock-pane="chat"]').innerText.includes('SIDE_MODEL_PROBE')`);
+	assert.deepEqual(await app.evaluate(`window.lyra.sideChat.state('qa-long').then(s=>({modelId:s.modelId,messages:s.messages}))`), { modelId: "secondary/model", messages: [] });
+	await send("SIDE_AFTER_RESET"); await until(`document.querySelector('[data-dock-pane="chat"]').innerText.includes('SUBAGENT_DONE')`);
+	savedSide = await readFile(join(app.home, "sidechats", "qa-long.json"), "utf8");
+	await app.stop(); app = await startApp({ port: 9611, seed });
+	await click('[data-ly-row="qa-long"]'); await openSide();
+	await until(`document.querySelector('[aria-label="侧边聊天模型"]').dataset.lyTip?.includes('第二供应商')`);
+	assert.match(await app.evaluate<string>(`document.querySelector('[data-dock-pane="chat"]').innerText`), /SIDE_AFTER_RESET/);
+	t.diagnostic(JSON.stringify({ provider: actual.path, persistedModel: "secondary/model" }));
+	await shot("sidechat-independent-model");
 });

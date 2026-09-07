@@ -22,6 +22,7 @@ import {
 	Tag,
 	XCircle,
 } from "lucide-react";
+import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorkflowRunStatus, WorkflowRunSummary } from "../../../electron/ipc-types.ts";
 import { IconButton } from "../../ui/primitives/IconButton.tsx";
@@ -33,6 +34,8 @@ import { bridge } from "../../services/index.ts";
 
 interface PipelinesViewProps {
 	cwd: string;
+	toolbar?: HTMLDivElement | null;
+	active?: boolean;
 	onOpenRelease?: () => void;
 }
 
@@ -114,7 +117,7 @@ function StatusIcon({
 	return <Clock size={size} className="text-ink-faint shrink-0" />;
 }
 
-export function PipelinesView({ cwd, onOpenRelease }: PipelinesViewProps) {
+export function PipelinesView({ cwd, onOpenRelease, toolbar, active = true }: PipelinesViewProps) {
 	const [result, setResult] = useState(() => readCachedRuns(cwd));
 	const runs = result ?? [];
 	const loading = result === null;
@@ -236,15 +239,21 @@ export function PipelinesView({ cwd, onOpenRelease }: PipelinesViewProps) {
 		setExpandedJobs((prev) => ({ ...prev, [jobId]: !prev[jobId] }));
 	};
 
-	const actions = <div className="flex shrink-0 items-center justify-end gap-1 px-2.5 py-1.5">
-		<IconButton icon={<RefreshCw size={13.5} className={refreshing ? "ly-spin" : undefined} />} label="刷新流水线" disabled={refreshing} onClick={() => void fetchRuns()} />
-		{onOpenRelease && <IconButton icon={<Tag size={13.5} />} label="打开发版中心" onClick={onOpenRelease} />}
+	const controls = <div className="flex shrink-0 items-center gap-1">
+		<IconButton size="sm" icon={<RefreshCw size={13.5} className={(inspectRun ? detailLoading : refreshing) ? "ly-spin" : undefined} />}
+			label={inspectRun ? "刷新详情" : "刷新流水线"} disabled={inspectRun ? detailLoading : refreshing}
+			onClick={() => void (inspectRun ? fetchDetail(inspectRun.id) : fetchRuns())} />
+		{inspectRun?.url ? <a href={inspectRun.url} target="_blank" rel="noreferrer" aria-label="在浏览器中查看" data-ly-tip="在浏览器中查看"
+			className="flex h-6 w-6 items-center justify-center rounded-md text-ink-muted hover:bg-card-hover hover:text-ink"><ExternalLink size={13.5} /></a> :
+			onOpenRelease && <IconButton size="sm" icon={<Tag size={13.5} />} label="打开发版中心" onClick={onOpenRelease} />}
 	</div>;
+	const actions = !active ? null : toolbar ? createPortal(controls, toolbar) : toolbar === undefined ? controls : null;
 
 	// An unknown result must never fall through to the run list during the skeleton grace period.
 	if (loading && !error) {
 		return (
 			<div className="flex min-h-0 flex-1 flex-col overflow-hidden p-2.5" aria-busy="true">
+				{actions}
 				{showSkeleton && <PipelineSkeletonList count={6} />}
 			</div>
 		);
@@ -267,6 +276,7 @@ export function PipelinesView({ cwd, onOpenRelease }: PipelinesViewProps) {
 	if (inspectRun) {
 		return (
 			<div className="flex h-full flex-col overflow-hidden bg-shell">
+				{actions}
 				{/* Top Header Bar */}
 				<div className="flex items-center justify-between px-3.5 py-2.5">
 					<div className="flex items-center gap-2 min-w-0">
@@ -281,24 +291,6 @@ export function PipelinesView({ cwd, onOpenRelease }: PipelinesViewProps) {
 						<span className="text-ui font-medium text-ink truncate">
 							{inspectRun.name || "工作流详情"}
 						</span>
-					</div>
-					<div className="flex items-center gap-1.5">
-						<IconButton
-							icon={<RefreshCw size={13.5} className={detailLoading ? "animate-spin" : ""} />}
-							onClick={() => fetchDetail(inspectRun.id, false)}
-							label="刷新详情"
-						/>
-						{inspectRun.url && (
-							<a
-								href={inspectRun.url}
-								target="_blank"
-								rel="noreferrer"
-								className="flex h-7 w-7 items-center justify-center rounded-md text-ink-muted hover:bg-card-hover hover:text-ink transition-colors cursor-pointer"
-								data-ly-tip="在浏览器中查看 GitHub 网页"
-							>
-								<ExternalLink size={13.5} />
-							</a>
-						)}
 					</div>
 				</div>
 

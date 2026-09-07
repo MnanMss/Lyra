@@ -7,7 +7,7 @@
  * and invite exactly the bug that makes a side-chat reply appear in the main thread.
  */
 
-import type { AgentEvent, Message, QueuedTask, UserContent } from "@lyra/core";
+import type { SideChatUpdate, Message, QueuedTask, UserContent } from "@lyra/core";
 import { create } from "zustand";
 import { useDock } from "./store.ts";
 import { reduceSideEvent, rebuildToolRuns, type SideConversation } from "./side-events.ts";
@@ -44,6 +44,8 @@ interface BrowserPreview {
 }
 
 interface SideState {
+	modelId: string | null;
+	setModel(modelId: string | null): Promise<void>;
 	loading: boolean;
 	error: string | null;
 	/** The session this state belongs to, so a late event from the previous one is discarded. */
@@ -95,13 +97,14 @@ interface SideState {
 	/** Hand text back to the composer — see the note on the implementation. */
 	seedDraft(text: string): void;
 	clearDraftSeed(): void;
-	applyEvent(sessionId: string, event: AgentEvent & { sideRevision?: number }): void;
+	applyEvent(sessionId: string, event: SideChatUpdate & { sideRevision?: number }): void;
 	setTasks(tasks: QueuedTask[]): void;
 }
 
-const reads = new Map<string, { events: (AgentEvent & { sideRevision?: number })[] }>();
+const reads = new Map<string, { events: (SideChatUpdate & { sideRevision?: number })[] }>();
 
 const EMPTY: SideConversation = {
+	modelId: null,
 	error: null,
 	messages: [],
 	toolRuns: {},
@@ -135,17 +138,17 @@ export const useSide = create<SideState>((set, get) => ({
 		const previous = get();
 		if (previous.sessionId === sessionId && !force) return;
 		if (previous.sessionId) set({ sessionCache: { ...previous.sessionCache, [previous.sessionId]: {
-			messages: previous.messages, toolRuns: previous.toolRuns, running: previous.running,
+			modelId: previous.modelId, messages: previous.messages, toolRuns: previous.toolRuns, running: previous.running,
 			pending: previous.pending, tasks: previous.tasks, error: previous.error,
 		} } });
 		set({ sessionId, ...(sessionId ? get().sessionCache[sessionId] ?? EMPTY : EMPTY), loading: Boolean(sessionId) });
 		if (!sessionId) return;
-		const read = { events: [] as (AgentEvent & { sideRevision?: number })[] };
+		const read = { events: [] as (SideChatUpdate & { sideRevision?: number })[] };
 		reads.set(sessionId, read);
 		try {
 			const [snapshot, tasks] = await Promise.all([bridge.sideChat.state(sessionId), bridge.tasks.list(sessionId)]);
 			if (reads.get(sessionId) !== read) return;
-			let next: SideConversation = { ...EMPTY, messages: snapshot?.messages ?? [], running: snapshot?.running ?? false, tasks,
+			let next: SideConversation = { ...EMPTY, modelId: snapshot?.modelId ?? null, messages: snapshot?.messages ?? [], running: snapshot?.running ?? false, tasks,
 				toolRuns: snapshot ? rebuildToolRuns(snapshot.messages) : {} };
 			// Replay only events newer than the snapshot, preserving both old history and live deltas.
 			for (const event of read.events) {
@@ -155,6 +158,13 @@ export const useSide = create<SideState>((set, get) => ({
 		} catch (error) {
 			if (get().sessionId === sessionId && reads.get(sessionId) === read) set({ loading: false, error: String(error) });
 		} finally { if (reads.get(sessionId) === read) reads.delete(sessionId); }
+	},
+
+	async setModel(modelId) {
+		const sessionId = get().sessionId;
+		if (!sessionId) return;
+		try { await bridge.sideChat.setModel(sessionId, modelId); }
+		catch (error) { get().applyEvent(sessionId, { type: "notice", level: "error", message: String(error) }); }
 	},
 
 	async ask(content) {
@@ -200,11 +210,15 @@ export const useSide = create<SideState>((set, get) => ({
 
 	async reset() {
 		const sessionId = get().sessionId;
-		set({ ...EMPTY, loading: false, tasks: get().tasks });
-		if (!sessionId) return;
-		reads.delete(sessionId);
-		try { await bridge.sideChat.reset(sessionId); }
-		catch (error) { get().applyEvent(sessionId, { type: "notice", level: "error", message: String(error) }); }
+		if (!sessionId || get().loading) return;
+		set({ loading: true, error: null });
+		try {
+			await bridge.sideChat.reset(sessionId);
+			if (get().sessionId === sessionId) await get().attach(sessionId, true);
+		} catch (error) {
+			if (get().sessionId === sessionId) set({ loading: false });
+			get().applyEvent(sessionId, { type: "notice", level: "error", message: String(error) });
+		}
 	},
 
 	async cancelTask(taskId) {

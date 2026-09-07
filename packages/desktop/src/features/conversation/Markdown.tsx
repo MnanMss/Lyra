@@ -9,17 +9,19 @@
  * decided in `markdown-blocks.ts` and `markdown-inline.ts`, where they can be tested.
  */
 
-import { ChevronRight, ExternalLink } from "lucide-react";
+import { FileText, ChevronRight, ExternalLink } from "lucide-react";
 import { createContext, Fragment, memo, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { CodeBlock } from "./CodeBlock.tsx";
 import type { Block, ListItem } from "../../lib/markdown/blocks.ts";
 import { parseMarkdown } from "../../lib/markdown/blocks.ts";
-import { resolveAsset } from "../../lib/markdown/assets.ts";
+import { resolveAsset, isAbsolutePath } from "../../lib/markdown/assets.ts";
 import { type Inline, parseInline } from "../../lib/markdown/inline.ts";
 import { renderMath } from "../../lib/markdown/math.ts";
 import { stripEmoji } from "../../lib/markdown/strip-emoji.ts";
 import { bridge } from "../../services/index.ts";
 import { useApp } from "../../store/index.ts";
+import { useOpenFile } from "../../store/openFile.ts";
+import { companionOf, useDock } from "../dock/index.ts";
 
 /**
  * What this text is, beyond the characters in it.
@@ -291,10 +293,19 @@ function renderToken(token: Inline): ReactNode {
 	}
 }
 
-/** Only http(s) opens, and it opens outside — nothing navigates this window away from the app. */
+/** Local artifacts use the bounded file reader; executable URI schemes never navigate the app. */
 function Link({ href, children }: { href: string; children: ReactNode }) {
+	const { baseDir, preview } = useContext(Doc);
+	const workspace = useApp((state) => state.workspace?.path);
 	const safe = href.startsWith("http://") || href.startsWith("https://");
-	if (!safe) return <>{children}</>;
+	const path = safe ? null : resolveAsset(baseDir ?? workspace ?? (isAbsolutePath(href) ? "/" : undefined), href.replace(/:\d+(?:-\d+)?$/, ""));
+	if (preview || (!safe && !path)) return <>{children}</>;
+	if (path) return <a href={href} data-ly-tip={path} onClick={(event) => {
+		event.preventDefault();
+		const name = path.split(/[/\\]/).pop() || path;
+		void useOpenFile.getState().open({ path, name }).catch((error: unknown) => useApp.getState().notify(String(error), "error"));
+		useDock.getState().open("file", companionOf("file"));
+	}}><FileText size={13} className="mr-1 inline-block align-text-bottom" />{children}</a>;
 	return (
 		<a
 			href={href}

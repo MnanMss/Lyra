@@ -78,6 +78,7 @@ export interface SessionSnapshot {
  * and never reaches the session log.
  */
 export interface SideChatSnapshot {
+	modelId: string | null;
 	revision?: number;
 	messages: import("@lyra/core").Message[];
 	running: boolean;

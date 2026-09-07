@@ -42,7 +42,7 @@ export const zhCN = {
 	"settings.screenshot": "屏幕截图",
 	"settings.browser": "浏览器",
 	"settings.extensions": "插件",
-	"settings.agents": "子智能体",
+	"settings.agents": "智能体",
 	"settings.commands": "命令",
 	"settings.hooks": "钩子",
 	"settings.search": "网页搜索",

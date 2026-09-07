@@ -24,20 +24,26 @@ function fileFor(sessionId: string): string {
 	return join(dir(), `${sessionId}.json`);
 }
 
-/** What was said in this session's side chat last time, or an empty list. */
-export async function loadSideChat(sessionId: string): Promise<Message[]> {
+export interface SideChatArchive { messages: Message[]; modelId?: string | null }
+
+export async function loadSideChatSnapshot(sessionId: string): Promise<SideChatArchive> {
 	const path = fileFor(sessionId);
 	await writes.get(path);
-	const raw = await readFile(path, "utf8").catch(() => null);
-	if (!raw) return [];
+	return readSnapshot(path);
+}
+
+async function readSnapshot(path: string): Promise<SideChatArchive> {
+	const raw = await readFile(path, "utf8").catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return null; throw error; });
+	if (!raw) return { messages: [] };
 	try {
-		const parsed = JSON.parse(raw) as { messages?: Message[] };
-		return Array.isArray(parsed.messages) ? parsed.messages : [];
-	} catch {
-		// A truncated write from a crash. Losing this conversation is better than refusing to open
-		// the panel because of it.
-		return [];
-	}
+		const parsed: SideChatArchive = JSON.parse(raw);
+		return { messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+			...(parsed.modelId === null || typeof parsed.modelId === "string" ? { modelId: parsed.modelId } : {}) };
+	} catch { return { messages: [] }; }
+}
+
+export async function loadSideChat(sessionId: string): Promise<Message[]> {
+	return (await loadSideChatSnapshot(sessionId)).messages;
 }
 
 /**
@@ -45,17 +51,30 @@ export async function loadSideChat(sessionId: string): Promise<Message[]> {
  *
  * Write-then-rename, so a crash midway leaves the previous version rather than half of this one.
  */
-export function saveSideChat(sessionId: string, messages: Message[]): Promise<void> {
+export function saveSideChat(sessionId: string, messages: Message[], modelId?: string | null): Promise<void> {
 	const path = fileFor(sessionId);
 	// Serialize now, before the next message can mutate this array or any content blocks.
-	const snapshot = messages.length > 0 ? JSON.stringify({ messages }) : null;
+	const snapshot = messages.length > 0 || modelId !== undefined ? JSON.stringify({ messages, modelId }) : null;
+	return enqueue(path, () => writeSnapshot(path, snapshot));
+}
+
+/** Transcript events preserve a model selection committed earlier in the same write queue. */
+export function saveSideChatTranscript(sessionId: string, messages: Message[], defaultModelId: string | null): Promise<void> {
+	const path = fileFor(sessionId);
+	const serialized = JSON.stringify(messages);
 	return enqueue(path, async () => {
-		if (snapshot === null) { await rm(path, { force: true }); return; }
-		await mkdir(dir(), { recursive: true });
-		const tmp = `${path}.${process.pid}.tmp`;
-		await writeFile(tmp, snapshot, "utf8");
-		await rename(tmp, path);
+		const previous = await readSnapshot(path);
+		const modelId = previous.modelId === undefined ? defaultModelId : previous.modelId;
+		await writeSnapshot(path, `{"messages":${serialized},"modelId":${JSON.stringify(modelId)}}`);
 	});
+}
+
+async function writeSnapshot(path: string, snapshot: string | null): Promise<void> {
+	if (snapshot === null) { await rm(path, { force: true }); return; }
+	await mkdir(dir(), { recursive: true });
+	const tmp = `${path}.${process.pid}.tmp`;
+	await writeFile(tmp, snapshot, "utf8");
+	await rename(tmp, path);
 }
 
 /** Reset joins the same queue so an earlier save cannot resurrect the conversation. */

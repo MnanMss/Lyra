@@ -1,11 +1,11 @@
-import { Bot, FileCode, FolderArchive, MessageSquare, Paperclip, Puzzle } from "lucide-react";
+import { Minimize2, Bot, FileCode, FolderArchive, MessageSquare, Paperclip, Puzzle } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { Scroller } from "../../ui/scroll/Scroller.tsx";
 import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
 import type { MentionItem, MentionKind } from "./mention-catalog.ts";
 
 const GROUPS: Record<MentionKind, string> = {
-	action: "添加",
+	action: "操作",
 	file: "文件和文件夹",
 	subagent: "智能体",
 	plugin: "插件与技能",
@@ -87,7 +87,7 @@ export function MentionMenu({
 				<Scroller scrollRef={list} className="ly-menu-scroll min-h-0" contentClassName="p-1.5">
 					{shown.map((item, index) => {
 						const Icon =
-							item.kind === "action"
+							item.id === "action:compact" ? Minimize2 : item.kind === "action"
 								? Paperclip
 								: item.kind === "subagent"
 									? Bot

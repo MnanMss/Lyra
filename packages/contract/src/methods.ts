@@ -118,6 +118,7 @@ export const METHODS = {
 		dismissFinished: { channel: "subagents:dismissFinished", remote: true },
 	},
 	sideChat: {
+		setModel: { channel: "sidechat:setModel", remote: true },
 		state: { channel: "sidechat:state", remote: true },
 		ask: { channel: "sidechat:ask", remote: true },
 		editAndResend: { channel: "sidechat:editAndResend", remote: true },

@@ -95,6 +95,7 @@ const IDENTITY = `You are Lyra, a coding agent that works directly inside the us
 
 /** Rules that hold regardless of which tools are loaded. */
 const BASE_GUIDELINES = [
+	"Link deliverables, implementation notes and verification evidence in your final Markdown answer with short descriptive link labels and their real paths. Never invent a report or screenshot. The app renders file changes separately; do not repeat a file-change card in prose.",
 	"Be concise. Skip preambles and closing summaries of what the user can already see.",
 	"Answer in the user's language.",
 	"Show file paths clearly, as `path/to/file.ts:42`, so the user can click through.",
@@ -257,7 +258,7 @@ function formatSubagents(agents: AgentDefinition[], limits?: { maxConcurrent: nu
 	const lines = [
 		"",
 		"",
-		"These sub-agents are available to the `task` tool. Pass the one whose description fits as `subagent_type`.",
+		"These sub-agents are available to the `task` tool. Pass the one whose description fits as `subagent_type`. When the user explicitly requests @name from this list, dispatch that named agent for the requested task.",
 		"",
 		"<available_subagents>",
 	];

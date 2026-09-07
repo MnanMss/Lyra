@@ -215,3 +215,10 @@ test("an exact name always leads", () => {
 	];
 	assert.equal(rankCommands(list, "compact")[0].name, "compact");
 });
+
+test("@compact uses the same invocation as /compact and preserves its instructions", () => {
+	assert.deepEqual(parseInvocation("@compact 保留接口约束\n以及测试证据"), parseInvocation("/compact 保留接口约束\n以及测试证据"));
+	assert.deepEqual(parseInvocation("@compact"), { name: "compact", rest: "" });
+	assert.equal(parseInvocation("解释 @compact"), null);
+	assert.equal(parseInvocation("@compact-custom"), null);
+});

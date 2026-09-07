@@ -28,7 +28,7 @@ export interface HubDeps {
 	/** Events also go to connected phones, when the sync server is up. */
 	sync?(): {
 		broadcast(sessionId: string, event: AgentEvent): void;
-		broadcastSideChat(sessionId: string, event: AgentEvent): void;
+		broadcastSideChat(sessionId: string, event: import("@lyra/core").SideChatUpdate): void;
 		broadcastSessionChange(change: SessionChange): void;
 	} | null;
 }
@@ -124,7 +124,7 @@ export function broadcast(sessionId: string, event: AgentEvent): void {
 /**
  * Side-chat events have their own channel on both transports so they cannot enter the main thread.
  */
-export function broadcastSideChat(sessionId: string, event: AgentEvent): void {
+export function broadcastSideChat(sessionId: string, event: import("@lyra/core").SideChatUpdate): void {
 	const win = deps.window();
 	if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
 		win.webContents.send("sidechat:event", { sessionId, event });

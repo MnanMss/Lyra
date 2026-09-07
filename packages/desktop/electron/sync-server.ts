@@ -48,6 +48,7 @@ export interface SyncServerDeps {
 	snapshot(session: AgentSession): Promise<unknown>;
 	touch(sessionId: string): void;
 	sideChatState: RpcDeps["sideChatState"];
+	sideChatSetModel: RpcDeps["sideChatSetModel"];
 	sideChatAsk: RpcDeps["sideChatAsk"];
 	sideChatEditAndResend: RpcDeps["sideChatEditAndResend"];
 	sideChatAbort: RpcDeps["sideChatAbort"];
@@ -228,6 +229,7 @@ export class SyncServer {
 			snapshot: (session) => this.deps.snapshot(session),
 			touch: (id) => this.deps.touch(id),
 			sideChatState: this.deps.sideChatState,
+			sideChatSetModel: this.deps.sideChatSetModel,
 			sideChatAsk: this.deps.sideChatAsk,
 			sideChatEditAndResend: this.deps.sideChatEditAndResend,
 			sideChatAbort: this.deps.sideChatAbort,
@@ -300,7 +302,7 @@ export class SyncServer {
 		this.send(JSON.stringify({ type: "agent_event", sessionId, event }));
 	}
 
-	broadcastSideChat(sessionId: string, event: AgentEvent): void {
+	broadcastSideChat(sessionId: string, event: import("@lyra/core").SideChatUpdate): void {
 		this.send(JSON.stringify({ type: "side_chat_event", sessionId, event }));
 	}
 

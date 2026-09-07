@@ -30,6 +30,10 @@ renderer 的 RPC、agent stream、侧聊事件和设置变化都走同一条 Web
 接口作为兼容入口，但当前 mobile bridge 不依赖它。Relay 只有字节转发能力，因此两种连接使用相同
 的帧格式和 `sync-rpc.ts` 调度路径。
 
+侧聊的 `sideChat.setModel` 同时贯通桌面 IPC 与同步 RPC，快照包含 `modelId`（`null` 为跟随主会话）。
+写盘提交后广播带递增 `sideRevision` 的 `side_model` 事件，缓存与重连快照沿用同一重放顺序。
+`sideChatModelId` 是可从手机保存的默认选择；不包含供应商凭据，也不改变主会话模型。
+
 ## 断线与恢复
 
 手机 bridge 在页面生命周期内保持一个 WebSocket。直连打开即进入可用状态；中转必须收到

@@ -1,10 +1,11 @@
+import fs from "node:fs/promises";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, afterEach, test } from "node:test";
 import { execFileSync } from "node:child_process";
-import { recordFileChange, readFileChange, undoFileChanges } from "../src/tools/file-changes.ts";
+import { recordFileChange, readFileChange, undoFileChanges, undoFileChangeBatches } from "../src/tools/file-changes.ts";
 import { beforeCommand, afterCommand } from "../src/tools/command-changes.ts";
 import type { ToolContext } from "../src/types.ts";
 let home: string, cwd: string, ctx: ToolContext;
@@ -49,4 +50,75 @@ test("command snapshots compare against the working file, including staged addit
 	const change = await readFileChange(ctx.sessionId, ids[0]); assert.equal(change.before, "one\ntwo\n"); assert.equal(change.after, "one\nupdated\n");
 	await assert.rejects(undoFileChanges(cwd, [change]), /命令/);
 	assert.equal(await readFile(join(cwd,"existing.ts"), "utf8"), "user dirty\n");
+});
+
+test("batch undo preflights all files before touching any and preserves existing dirty work", async () => {
+	const a = join(cwd, "a.ts"), b = join(cwd, "b.ts");
+	const aId = await recordFileChange(ctx, a, "user dirty", "agent edit"), bId = await recordFileChange(ctx, b, null, "new file");
+	assert.ok(aId && bId);
+	const changes = await Promise.all([aId, bId].map((id) => readFileChange(ctx.sessionId, id)));
+	await writeFile(a, "agent edit"); await writeFile(b, "user follow-up");
+	await assert.rejects(undoFileChangeBatches(cwd, changes.map((change) => [change])), /后续修改/);
+	assert.equal(await readFile(a, "utf8"), "agent edit"); assert.equal(await readFile(b, "utf8"), "user follow-up");
+	await writeFile(b, "new file"); await undoFileChangeBatches(cwd, changes.map((change) => [change]));
+	assert.equal(await readFile(a, "utf8"), "user dirty"); await assert.rejects(readFile(b), { code: "ENOENT" });
+});
+
+test("an interrupted staged write leaves every original intact and removes temporary files", async (t) => {
+	const path = join(cwd, "partial.ts");
+	const id = await recordFileChange(ctx, path, "before", "after"); assert.ok(id); await writeFile(path, "after");
+	const original = fs.writeFile;
+	t.mock.method(fs, "writeFile", async (...args: Parameters<typeof fs.writeFile>) => {
+		if (String(args[0]).includes(".lyra-undo-")) { await original(args[0], "part"); throw new Error("simulated ENOSPC"); }
+		return original(...args);
+	});
+	await assert.rejects(undoFileChanges(cwd, [await readFileChange(ctx.sessionId, id)]), /ENOSPC/);
+	assert.equal(await readFile(path, "utf8"), "after");
+	assert.deepEqual(await fs.readdir(cwd), ["partial.ts"]);
+});
+
+test("concurrent batch and single-file undo cannot undo each other's committed result", async () => {
+	const path = join(cwd, "concurrent.ts");
+	const id = await recordFileChange(ctx, path, "before", "after"); assert.ok(id); await writeFile(path, "after");
+	const changes = [await readFileChange(ctx.sessionId, id)];
+	const results = await Promise.allSettled([undoFileChanges(cwd, changes), undoFileChangeBatches(cwd, [changes])]);
+	assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+	assert.equal(await readFile(path, "utf8"), "before");
+});
+
+test("nested projects share the same undo transaction lock", async (t) => {
+	const nested = join(cwd, "nested"); await mkdir(nested);
+	const path = join(nested, "a.ts"); await writeFile(path, "after");
+	const id = await recordFileChange(ctx, path, "before", "after"); assert.ok(id);
+	const changes = [await readFileChange(ctx.sessionId, id)];
+	const started = Promise.withResolvers<void>(), gate = Promise.withResolvers<void>();
+	const original = fs.writeFile;
+	t.mock.method(fs, "writeFile", async (...args: Parameters<typeof fs.writeFile>) => {
+		if (String(args[0]).includes(".lyra-undo-")) { started.resolve(); await gate.promise; }
+		return original(...args);
+	});
+	const first = undoFileChanges(cwd, changes); await started.promise;
+	const second = undoFileChanges(nested, changes);
+	// The competing transaction must reject before the first one commits.
+	const result = second.then(() => "committed", (error: Error) => error.message);
+	gate.resolve(); await first;
+	assert.match(await result, /正在撤销/);
+});
+
+test("undo and rollback preserve file modes despite the process umask", { skip: process.platform === "win32" }, async (t) => {
+	const a = join(cwd, "a.sh"), b = join(cwd, "b.ts");
+	await writeFile(a, "after"); await fs.chmod(a, 0o764);
+	const id = await recordFileChange(ctx, a, "before", "after"); assert.ok(id);
+	await undoFileChanges(cwd, [await readFileChange(ctx.sessionId, id)]);
+	assert.equal((await fs.stat(a)).mode & 0o777, 0o764);
+	await writeFile(a, "created"); await fs.chmod(a, 0o764); await writeFile(b, "after");
+	const aId = await recordFileChange(ctx, a, null, "created"), bId = await recordFileChange(ctx, b, "before", "after"); assert.ok(aId && bId);
+	const original = fs.writeFile; let fail = true;
+	t.mock.method(fs, "writeFile", async (...args: Parameters<typeof fs.writeFile>) => {
+		if (fail && String(args[0]).includes(".lyra-undo-")) { fail = false; throw new Error("simulated ENOSPC"); }
+		return original(...args);
+	});
+	await assert.rejects(undoFileChangeBatches(cwd, await Promise.all([aId, bId].map(async id => [await readFileChange(ctx.sessionId, id)]))), /ENOSPC/);
+	assert.equal(await readFile(a, "utf8"), "created");
+	assert.equal((await fs.stat(a)).mode & 0o777, 0o764);
 });

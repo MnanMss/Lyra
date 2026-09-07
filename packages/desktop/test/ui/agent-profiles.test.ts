@@ -26,10 +26,12 @@ test("built-in profiles are configurable before a session exists and while a col
 		Object.defineProperty(window, "lyra", { configurable: true, value: { sessions: { capabilities: async () => null } } });
 		const view = await mount(h(I18nProvider, { locale: "zh-CN", children: h(AgentsSettings) }));
 		try {
-			for (const name of ["general", "explore", "review", "verify", "plan"]) {
+			for (const name of ["general", "explore", "review", "verify", "plan", "fast", "deep"]) {
 				assert.ok(view.host.querySelector(`[data-agent-profile="${name}"]`), `${sessionId}: ${name}`);
 				assert.ok(view.host.querySelector(`[aria-label="${name} 模型"]`));
 			}
+			assert.ok(view.host.querySelector('[aria-label="compact 模型"]'));
+			assert.equal(view.host.querySelector('[aria-label="compact 思考等级"]'), null);
 		} finally { await view.unmount(); }
 	}
 });
@@ -56,7 +58,7 @@ test("switching to a non-reasoning model clears the incompatible saved effort an
 		assert.deepEqual(saved?.subAgentProfiles?.explore, { modelId: "qa/fast" });
 		assert.match(view.text(), /不支持思考/);
 		assert.equal(view.host.querySelector('[aria-label="explore 思考等级"]'), null);
-		await click(view.find('[aria-label="explore 模型"]')); await choose("遵循定义");
+		await click(view.find('[aria-label="explore 模型"]')); await choose("跟随主会话");
 		assert.deepEqual(saved?.subAgentProfiles, {});
 		assert.ok(view.host.querySelector('[aria-label="explore 思考等级"]'));
 	} finally { await view.unmount(); }

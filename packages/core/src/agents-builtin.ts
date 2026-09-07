@@ -52,7 +52,7 @@ export interface AgentDefinition {
 export const BUILTIN_AGENTS: AgentDefinition[] = [
 	{
 		name: "general",
-		description: "General-purpose agent for multi-step research and code changes.",
+		description: "通用研究与代码修改",
 		systemPrompt:
 			"You are a sub-agent working on one delegated task. Complete it fully, then reply with a concise report of " +
 			"what you found or changed. Your final message is the only thing the parent agent sees, so it must stand alone.",
@@ -61,7 +61,7 @@ export const BUILTIN_AGENTS: AgentDefinition[] = [
 	},
 	{
 		name: "explore",
-		description: "Read-only search agent. Use it to locate code across many files without polluting your context.",
+		description: "只读搜索与代码定位",
 		systemPrompt:
 			"You are a read-only exploration agent. Search broadly, read only what you need, and never modify files. " +
 			"Do not paste large file contents.",
@@ -112,7 +112,7 @@ export const BUILTIN_AGENTS: AgentDefinition[] = [
 	},
 	{
 		name: "review",
-		description: "Code review agent that reports defects with file and line references.",
+		description: "检查代码缺陷与风险",
 		systemPrompt:
 			"You are a code review agent. Inspect the changes you are pointed at and report concrete defects: " +
 			"correctness bugs, missing error handling, security issues. Do not report style preferences.",
@@ -156,7 +156,7 @@ export const BUILTIN_AGENTS: AgentDefinition[] = [
 	 */
 	{
 		name: "verify",
-		description: "Run tests, a typecheck, a build or a lint and report the outcome. Never fixes anything — the parent decides what to do with a failure.",
+		description: "执行检查并报告结果",
 		systemPrompt:
 			"You run one verification — a test suite, a typecheck, a build, a lint — and report what happened. " +
 			"You do not fix anything, and you do not speculate about causes beyond what the output states. " +
@@ -206,7 +206,7 @@ export const BUILTIN_AGENTS: AgentDefinition[] = [
 	 */
 	{
 		name: "plan",
-		description: "Read-only planning. Reads the code and returns steps, risks and open questions — never touches a file.",
+		description: "只读分析与实施规划",
 		systemPrompt:
 			"You plan a change without making it. Read what you need to understand the task, then yield a plan: " +
 			"ordered steps each naming the files it touches, the risks you can see, and what you could not determine " +
@@ -234,5 +234,13 @@ export const BUILTIN_AGENTS: AgentDefinition[] = [
 			},
 		},
 		source: "builtin",
+	},
+	{
+		name: "fast", description: "快速处理明确的小任务", model: "@fast", tools: "*", source: "builtin",
+		systemPrompt: "Complete the delegated task efficiently. Read the necessary context, make only requested changes, verify them and report the result concisely.",
+	},
+	{
+		name: "deep", description: "复杂问题与深入推理", model: "@deep", tools: "*", source: "builtin",
+		systemPrompt: "Investigate the delegated problem carefully. Ground decisions in evidence, implement the requested solution, verify the result and report remaining uncertainty.",
 	},
 ];

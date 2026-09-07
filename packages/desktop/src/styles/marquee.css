@@ -69,6 +69,11 @@
   white-space: nowrap;
 }
 
+.ly-scroll-text-track {
+  position: relative;
+  display: inline-block;
+}
+
 .ly-scroll:hover .ly-marquee-track {
   animation: ly-marquee var(--ly-scroll, 8s) linear 300ms infinite;
 }

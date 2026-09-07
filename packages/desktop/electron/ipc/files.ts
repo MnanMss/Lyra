@@ -7,7 +7,7 @@ import { referenceFile } from "../reference-files.ts";
  * `fs` calls in the renderer.
  *
  * The check hands back the *resolved* path and the handlers use that one, so what was verified and
- * what is opened are the same string — see `resolveInside`.
+ * what is opened are the same string — see `resolveReadablePath`.
  */
 
 import { readableArtifact } from "../readable-artifacts.ts";
@@ -17,14 +17,14 @@ import { getWindow } from "../window.ts";
 import { documentKind } from "../../shared/document-kind.ts";
 import { readDatabase, readWorkbook, type DocumentData } from "../documents.ts";
 import type { FileContents, FileEntry } from "../ipc-types.ts";
-import { listReadableFiles, readReadableFile } from "../file-read-service.ts";
+import { listReadableFiles, readReadableFile, resolveReadablePath } from "../file-read-service.ts";
 
 export interface FilesIpcDeps {
-	/** The path, normalised, if it lies in an open project — otherwise null. */
-	projectPath(target: string): string | null;
+	projectRoots(): readonly string[];
 }
 
-export function registerFilesIpc({ projectPath }: FilesIpcDeps): void {
+export function registerFilesIpc({ projectRoots }: FilesIpcDeps): void {
+	const projectPath = (target: string) => resolveReadablePath(target, projectRoots());
 	ipcMain.handle("files:pick", async (_event, options?: { directory?: boolean; multiple?: boolean }): Promise<string[]> => {
 		const window = getWindow();
 		if (!window) return [];
@@ -45,7 +45,7 @@ export function registerFilesIpc({ projectPath }: FilesIpcDeps): void {
 		return result.filePaths;
 	});
 
-	ipcMain.handle("files:list", async (_event, raw: string): Promise<FileEntry[]> => listReadableFiles(projectPath(raw)));
+	ipcMain.handle("files:list", async (_event, raw: string): Promise<FileEntry[]> => listReadableFiles(await projectPath(raw)));
 	/**
 	 * And a much larger one for documents, which are compressed archives rather than source.
 	 *
@@ -71,7 +71,7 @@ export function registerFilesIpc({ projectPath }: FilesIpcDeps): void {
 	 * project boundary on it is less machinery and one fewer thing to get subtly wrong.
 	 */
 	ipcMain.handle("files:bytes", async (_event, raw: string): Promise<Uint8Array | null> => {
-		const path = projectPath(raw);
+		const path = await projectPath(raw);
 		if (!path) return null;
 		const info = await stat(path).catch(() => null);
 		if (!info?.isFile() || info.size > DOCUMENT_READ_CAP) return null;
@@ -79,7 +79,7 @@ export function registerFilesIpc({ projectPath }: FilesIpcDeps): void {
 	});
 
 	ipcMain.handle("files:document", async (_event, raw: string): Promise<DocumentData | null> => {
-		const path = projectPath(raw);
+		const path = await projectPath(raw);
 		if (!path) return null;
 		const info = await stat(path).catch(() => null);
 		if (!info?.isFile()) return null;
@@ -87,13 +87,13 @@ export function registerFilesIpc({ projectPath }: FilesIpcDeps): void {
 	});
 
 	ipcMain.handle("files:read", async (_event, raw: string): Promise<FileContents | null> => {
-		const writable = projectPath(raw);
+		const writable = await projectPath(raw);
 		const path = writable ?? readableArtifact(raw) ?? await referenceFile(raw);
 		return readReadableFile(path, !writable);
 	});
 
 	ipcMain.handle("files:write", async (_event, raw: string, text: string) => {
-		const path = projectPath(raw);
+		const path = await projectPath(raw);
 		if (!path) return { ok: false, error: "该路径不在已打开的项目内" };
 		try {
 			await writeFile(path, text, "utf8");

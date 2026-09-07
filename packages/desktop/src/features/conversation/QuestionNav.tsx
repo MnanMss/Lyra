@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { questionWindow, type questionsIn } from "./question-navigation.ts";
-import { Markdown } from "./Markdown.tsx";
+import { markdownExcerpt } from "../../lib/markdown/excerpt.ts";
 
 export function QuestionNav({ questions, viewport, onSelect }: {
 	questions: ReturnType<typeof questionsIn>;
@@ -119,7 +119,7 @@ export function QuestionNav({ questions, viewport, onSelect }: {
 				})}
 				{preview && <div className="ly-question-preview pointer-events-none absolute left-9 w-[min(320px,calc(100cqw-60px))] rounded-xl border border-line bg-float p-3 text-label shadow-lg" role="tooltip" inert aria-hidden={hovered === null || dismissed} data-open={hovered !== null && !dismissed} data-dismissed={dismissed} style={{ top: Math.max(-24, Math.min((window.end - window.start) * 12 - 80, preview.slot * 12 - 24)) }}>
 					<p className="line-clamp-2 break-words font-medium text-ink">{preview.text}</p>
-					{preview.answer && <Markdown text={preview.answer} preview className="ly-question-excerpt mt-1 text-ink-faint" />}
+					{preview.answer && <p className="ly-question-excerpt mt-1 line-clamp-3 break-words leading-relaxed text-ink-muted">{markdownExcerpt(preview.answer)}</p>}
 				</div>}
 			</div>
 		</nav>

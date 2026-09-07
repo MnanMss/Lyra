@@ -25,13 +25,15 @@ import type { streamAssistant } from "../ai/index.ts";
 import { textTokens, toolTokens } from "./context.ts";
 import { dispatchTaskTool, controlMainTool } from "./sidechat-controls.ts";
 import { mainChatSnapshot, readMainChatTool } from "./sidechat-history.ts";
+import { stripStaleHandles } from "./model-switch.ts";
 import type { Settings } from "../config/settings.ts";
 import { resolveModel } from "../config/settings.ts";
 import { resolveModelRef } from "../config/model-roles.ts";
 import type { Message, ThinkingLevel, UserContent } from "../types.ts";
 import type { AgentSession } from "./session.ts";
 
-export type SideChatEvent = AgentEvent & { sideRevision: number };
+export type SideChatUpdate = AgentEvent | { type: "side_model"; modelId: string | null };
+export type SideChatEvent = SideChatUpdate & { sideRevision: number };
 
 type SideChatSink = (event: SideChatEvent) => void | Promise<void>;
 
@@ -39,11 +41,14 @@ export interface SideChatOptions {
 	main: AgentSession;
 	settings: Settings;
 	emit: SideChatSink;
+	persistModel?: (modelId: string | null) => Promise<void>;
+	persistReset?: (modelId: string | null) => Promise<void>;
 	streamFn?: AgentRunConfig["streamFn"];
 	summaryStream?: typeof streamAssistant;
 }
 
 export interface SideChatState {
+	modelId: string | null;
 	revision: number;
 	messages: Message[];
 	running: boolean;
@@ -60,6 +65,8 @@ export class SideChat {
 	private main: AgentSession;
 	private settings: Settings;
 	private emitExternal: SideChatSink;
+	private persistModel: SideChatOptions["persistModel"];
+	private persistReset: SideChatOptions["persistReset"];
 	private streamFn: AgentRunConfig["streamFn"];
 	private summaryStream: typeof streamAssistant | undefined;
 
@@ -67,13 +74,18 @@ export class SideChat {
 	private controller: AbortController | null = null;
 	private partial: Message | null = null;
 	private revision = 0;
+	private modelId: string | null;
+	private modelWrites: Promise<void> = Promise.resolve();
 	private reading: Message[] | null = null;
 
 	constructor(options: SideChatOptions) {
 		this.main = options.main;
 		this.mainSessionId = options.main.meta.id;
 		this.settings = options.settings;
+		this.modelId = options.settings.sideChatModelId || null;
 		this.emitExternal = options.emit;
+		this.persistModel = options.persistModel;
+		this.persistReset = options.persistReset;
 		this.streamFn = options.streamFn;
 		this.summaryStream = options.summaryStream;
 	}
@@ -83,7 +95,7 @@ export class SideChat {
 	}
 
 	state(): SideChatState {
-		return { messages: this.partial ? [...this.messages, this.partial] : [...this.messages], running: this.running, revision: this.revision };
+		return { modelId: this.modelId, messages: this.partial ? [...this.messages, this.partial] : [...this.messages], running: this.running, revision: this.revision };
 	}
 
 	updateSettings(settings: Settings): void {
@@ -101,10 +113,43 @@ export class SideChat {
 	 * Refuses to overwrite a conversation in progress: this is called when a chat is first built for
 	 * a session, and doing it to a live one would drop whatever it was in the middle of.
 	 */
-	restore(messages: Message[]): void {
+	restore(messages: Message[], modelId?: string | null): void {
 		if (this.running || this.messages.length > 0) return;
 		// Old versions persisted hidden main-context messages, breaking visible edit indices.
 		this.messages = restoredSideChatMessages(messages);
+		if (modelId !== undefined) this.modelId = modelId;
+	}
+
+	setModel(modelId: string | null): Promise<void> {
+		const operation = this.modelWrites.catch(() => {}).then(async () => {
+			if (modelId !== null && (typeof modelId !== "string" || !resolveModel(this.settings, modelId))) throw new Error("侧边聊天模型不可用");
+			await this.persistModel?.(modelId);
+			this.modelId = modelId;
+			await this.emit({ type: "side_model", modelId });
+		});
+		this.modelWrites = operation;
+		void operation.catch(() => {});
+		return operation;
+	}
+
+	/** A new side chat commits its empty archive before replacing visible history. */
+	restart(): Promise<void> {
+		this.abort();
+		this.controller = null;
+		this.partial = null;
+		const modelId = this.settings.sideChatModelId || null;
+		const operation = this.modelWrites.catch(() => {}).then(async () => {
+			try {
+				await this.persistReset?.(modelId);
+				this.reset();
+				this.modelId = modelId;
+				await this.emit({ type: "rewound", messageCount: 0 });
+				await this.emit({ type: "side_model", modelId });
+			} finally { await this.emit({ type: "agent_end", reason: "aborted" }); }
+		});
+		this.modelWrites = operation;
+		void operation.catch(() => {});
+		return operation;
 	}
 
 	reset(): void {
@@ -146,25 +191,34 @@ export class SideChat {
 	private async run(content: UserContent[], options: { thinking?: ThinkingLevel }, rewind?: number): Promise<void> {
 		if (this.running) return;
 
-		/*
-		 * Always the main session's model, never a choice of its own.
-		 *
-		 * The side chat exists to reason about that conversation, and answering questions about
-		 * it with a different model would mean two different readers of the same transcript
-		 * giving different accounts of it — which is worse than useless when the whole point is
-		 * to ask "what did it just do".
-		 */
-		const resolved = resolveModel(this.settings, this.main.meta.modelId || this.settings.defaultModelId);
+		const controller = new AbortController();
+		this.controller = controller;
+		try { await this.modelWrites; }
+		catch (error) {
+			if (this.controller === controller) {
+				this.controller = null;
+				await this.emit({ type: "notice", level: "error", message: String(error) });
+				await this.emit({ type: "agent_end", reason: "error", error: String(error) });
+			}
+			return;
+		}
+		if (this.controller !== controller) return;
+		if (controller.signal.aborted) {
+			this.controller = null;
+			await this.emit({ type: "agent_end", reason: "aborted" });
+			return;
+		}
+		const selected = this.modelId ?? (this.main.meta.modelId || this.settings.defaultModelId);
+		const resolved = resolveModel(this.settings, selected);
 		if (!resolved) {
-			await this.emit({ type: "notice", level: "error", message: "没有可用的模型，请先在设置里配置。" });
+			this.controller = null;
+			await this.emit({ type: "notice", level: "error", message: this.modelId ? "侧边聊天指定的模型不可用，请重新选择。" : "没有可用的模型，请先在设置里配置。" });
 			await this.emit({ type: "agent_end", reason: "error", error: "no_model" });
 			return;
 		}
 
 		// Capture one consistent transcript per question. Compaction only changes modelHistory.
 		const mainHistory = [...this.main.messages];
-		const controller = new AbortController();
-		this.controller = controller;
 		const question: Message = { role: "user", content, timestamp: Date.now() };
 		const tools = [readMainChatTool(this.mainSessionId, mainHistory, resolved.model), dispatchTaskTool(this.main), controlMainTool(this.main)];
 		const systemPrompt = this.systemPrompt();
@@ -181,6 +235,9 @@ export class SideChat {
 			if (this.controller !== controller) return;
 			const snapshot = mainChatSnapshot(mainHistory, resolved.model);
 			let reading = [snapshot, ...(this.reading ? [...this.reading, question] : this.messages)];
+			// Resolve per request: restored archives and following the main model can switch providers too.
+			reading = reading.map((message) => message.role === "assistant" && (message.api !== resolved.provider.api || message.provider !== resolved.provider.id || message.model !== resolved.model.modelId)
+				? stripStaleHandles([message], 1)[0] : message);
 			await runAgent({
 				sessionId: `${this.mainSessionId}:side`,
 				cwd: this.main.cwd,
@@ -262,7 +319,7 @@ export class SideChat {
 		].join("\n");
 	}
 
-	private async emit(event: AgentEvent): Promise<void> {
+	private async emit(event: SideChatUpdate): Promise<void> {
 		await this.emitExternal({ ...event, sideRevision: ++this.revision });
 	}
 }

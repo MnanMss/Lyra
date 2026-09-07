@@ -46,7 +46,7 @@ const GROUPS: { label: string; labelKey: MessageKey; items: { id: SettingsSectio
 		labelKey: "settings.group.agent",
 		items: [
 			{ id: "plugins", label: "插件", labelKey: "settings.extensions", icon: Blocks },
-			{ id: "agents", label: "子智能体", labelKey: "settings.agents", icon: Bot },
+			{ id: "agents", label: "智能体", labelKey: "settings.agents", icon: Bot },
 			{ id: "commands", label: "命令", labelKey: "settings.commands", icon: SquareTerminal },
 			{ id: "hooks", label: "钩子", labelKey: "settings.hooks", icon: Anchor },
 			{ id: "search", label: "网页搜索", labelKey: "settings.search", icon: Search },

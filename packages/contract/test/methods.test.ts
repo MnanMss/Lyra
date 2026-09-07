@@ -177,6 +177,7 @@ test("数量对得上，且手机能力是逐项审过的清单", () => {
 			"subAgents.abort",
 			"subAgents.dismiss",
 			"subAgents.dismissFinished",
+			"sideChat.setModel",
 			"sideChat.state",
 			"sideChat.ask",
 			"sideChat.editAndResend",

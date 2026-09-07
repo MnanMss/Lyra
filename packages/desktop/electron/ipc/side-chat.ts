@@ -8,6 +8,7 @@ import {
 	sideChatEditAndResend,
 	sideChatReset,
 	sideChatState,
+	sideChatSetModel,
 	tasksCancel,
 	tasksDismiss,
 	tasksList,
@@ -15,6 +16,7 @@ import {
 } from "../side-chat-service.ts";
 
 export function registerSideChatIpc(): void {
+	ipcMain.handle("sidechat:setModel", (_event, sessionId: string, modelId: string | null) => sideChatSetModel(sessionId, modelId));
 	ipcMain.handle("sidechat:state", (_event, sessionId: string) => sideChatState(sessionId));
 	ipcMain.handle("sidechat:ask", (_event, sessionId: string, content: UserContent[]) => sideChatAsk(sessionId, content));
 	ipcMain.handle("sidechat:editAndResend", (_event, sessionId: string, index: number, content: UserContent[]) =>

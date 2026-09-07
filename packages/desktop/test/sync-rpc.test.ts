@@ -276,6 +276,7 @@ test("每个 handler 都能经 callRpc 到达", async () => {
 		"subAgents.abort": ["s1", "a1"],
 		"subAgents.dismiss": ["s1", "a1"],
 		"subAgents.dismissFinished": ["s1"],
+		"sideChat.setModel": ["s1", null],
 		"sideChat.state": ["s1"],
 		"sideChat.ask": ["s1", "检查一下"],
 		"sideChat.editAndResend": ["s1", 0, "换个问法"],

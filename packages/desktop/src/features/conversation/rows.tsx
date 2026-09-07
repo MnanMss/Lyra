@@ -276,7 +276,7 @@ function AssistantRow({
        * one was getting its own timestamp and copy button, so a single reply came back stamped
        * four times. The row belongs to the message that finished the turn.
        */}
-      {settled(message.stopReason) && !continued && (turnStats?.requestCount ?? 0) > 1 && <TurnDeliveryCard timestamp={message.timestamp} />}
+      {settled(message.stopReason) && !continued && <TurnDeliveryCard timestamp={message.timestamp} />}
       {settled(message.stopReason) && !continued && text.trim() && (
         <MessageActions
           timestamp={message.timestamp}

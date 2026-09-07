@@ -2,7 +2,7 @@
  * Branches, and the diff between any two of them.
  */
 import { Input } from "../../ui/inputs/NativeField.tsx";
-import { GitBranchPlus, FolderGit2, X } from "lucide-react";
+import { ArrowLeft, GitBranchPlus, FolderGit2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import type { GitStatus, WorkspaceDiffFile } from "../../../electron/ipc-types.ts";
@@ -103,18 +103,12 @@ export function BranchesView({
       {compare ? (
         <>
           <div className="flex items-center gap-1.5 px-1 py-1.5">
-            <button
-              type="button"
-              onClick={() => setCompare(null)}
-              className="rounded px-1 text-caption text-ink-faint transition-colors hover:text-ink"
-            >
-              ← 返回
-            </button>
             <Text size="label" tone="muted" className="min-w-0 truncate">
               <span className="text-ink">{compare.base}</span>
               <span className="px-1 text-ink-faint">→</span>
               <span className="text-ink">{compare.head}</span>
             </Text>
+			<IconButton size="sm" icon={<ArrowLeft size={13} />} label="返回分支列表" onClick={() => setCompare(null)} />
             {diff && (
               <Text size="caption" mono numeric className="ml-auto shrink-0">
                 <span className="text-ok">+{diff.added}</span>{" "}
@@ -209,10 +203,12 @@ export function BranchesView({
               />
               <button
                 type="submit"
+                aria-label="创建并切换分支"
+                data-ly-tip="创建并切换分支"
                 disabled={busy || !name.trim()}
-                className="h-[26px] shrink-0 rounded-md bg-ink px-2.5 text-detail font-medium text-shell disabled:opacity-40"
+                className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md bg-ink text-detail font-medium text-shell disabled:opacity-40"
               >
-                创建并切换
+                <GitBranchPlus size={14} />
               </button>
             </form>
           )}

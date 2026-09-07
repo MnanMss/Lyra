@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { recordFileChange } from "../../core/src/tools/file-changes.ts";
-import { collectDelivery } from "../electron/delivery-record.ts";
+import { collectDelivery, deliveryMessages } from "../electron/delivery-record.ts";
 import type { Message, ToolContext } from "@lyra/core";
 let home: string, ctx: ToolContext, prior: string | undefined;
 beforeEach(async()=>{home=await mkdtemp(join(tmpdir(),"lyra-delivery-test-"));prior=process.env.LYRA_HOME;process.env.LYRA_HOME=home;const cwd=join(home,"project");await mkdir(cwd);ctx={cwd,sessionId:"qa",state:new Map(),scratchDir:join(home,"scratch")};});
@@ -21,4 +21,12 @@ test("delivery reports the net file change and actual command evidence, with no 
 	const launched=await collectDelivery(ctx.sessionId,ctx.cwd,[result({kind:"bash_background",id:"owned-job",command:"node service.cjs"})],44);
 	assert.deepEqual(launched.serviceJobIds,["owned-job"]);assert.equal(launched.reportPath,null);
 	await writeFile(path,"user edited");assert.equal((await collectDelivery(ctx.sessionId,ctx.cwd,messages,42)).files[0].canUndo,false);
+});
+
+test("a delivery spans synthetic continuations but stops at the last real user request", () => {
+	const assistant = (timestamp: number): Message => ({ role: "assistant", timestamp, api: "openai-responses", provider: "qa", model: "qa", content: [], stopReason: "stop", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } });
+	const user = (timestamp: number, synthetic = false): Message => ({ role: "user", timestamp, synthetic, content: [] });
+	const messages = [user(1), assistant(2), user(3), result({}), assistant(4), user(5, true), result({}), assistant(6)];
+	assert.deepEqual(deliveryMessages(messages, 6), messages.slice(2));
+	assert.deepEqual(deliveryMessages(messages, 2), messages.slice(0, 2));
 });

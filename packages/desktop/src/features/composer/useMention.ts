@@ -113,6 +113,7 @@ export function useMention(
 	async function pick(item: MentionItem) {
 		if (!completion) return;
 
+		if (item.id === "action:compact") { insertMentionText("@compact"); return; }
 		if (item.kind === "action") {
 			setDismissed(true);
 			const token = await onPickAction?.(item.id);

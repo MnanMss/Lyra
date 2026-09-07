@@ -72,6 +72,7 @@ export interface RpcDeps {
 	snapshot(session: AgentSession): Promise<unknown>;
 	touch(sessionId: string): void;
 	sideChatState: LyraApi["sideChat"]["state"];
+	sideChatSetModel: LyraApi["sideChat"]["setModel"];
 	sideChatAsk: LyraApi["sideChat"]["ask"];
 	sideChatEditAndResend: LyraApi["sideChat"]["editAndResend"];
 	sideChatAbort: LyraApi["sideChat"]["abort"];
@@ -242,6 +243,7 @@ export const RPC: Record<string, Handler> = {
 	"subAgents.abort": async (deps, [sessionId, id]) => deps.live(s(sessionId))?.abortSubAgent(s(id)) ?? false,
 	"subAgents.dismiss": async (deps, [sessionId, id]) => deps.live(s(sessionId))?.dismissSubAgent(s(id)) ?? "unknown",
 	"subAgents.dismissFinished": async (deps, [sessionId]) => deps.live(s(sessionId))?.dismissFinishedSubAgents() ?? 0,
+	"sideChat.setModel": async (deps, [sessionId, modelId]) => deps.sideChatSetModel(s(sessionId), modelId === null ? null : s(modelId)),
 	"sideChat.state": async (deps, [sessionId]) => deps.sideChatState(s(sessionId)),
 	"sideChat.ask": async (deps, [sessionId, content_]) => deps.sideChatAsk(s(sessionId), promptContent(content_)),
 	"sideChat.editAndResend": async (deps, [sessionId, messageIndex, content_]) =>
@@ -394,6 +396,7 @@ const ARGS: Record<string, (args: unknown[]) => ArgsError | null> = {
 	"subAgents.abort": ([sessionId, id]) => fail(all(str(sessionId, "sessionId"), str(id, "id"))),
 	"subAgents.dismiss": ([sessionId, id]) => fail(all(str(sessionId, "sessionId"), str(id, "id"))),
 	"subAgents.dismissFinished": ([sessionId]) => fail(str(sessionId, "sessionId")),
+	"sideChat.setModel": ([sessionId, modelId]) => fail(all(str(sessionId, "sessionId"), nullableStr(modelId, "modelId"))),
 	"sideChat.state": ([sessionId]) => fail(str(sessionId, "sessionId")),
 	"sideChat.ask": ([sessionId, content_]) => fail(all(str(sessionId, "sessionId"), content(content_, "content"))),
 	"sideChat.editAndResend": ([sessionId, messageIndex, content_]) =>

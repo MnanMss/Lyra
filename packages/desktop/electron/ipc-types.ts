@@ -164,7 +164,7 @@ export interface LyraApi {
 	};
 	delivery: {
 		get(sessionId: string, timestamp: number): Promise<import("./turn-delivery.ts").TurnDelivery>;
-		undo(sessionId: string, timestamp: number, path: string): Promise<void>;
+		undo(sessionId: string, timestamp: number, path?: string): Promise<void>;
 	};
 	browser: {
 		state(): Promise<import("../shared/browser.ts").BrowserState>;
@@ -323,6 +323,7 @@ export interface LyraApi {
 	sideChat: {
 		/** Null when this session has never had one opened. */
 		state(sessionId: string): Promise<SideChatSnapshot | null>;
+		setModel(sessionId: string, modelId: string | null): Promise<void>;
 		ask(sessionId: string, content: UserContent[]): Promise<void>;
 		/**
 		 * Replace a question already asked and answer from there, dropping everything after it.
@@ -334,7 +335,7 @@ export interface LyraApi {
 		abort(sessionId: string): Promise<void>;
 		/** Throw the conversation away and start fresh. The main session is untouched. */
 		reset(sessionId: string): Promise<void>;
-		onEvent(handler: (payload: { sessionId: string; event: AgentEvent }) => void): () => void;
+		onEvent(handler: (payload: { sessionId: string; event: import("@lyra/core").SideChatUpdate }) => void): () => void;
 	};
 	/** Work the side chat handed to a session, waiting for it to be free. */
 	tasks: {

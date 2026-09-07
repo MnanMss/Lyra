@@ -703,7 +703,7 @@ function registerIpc(): void {
 
 	registerSideChatIpc();
 
-	registerFilesIpc({ projectPath });
+	registerFilesIpc({ projectRoots: () => (settings?.projects ?? []).map((project) => project.path) });
 	registerFileOpsIpc({ projectPath });
 	registerFormatIpc({ projectPath, projectRoot });
 

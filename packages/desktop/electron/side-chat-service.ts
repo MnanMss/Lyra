@@ -1,9 +1,9 @@
 /** Shared side-chat operations used by Electron IPC and the mobile sync transport. */
 
-import { SideChat, restoredSideChatMessages, type AgentEvent, type UserContent } from "@lyra/core";
+import { SideChat, restoredSideChatMessages, type SideChatEvent, type UserContent } from "@lyra/core";
 import { settings } from "./app-settings.ts";
 import { broadcastSideChat, ensureLiveSession, sessions, sideChats } from "./session-hub.ts";
-import { clearSideChat, loadSideChat, saveSideChat } from "./sidechat-store.ts";
+import { loadSideChatSnapshot, saveSideChatTranscript, saveSideChat } from "./sidechat-store.ts";
 
 const opening = new Map<string, Promise<SideChat | null>>();
 
@@ -25,14 +25,16 @@ async function ensureSideChat(sessionId: string): Promise<SideChat | null> {
 	const operation = (async () => {
 		const main = await ensureLiveSession(sessionId);
 		if (!main) return null;
-		const chat = new SideChat({
+		const chat: SideChat = new SideChat({
 			main,
 			settings: settings(),
-			emit: async (event: AgentEvent) => {
+			persistModel: (modelId) => saveSideChat(sessionId, chat.messages, modelId),
+			persistReset: (modelId) => saveSideChat(sessionId, [], modelId),
+			emit: async (event: SideChatEvent) => {
 				broadcastSideChat(sessionId, event);
 				if (event.type !== "message_end" && event.type !== "rewound") return;
 				try {
-					await saveSideChat(sessionId, chat.state().messages);
+					await saveSideChatTranscript(sessionId, chat.messages, chat.state().modelId);
 				} catch (error) {
 					console.error("[sidechat] Failed to persist transcript", error);
 					broadcastSideChat(sessionId, {
@@ -43,7 +45,8 @@ async function ensureSideChat(sessionId: string): Promise<SideChat | null> {
 				}
 			},
 		});
-		chat.restore(await loadSideChat(sessionId));
+		const snapshot = await loadSideChatSnapshot(sessionId);
+		chat.restore(snapshot.messages, snapshot.modelId);
 		sideChats.set(sessionId, chat);
 		return chat;
 	})();
@@ -58,9 +61,16 @@ async function ensureSideChat(sessionId: string): Promise<SideChat | null> {
 export async function sideChatState(sessionId: string) {
 	const existing = sideChats.get(sessionId);
 	if (existing) return existing.state();
-	const messages = await loadSideChat(sessionId);
+	const { messages, modelId = settings().sideChatModelId || null } = await loadSideChatSnapshot(sessionId);
 	const created = await opening.get(sessionId) ?? sideChats.get(sessionId);
-	return created ? created.state() : { messages: restoredSideChatMessages(messages), running: false, revision: 0 };
+	return created ? created.state() : { messages: restoredSideChatMessages(messages), modelId, running: false, revision: 0 };
+}
+
+export async function sideChatSetModel(sessionId: string, modelId: string | null): Promise<void> {
+	if (modelId !== null && typeof modelId !== "string") throw new Error("Invalid side-chat model");
+	const chat = await ensureSideChat(sessionId);
+	if (!chat) throw new Error(`Session ${sessionId} is not open.`);
+	await chat.setModel(modelId);
 }
 
 export async function sideChatAsk(sessionId: string, content: UserContent[]): Promise<void> {
@@ -80,9 +90,9 @@ export function sideChatAbort(sessionId: string): void {
 }
 
 export async function sideChatReset(sessionId: string): Promise<void> {
-	await opening.get(sessionId);
-	sideChats.get(sessionId)?.reset();
-	await clearSideChat(sessionId);
+	const chat = await ensureSideChat(sessionId);
+	if (!chat) throw new Error(`Session ${sessionId} is not open.`);
+	await chat.restart();
 }
 
 export function tasksList(sessionId: string) {

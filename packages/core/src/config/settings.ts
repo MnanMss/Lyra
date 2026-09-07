@@ -275,6 +275,8 @@ export interface Settings {
 	updateCheckIntervalHours?: number;
 	/** `${providerId}/${modelId}` of the model used for new sessions. */
 	defaultModelId: string | null;
+	/** Default for new side chats; null follows the main conversation. */
+	sideChatModelId?: string | null;
 	/**
 	 * Models pinned to the top of the picker, in the order they were starred.
 	 *

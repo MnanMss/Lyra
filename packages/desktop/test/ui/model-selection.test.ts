@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { createElement as h } from "react";
 import { DEFAULT_SETTINGS, type Settings } from "@lyra/core";
 import { effortLabel, ModelSelect } from "../../src/features/models/index.ts";
-import { ModelRoles } from "../../src/features/settings/ModelRoles.tsx";
+import { AgentsSettings } from "../../src/features/settings/AgentsSettings.tsx";
 import { ModelEditor } from "../../src/features/settings/ModelEditor.tsx";
 import { useApp } from "../../src/store/index.ts";
 import { click, fire, mount } from "../helpers/mount.ts";
@@ -39,10 +39,10 @@ test("configuration picker shares favourites/search and never selects the active
 
 test("a failed role save leaves the explicit unavailable model visible", async () => {
 	const original = useApp.getState().saveSettings;
-	useApp.setState({ settings: { ...settings, modelRoles: { fast: "missing/model" } }, saveSettings: async () => { throw new Error("disk full"); } });
-	const view = await mount(h(I18nProvider, { locale: "zh-CN", children: h(ModelRoles) }));
+	useApp.setState({ activeSessionId: null, capabilities: null, settings: { ...settings, modelRoles: { fast: "missing/model" } }, saveSettings: async () => { throw new Error("disk full"); } });
+	const view = await mount(h(I18nProvider, { locale: "zh-CN", children: h(AgentsSettings) }));
 	try {
-		const trigger = view.find('[aria-label="@fast · 快而便宜 用哪个模型"]');
+		const trigger = view.find('[aria-label="fast 模型"]');
 		assert.match(trigger.textContent ?? "", /模型不可用/);
 		await click(trigger);
 		const target = document.querySelector('[data-model="qa/9"] button'); assert.ok(target); await click(target);

@@ -3,6 +3,17 @@ import { join, relative } from "node:path";
 import { computeDiff, formatDiff, lyraHome, readFileChange, type Message, type RecordedChange, type DiffHunk } from "@lyra/core";
 export interface DeliveryFile { path: string; added: number; removed: number; hunks: DiffHunk[]; changeIds: string[]; canUndo: boolean }
 export interface TurnDelivery { files: DeliveryFile[]; commands: { command: string; status: string; output: string }[]; serviceJobIds: string[]; warnings: string[]; reportPath: string | null }
+export function deliveryMessages(messages: Message[], timestamp: number): Message[] {
+	const end = messages.findIndex((message) => message.role === "assistant" && message.timestamp === timestamp);
+	if (end < 0) throw new Error("找不到对应的回答");
+	let start = end - 1;
+	while (start >= 0) {
+		const message = messages[start];
+		if (message.role === "user" && !message.synthetic) break;
+		start--;
+	}
+	return messages.slice(Math.max(0, start), end + 1);
+}
 export async function collectDelivery(sessionId: string, cwd: string, messages: Message[], timestamp: number): Promise<TurnDelivery> {
 	const value: TurnDelivery = { files: [], commands: [], serviceJobIds: [], warnings: [], reportPath: null };
 	const groups = new Map<string, RecordedChange[]>();

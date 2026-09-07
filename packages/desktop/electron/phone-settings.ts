@@ -58,6 +58,7 @@ import type { Settings } from "@lyra/core";
 export const PHONE_WRITABLE = [
 	"appearance",
 	"defaultModelId",
+	"sideChatModelId",
 	"favoriteModelIds",
 	"thinking",
 	"lastThinking",
