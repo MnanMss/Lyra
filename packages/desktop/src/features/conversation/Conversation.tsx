@@ -37,7 +37,30 @@ export const Conversation = memo(function Conversation() {
   const compactions = useApp((s) => s.compactions);
 	const commandRuns = useApp((s) => s.commandRuns);
 	const compacting = commandRuns.some((command) => command.status === "running");
-  const toolRunCount = useApp((s) => Object.keys(s.toolRuns).length);
+  /*
+   * How many tool calls there are, and how many have stopped running.
+   *
+   * Both halves matter and only the first used to be here. A call settling changes the card —
+   * output replaces the spinner, a duration appears, an error opens — without touching a message
+   * and without changing how many calls exist, so a signature built from the count alone was
+   * identical either side of the one moment a tool card changes size the most.
+   *
+   * Still a count rather than the map: a streamed chunk moves neither number, which is what keeps
+   * the layout effect off the per-token path. Growth inside a running card is left to the resize
+   * observer, which is what it is for.
+   *
+   * Returned as a string so the selector compares by value; an object would be a new identity on
+   * every store change and re-render the transcript for each one.
+   */
+  const toolProgress = useApp((s) => {
+    let total = 0;
+    let settled = 0;
+    for (const run of Object.values(s.toolRuns)) {
+      total += 1;
+      if (run.status !== "running") settled += 1;
+    }
+    return `${total}/${settled}`;
+  });
   const activeSessionId = useApp((s) => s.activeSessionId);
   const loadingSession = useApp((s) => s.loadingSession);
   const allRuns = useMemo(() => runs(messages, compactions, commandRuns), [messages, compactions, commandRuns]);
@@ -107,11 +130,10 @@ export const Conversation = memo(function Conversation() {
     /*
      * What "something arrived" means here.
      *
-     * `toolRunCount` is folded in for the same reason it was a dependency before: a card appearing
-     * or completing changes the page without touching a message. It is a count of settled calls
-     * rather than the map itself, so a streamed chunk does not re-run this.
+     * `toolProgress` is folded in because a card appearing *or completing* changes the page without
+     * touching a message — see its selector above for why both numbers are needed.
      */
-    tail: tailSignature(messages, toolRunCount),
+    tail: tailSignature(messages, toolProgress),
   });
   const scrollRef = follow.scrollRef;
 
@@ -193,10 +215,12 @@ export const Conversation = memo(function Conversation() {
         contentClassName={questions.length > 1 ? "pl-12 pr-4 @min-[600px]:pr-8" : compact ? "px-4" : "px-8"}
         onScroll={follow.onScroll}
         onResize={follow.onResize}
+        onUserScroll={follow.onUserScroll}
       >
         {/* Historical rows must never replay entrance motion when revisited. */}
         <div
-          className="ly-transcript ly-no-enter mx-auto w-full max-w-[var(--ly-content)] py-5"
+          /* `--ly-bottom-inset` keeps 「回到最新」 off the newest message; see `styles/scroll.css`. */
+          className="ly-transcript ly-no-enter mx-auto w-full max-w-[var(--ly-content)] pt-5 pb-[var(--ly-bottom-inset)]"
           aria-busy={loadingSession}
         >
           {/*

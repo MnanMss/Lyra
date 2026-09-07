@@ -21,6 +21,22 @@
  * `nextState`: leaving is driven by events (a wheel notch upwards is unambiguous, however small),
  * and returning is driven by position (there is no event for "I want to follow again"; arriving at
  * the bottom is the only way to say it).
+ *
+ * That asymmetry has a corollary, which cost a second round of the same bug to learn:
+ *
+ *   A change in position may *restore* following. It may never end it.
+ *
+ * The first attempt left a back door open. A scroll event whose position had moved upwards ended
+ * the follow, provided some input had been seen in the last 300ms — the window being there because
+ * scroll anchoring moves `scrollTop` on its own and must not be mistaken for the reader. It cannot
+ * tell them apart. Input was heard from the whole window, so releasing the mouse anywhere at all —
+ * the sidebar, a panel, the composer — opened the window, and any reflow landing inside it was read
+ * as "the reader went up". A tool group settling, the running line folding, the oldest run leaving
+ * the mounted range: each of them stopped a transcript following a turn nobody had touched, and
+ * left 「有新内容」 on a conversation the reader was watching arrive.
+ *
+ * So a bare position change now says the one thing it can honestly say, and `arrived` is it.
+ * Everything that ends a follow arrives as a gesture, from a listener that can name it.
  */
 
 export type FollowState =
@@ -123,9 +139,9 @@ export function isAway(reading: Reading): boolean {
 /**
  * Which way a gesture was going, when that is knowable.
  *
- * A wheel or a key says so outright. Dragging the scrollbar thumb or putting a finger down does
- * not, and is reported as `"unknown"`: the position afterwards decides, which is the same rule
- * a drag that ends at the bottom has always followed.
+ * A wheel, a key or a thumb drag says so outright. Putting a finger down does not, and is reported
+ * as `"unknown"`: the position afterwards decides, which is the same rule a drag that ends at the
+ * bottom has always followed.
  */
 export type Direction = "up" | "down" | "unknown";
 
@@ -136,8 +152,19 @@ export type FollowEvent =
 	| { kind: "reflow" }
 	/** The box changed, not what is in it: the composer grew, a splitter moved, the window resized. */
 	| { kind: "viewport" }
-	/** The reader moved, and this is the only event that may change the intention. */
+	/** The reader moved, and this is the only event that may end the intention to follow. */
 	| { kind: "user-scroll"; direction: Direction }
+	/**
+	 * The surface is at a position nobody here asked for.
+	 *
+	 * Every scroll this module did not write itself: the tail of a fling, the browser clamping a
+	 * transcript that just lost its oldest run, anchoring holding a line still while a thinking
+	 * block folds open above it. By the time they reach the state machine they are four numbers with
+	 * no provenance, indistinguishable from one another and none of them a gesture. So the only
+	 * claim available is that the surface is back at the end — and the only thing it may do is start
+	 * following again. See the corollary at the top of this file.
+	 */
+	| { kind: "arrived" }
 	/** The reader asked to go back: the button, End, sending a message. */
 	| { kind: "user-return" }
 	/** A glide arrived. */
@@ -177,6 +204,14 @@ export function nextState(state: FollowState, event: FollowEvent, reading: Readi
 			// Downwards, or a drag whose direction is not knowable: the position answers. Reaching the
 			// bottom is the only way to say "follow again", so it has to be enough on its own.
 			return atBottom(reading) ? "following" : "detached";
+
+		case "arrived":
+			// A ride back is already an intention to follow, and the positions this would be judging
+			// are its own frames. Left alone until `settle` says it finished.
+			if (state === "returning") return state;
+			// At the end means following; anywhere else means whatever was already meant. The absent
+			// `: "detached"` is the whole rule — see the corollary at the top of this file.
+			return atBottom(reading) ? "following" : state;
 
 		case "user-return":
 			// From the bottom there is nowhere to glide to; claiming otherwise costs a 420ms animation

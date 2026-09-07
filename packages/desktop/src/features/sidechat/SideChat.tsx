@@ -72,6 +72,7 @@ export function SideChat() {
 					contentClassName="px-3"
 					onScroll={follow.onScroll}
 					onResize={follow.onResize}
+					onUserScroll={follow.onUserScroll}
 				>
 					{/*
 					 * Capped and centred, exactly as the main transcript is.
@@ -81,7 +82,8 @@ export function SideChat() {
 					 * somewhere around 90 characters, and the panel is over twice that when it
 					 * takes the whole column.
 					 */}
-					<div className="mx-auto w-full max-w-[var(--ly-content)] py-3">
+					{/* Bottom padding leaves 「回到最新」 somewhere to float that is not the newest reply. */}
+					<div className="mx-auto w-full max-w-[var(--ly-content)] pt-3 pb-[var(--ly-bottom-inset)]">
 						{messages.map((message, index) => (
 							<MessageRow key={rowKey(message, index)} message={message} index={index} />
 						))}

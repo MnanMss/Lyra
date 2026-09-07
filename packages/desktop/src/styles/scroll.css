@@ -6,6 +6,24 @@
  * ------------------------------------------------------------------------- */
 
 /*
+ * Room at the foot of a transcript for the control that floats over it.
+ *
+ * 「回到最新」 is 32px tall and sits 12px off the bottom of the scroller. Without this it covers
+ * the last 24px of the content — which is the newest message, the one thing being at the bottom
+ * exists to show you — so a transcript scrolled perfectly to its end still looked like it had
+ * something hidden under the button.
+ *
+ * Padding at the end of the scrolled content, rather than arithmetic in `follow.ts`, and that
+ * distinction is load-bearing: `scrollTop` cannot exceed `scrollHeight - clientHeight`, so an
+ * inset subtracted inside the follow rule would make `atBottom` unreachable and pin a transcript
+ * that can never satisfy its own test. As padding it simply makes the page longer, and the bottom
+ * of the page becomes somewhere the newest message can actually be read.
+ */
+:root {
+  --ly-bottom-inset: 44px;
+}
+
+/*
  * Invisible, but still there to be grabbed.
  *
  * It used to take clicks only while its scroller was hovered, back when the resize handle sat on

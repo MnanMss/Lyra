@@ -143,9 +143,11 @@ function Transcript({ agent, sessionId }: { agent: SubAgentSummary; sessionId: s
 			<Scroller
 				className="flex-1"
 				scrollRef={follow.scrollRef}
-				contentClassName="px-3 py-2"
+				/* Bottom padding leaves 「回到最新」 somewhere to float that is not the newest output. */
+				contentClassName="px-3 pt-2 pb-[var(--ly-bottom-inset)]"
 				onScroll={follow.onScroll}
 				onResize={follow.onResize}
+				onUserScroll={follow.onUserScroll}
 			>
 				{!messages || messages.length === 0 ? (
 					<p className="px-2 py-8 text-center text-detail text-ink-faint">

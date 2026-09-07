@@ -39,12 +39,23 @@ function sizeOf(message: Message): number {
 /**
  * The signature of a transcript's tail.
  *
- * `extra` carries anything outside the message list that also counts as content arriving — the
- * number of settled tool runs, a delegate's final report — because those change what is on screen
- * without touching a message.
+ * `extra` carries anything outside the message list that also counts as content arriving — how many
+ * tool runs exist and how many have settled, a delegate's final report — because those change what
+ * is on screen without touching a message.
+ *
+ * Two messages, not one, and that is not belt-and-braces. A reply that called a tool is still the
+ * *pending* message when the tool's result lands behind it, and the store updates it in place (see
+ * `findMessageSlot`): the array ends `[…, assistant(pending), toolResult]`, with the message that is
+ * actually growing second from last. Asking only the last one yields
+ * `toolResult:<fixed timestamp>:0` — a signature frozen for as long as that reply goes on — and a
+ * frozen signature means the layout effect that follows the bottom never runs. Widening it is free:
+ * both messages are already in hand, and no transcript has a third one changing at the same time.
  */
 export function tailSignature(messages: readonly Message[], extra: string | number = ""): string {
 	const last = messages[messages.length - 1];
 	if (!last) return `-:${extra}`;
-	return `${last.role}:${last.timestamp}:${sizeOf(last)}:${extra}`;
+	const behind = messages[messages.length - 2];
+	return `${last.role}:${last.timestamp}:${sizeOf(last)}:${
+		behind ? `${behind.role}:${sizeOf(behind)}` : "-"
+	}:${extra}`;
 }
