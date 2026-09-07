@@ -473,7 +473,21 @@ export class SyncServer {
 
 				if (req.method === "POST" && action === "approve") {
 					const body = (await readJson(req)) as { requestId?: string; decision?: "once" | "always" | "reject" };
-					const ok = session.resolveApproval(String(body.requestId), body.decision ?? "reject");
+					const reqId = String(body.requestId);
+					const decision = body.decision ?? "reject";
+					const pending = decision === "always"
+						? session.listPendingApprovals().find((p) => p.id === reqId)
+						: undefined;
+					const ok = session.resolveApproval(reqId, decision);
+					if (ok && decision === "always" && pending) {
+						const current = this.deps.getSettings();
+						if (!current.alwaysAllow.includes(pending.request.subject)) {
+							await this.deps.saveSettings({
+								...current,
+								alwaysAllow: [...current.alwaysAllow, pending.request.subject],
+							});
+						}
+					}
 					send(ok ? 200 : 404, { resolved: ok });
 					return;
 				}

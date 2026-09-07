@@ -50,3 +50,32 @@ test("an answer given in time still wins", async () => {
 	instance.resolve(entry.id, "once");
 	assert.equal(await pending, "once");
 });
+
+test("an always answer adds the subject to allowList and notifies remember", async () => {
+	const remembered: string[] = [];
+	const instance = new ApprovalGate({
+		mode: () => "ask",
+		cwd: () => "/Users/me/project",
+		ask: async () => {},
+		remember: (subject) => {
+			remembered.push(subject);
+		},
+		unattendedTimeoutMs: 5_000,
+	});
+
+	const pending = instance.request({ ...request, subject: "mcp__sqlcl-mcp__db_query" });
+	await new Promise((r) => setTimeout(r, 10));
+	const [entry] = instance.list();
+	assert.ok(entry, "the question is waiting");
+
+	// Resolving with always resolves the in-flight request to once and remembers the subject
+	const ok = instance.resolve(entry.id, "always");
+	assert.equal(ok, true);
+	assert.equal(await pending, "once");
+	assert.deepEqual(remembered, ["mcp__sqlcl-mcp__db_query"]);
+
+	// Subsequent requests with the same subject pass immediately without asking
+	const second = await instance.request({ ...request, subject: "mcp__sqlcl-mcp__db_query" });
+	assert.equal(second, "once");
+	assert.deepEqual(instance.list(), []);
+});

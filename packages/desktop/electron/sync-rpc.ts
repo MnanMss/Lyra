@@ -122,7 +122,21 @@ export const RPC: Record<string, Handler> = {
 		return null;
 	},
 	"agent.approve": async (deps, [sessionId, requestId, decision]) => {
-		deps.live(s(sessionId))?.resolveApproval(s(requestId), decision);
+		const session = deps.live(s(sessionId));
+		if (!session) return null;
+		const pending = decision === "always"
+			? session.listPendingApprovals().find((p) => p.id === s(requestId))
+			: undefined;
+		session.resolveApproval(s(requestId), decision);
+		if (decision === "always" && pending) {
+			const current = deps.settings();
+			if (!current.alwaysAllow.includes(pending.request.subject)) {
+				await deps.saveSettings({
+					...current,
+					alwaysAllow: [...current.alwaysAllow, pending.request.subject],
+				});
+			}
+		}
 		return null;
 	},
 	"agent.setModel": async (deps, [sessionId, modelId]) => {
@@ -306,7 +320,7 @@ const ARGS: Record<string, (args: unknown[]) => ArgsError | null> = {
 		fail(all(str(sessionId, "sessionId"), index(messageIndex, "messageIndex"), content(content_, "content"))),
 	"agent.abort": ([sessionId]) => fail(str(sessionId, "sessionId")),
 	"agent.approve": ([sessionId, requestId, decision]) =>
-		fail(all(str(sessionId, "sessionId"), str(requestId, "requestId"), record(decision, "decision"))),
+		fail(all(str(sessionId, "sessionId"), str(requestId, "requestId"), (typeof decision === "string" ? str(decision, "decision") : record(decision, "decision")))),
 	"agent.setModel": ([sessionId, modelId]) => fail(all(str(sessionId, "sessionId"), str(modelId, "modelId"))),
 	"agent.setThinking": ([sessionId, thinking]) => fail(all(str(sessionId, "sessionId"), record(thinking, "thinking"))),
 

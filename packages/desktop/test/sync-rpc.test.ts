@@ -84,6 +84,30 @@ test("approving a tool call is allowed, because that is the point of having a ph
 	assert.ok(allowedMethods().includes("agent.approve"));
 });
 
+test("agent.approve with always persists the subject to alwaysAllow", async () => {
+	let savedSettings: unknown;
+	const approvals = [{ id: "req-1", request: { subject: "mcp__sqlcl-mcp__db_query" } }];
+	const fakeSession = {
+		listPendingApprovals: () => [...approvals],
+		resolveApproval: (id: string, _decision: unknown) => {
+			const idx = approvals.findIndex((a) => a.id === id);
+			if (idx === -1) return false;
+			approvals.splice(idx, 1);
+			return true;
+		},
+	};
+	const d = deps({
+		live: (id) => (id === "s1" ? (fakeSession as never) : undefined),
+		settings: () => ({ ...DEFAULT_SETTINGS, alwaysAllow: [] }),
+		saveSettings: async (next) => { savedSettings = next; },
+	});
+
+	const result = await callRpc(d, "agent.approve", ["s1", "req-1", "always"]);
+	assert.equal(result.ok, true);
+	assert.deepEqual((savedSettings as { alwaysAllow: string[] })?.alwaysAllow, ["mcp__sqlcl-mcp__db_query"]);
+	assert.equal(approvals.length, 0);
+});
+
 test("a handler that throws is an answer, not a dropped connection", async () => {
 	const result = await callRpc(
 		deps({

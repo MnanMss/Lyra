@@ -124,3 +124,45 @@ test("a phone that has gone away does not hold up the ones that remain", async (
 		await sync.stop();
 	}
 });
+
+test("sync server /api/sessions/:id/approve with always persists alwaysAllow", async () => {
+	let serverSettings: Settings = { ...DEFAULT_SETTINGS, alwaysAllow: [], sync: { enabled: true, port: PORT + 1, token: TOKEN } };
+	const approvals = [{ id: "req-post", request: { subject: "mcp__sqlcl-mcp__db_execute" } }];
+	const fakeSession = {
+		meta: { id: "sess-1" },
+		running: true,
+		listPendingApprovals: () => [...approvals],
+		resolveApproval: (id: string, _decision: unknown) => {
+			const idx = approvals.findIndex((a) => a.id === id);
+			if (idx === -1) return false;
+			approvals.splice(idx, 1);
+			return true;
+		},
+	};
+	const sync = new SyncServer({
+		getSettings: () => serverSettings,
+		saveSettings: async (next) => {
+			serverSettings = next;
+		},
+		resolveSession: async () => fakeSession,
+		createSession: async () => {
+			throw new Error("not needed");
+		},
+	} as never);
+	await sync.start(PORT + 1, TOKEN);
+	try {
+		const res = await fetch(`http://127.0.0.1:${PORT + 1}/api/sessions/proj-1/sess-1/approve`, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${TOKEN}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ requestId: "req-post", decision: "always" }),
+		});
+		assert.equal(res.status, 200);
+		assert.deepEqual(serverSettings.alwaysAllow, ["mcp__sqlcl-mcp__db_execute"]);
+		assert.equal(approvals.length, 0);
+	} finally {
+		await sync.stop();
+	}
+});

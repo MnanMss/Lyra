@@ -343,19 +343,16 @@ export function registerSessionsIpc({
 		) => {
 			const session = sessions.get(sessionId);
 			if (!session) return;
+			const pending = decision === "always"
+				? session.listPendingApprovals().find((p) => p.id === requestId)
+				: undefined;
 			if (!session.resolveApproval(requestId, decision)) throw new Error("Invalid or expired approval response");
-			if (decision === "always") {
-				const request = session
-					.listPendingApprovals()
-					.find((p) => p.id === requestId);
+			if (decision === "always" && pending) {
 				const settings = readSettings();
-				if (
-					request &&
-					!settings.alwaysAllow.includes(request.request.subject)
-				) {
+				if (!settings.alwaysAllow.includes(pending.request.subject)) {
 					await saveSettings({
 						...settings,
-						alwaysAllow: [...settings.alwaysAllow, request.request.subject],
+						alwaysAllow: [...settings.alwaysAllow, pending.request.subject],
 					});
 				}
 			}
