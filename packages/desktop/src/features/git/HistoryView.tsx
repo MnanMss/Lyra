@@ -140,7 +140,7 @@ export function HistoryView({ cwd }: { cwd: string }) {
   if (commits.length === 0) {
     return (
       <PanelEmpty icon={GitCommitHorizontal} title="没有提交">
-        这个仓库还没有任何提交。
+        提交后显示历史
       </PanelEmpty>
     );
   }

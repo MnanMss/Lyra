@@ -34,7 +34,7 @@ export function FileBrowser() {
 	if (!workspace || !root) {
 		return (
 			<PanelEmpty icon={Folder} title="文件">
-				先打开一个项目，这里显示它的文件。
+				先打开一个项目
 			</PanelEmpty>
 		);
 	}

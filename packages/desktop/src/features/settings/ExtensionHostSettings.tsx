@@ -60,12 +60,7 @@ export function ExtensionStatsList({
 }) {
 	if (extensions.length === 0 && diagnostics.length === 0) {
 		return (
-			<EmptyHint>
-				还没有扩展。
-				<br />
-				在 <span className="font-mono">.lyra/extensions/{"<名字>"}/</span> 放一个 <span className="font-mono">extension.json</span>{" "}
-				和它指向的入口文件，下一个会话就会加载。
-			</EmptyHint>
+			<EmptyHint>暂无扩展</EmptyHint>
 		);
 	}
 	return (

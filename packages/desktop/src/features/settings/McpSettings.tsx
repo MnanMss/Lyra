@@ -127,12 +127,7 @@ export function McpSettings({ filter = "" }: { filter?: string }) {
 
 			{servers.length === 0 ? (
 				<Card>
-					<EmptyHint>
-						还没有配置 MCP 服务器。
-						<br />
-						例如 stdio 方式的文件系统服务：命令 <span className="font-mono">npx</span>，参数{" "}
-						<span className="font-mono">-y @modelcontextprotocol/server-filesystem /path</span>
-					</EmptyHint>
+					<EmptyHint>{needle ? "没有匹配的 MCP 服务" : "尚未配置 MCP 服务"}</EmptyHint>
 				</Card>
 			) : (
 				<div className="space-y-3">

@@ -1,7 +1,7 @@
 /**
  * The index, as a column you read downwards.
  */
-import { Check, FolderTree, List, Minus, Plus, RotateCcw } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Check, FolderTree, List, Minus, Plus, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type { GitStatus, GitStatusFile, WorkspaceDiffFile } from "../../../electron/ipc-types.ts";
@@ -134,6 +134,7 @@ export function ChangesView({
         action={
           plan.empty.action
             ? {
+                icon: plan.empty.action.kind === "push" ? ArrowUpFromLine : ArrowDownToLine,
                 label: plan.empty.action.label,
                 onClick: plan.empty.action.kind === "push" ? onPush : onPull,
                 disabled: busy,

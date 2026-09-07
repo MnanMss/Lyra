@@ -210,8 +210,8 @@ export function PullRequestList({
 							: accountErrors[account ?? ""]
 								? accountErrors[account ?? ""]
 								: account
-									? "这个账号下没有和你有关的 Pull Request"
-									: "没有和你有关的 Pull Request"}
+									? "当前账号暂无相关 Pull Request"
+									: "暂无相关 Pull Request"}
 					</p>
 				)}
 
@@ -314,9 +314,9 @@ function SignedOut({ onAddAccount }: { onAddAccount: () => void }) {
 			{/* The strip the window controls live in, kept empty so this content clears them. */}
 			<div className="h-11 shrink-0" />
 			<div className="flex flex-1 flex-col items-center justify-center px-6 pb-10 text-center">
-				<p className="text-label text-ink">还没有添加代码托管账号</p>
+				<p className="text-label text-ink">未添加代码托管账号</p>
 				<p className="mt-2 max-w-[240px] text-detail leading-relaxed text-ink-faint">
-					添加之后，这里会列出 GitHub、GitLab、Gitee、Gitea 上所有等你审查和由你创建的 Pull Request。
+					支持 GitHub、GitLab、Gitee、Gitea
 				</p>
 				<button
 					type="button"

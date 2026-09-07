@@ -54,7 +54,7 @@ export function IndexSettings() {
 
 			{!workspace ? (
 				<Card>
-					<EmptyHint>先选择一个项目。</EmptyHint>
+					<EmptyHint>先选择一个项目</EmptyHint>
 				</Card>
 			) : (
 				<>
@@ -133,10 +133,10 @@ export function IndexSettings() {
 						{hits.length === 0 ? (
 							<EmptyHint>
 								{query.trim().length < 2
-									? "输入至少两个字符开始搜索"
+									? "输入至少两个字符"
 									: stats?.exists
 										? "没有匹配的符号"
-										: "还没有索引，先点上面的「建立索引」"}
+										: "先建立索引"}
 							</EmptyHint>
 						) : (
 							<Scroller className="max-h-[340px]">

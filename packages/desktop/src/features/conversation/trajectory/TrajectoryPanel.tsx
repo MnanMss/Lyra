@@ -18,7 +18,7 @@ import { available, bridge } from "../../../services/index.ts";
 
 export function TrajectoryPanel() {
 	const meta = useApp(state => state.meta);
-	return meta ? <SessionTrajectory key={meta.id} /> : <PanelEmpty icon={History} title="轨迹">打开一个对话，这里会显示它的完整记录。</PanelEmpty>;
+	return meta ? <SessionTrajectory key={meta.id} /> : <PanelEmpty icon={History} title="轨迹">打开对话查看记录</PanelEmpty>;
 }
 
 function SessionTrajectory() {
@@ -86,7 +86,7 @@ function SessionTrajectory() {
 			{totals.cost > 0 && <span className="flex items-center gap-1" data-ly-tip={`估算费用 $${totals.cost.toFixed(4)}`}><Coins size={11} />${totals.cost.toFixed(2)}</span>}
 		</div>
 		{error && <p role="alert" className="px-3 py-1 text-caption text-danger">读取失败：{error}</p>}
-		{loading ? <p role="status" className="px-3 py-2 text-caption text-ink-faint">读取中…</p> : !entries.length && <p className="px-3 py-2 text-caption text-ink-faint">{all.length ? "没有匹配的记录。" : "这个对话还没有记录。"}</p>}
+		{loading ? <p role="status" className="px-3 py-2 text-caption text-ink-faint">读取中…</p> : !entries.length && <p className="px-3 py-2 text-caption text-ink-faint">{all.length ? "没有匹配的记录" : "暂无记录"}</p>}
 		<TraceList entries={entries} selected={selected} onSelect={select} resetKey={JSON.stringify([sources, deferredQuery, status, time])} collapsed={collapsed} onCollapse={collapse} target={target} />
 		{picked && <TraceInspector key={entryKey(picked)} anchor={controls.current} entry={picked} all={all} query={deferredQuery} onSelect={navigate} onClose={() => setSelected(null)} onExport={() => void exportFile("json", picked)} onOutput={() => void exportFile("output", picked)} onFork={() => void fork()} />}
 	</div>;

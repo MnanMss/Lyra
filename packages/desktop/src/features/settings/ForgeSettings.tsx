@@ -50,7 +50,7 @@ export function ForgeSettings() {
 			<div className="mb-3">
 				{accounts.length === 0 && !adding && (
 					<Card>
-						<EmptyHint>还没有账号。添加一个，就能在「拉取请求」里看到它的 Pull Request。</EmptyHint>
+						<EmptyHint>暂无代码托管账号</EmptyHint>
 					</Card>
 				)}
 

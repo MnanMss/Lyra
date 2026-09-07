@@ -19,7 +19,6 @@ import {
 	GitCommitHorizontal,
 	Loader2,
 	RefreshCw,
-	Sparkles,
 	Tag,
 	XCircle,
 } from "lucide-react";
@@ -116,9 +115,13 @@ function StatusIcon({
 }
 
 export function PipelinesView({ cwd, onOpenRelease }: PipelinesViewProps) {
-	const [runs, setRuns] = useState<WorkflowRunSummary[]>(() => readCachedRuns(cwd));
-	const [loading, setLoading] = useState(() => runs.length === 0);
+	const [result, setResult] = useState(() => readCachedRuns(cwd));
+	const runs = result ?? [];
+	const loading = result === null;
 	const [refreshing, setRefreshing] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const request = useRef(0);
+	const pendingRequest = useRef<number | null>(null);
 	const [inspectRun, setInspectRun] = useState<WorkflowRunSummary | null>(null);
 	const [runDetail, setRunDetail] = useState<WorkflowRunStatus | null>(null);
 	const [detailLoading, setDetailLoading] = useState(false);
@@ -131,7 +134,7 @@ export function PipelinesView({ cwd, onOpenRelease }: PipelinesViewProps) {
 	// 1-second live ticker for running tasks/steps so durations count up in real time
 	useEffect(() => {
 		const hasActive =
-			runs.some((r) => r.status === "in_progress" || r.status === "queued") ||
+			result?.some((r) => r.status === "in_progress" || r.status === "queued") ||
 			runDetail?.status === "in_progress" ||
 			runDetail?.status === "queued";
 
@@ -144,22 +147,30 @@ export function PipelinesView({ cwd, onOpenRelease }: PipelinesViewProps) {
 		return () => {
 			clearInterval(timer);
 		};
-	}, [runs, runDetail]);
+	}, [result, runDetail]);
 
 	const fetchRuns = useCallback(
-		async (silent = false) => {
-			if (!silent && runs.length === 0) setLoading(true);
-			else setRefreshing(true);
+		async () => {
+			if (pendingRequest.current !== null) return;
+			const generation = ++request.current;
+			pendingRequest.current = generation;
+			setRefreshing(true);
+			setError(null);
 			try {
 				const list = await bridge.git.listWorkflowRuns(cwd, 30);
-				setRuns(list);
+				if (generation !== request.current) return;
+				setResult(list);
 				writeCachedRuns(cwd, list);
+			} catch (cause) {
+				if (generation === request.current) setError(cause instanceof Error ? cause.message : String(cause));
 			} finally {
-				setLoading(false);
-				setRefreshing(false);
+				if (generation === request.current) {
+					pendingRequest.current = null;
+					setRefreshing(false);
+				}
 			}
 		},
-		[cwd, runs.length],
+		[cwd],
 	);
 
 	const fetchDetail = useCallback(
@@ -185,7 +196,10 @@ export function PipelinesView({ cwd, onOpenRelease }: PipelinesViewProps) {
 
 	// Initial load
 	useEffect(() => {
-		fetchRuns();
+		void fetchRuns();
+		// Hidden Activity views keep state, but their previous request no longer owns the next visit.
+		// oxlint-disable-next-line react-hooks/exhaustive-deps -- These refs track request ownership, not captured DOM nodes.
+		return () => { request.current++; pendingRequest.current = null; };
 	}, [fetchRuns]);
 
 	// Detail fetch on inspect change
@@ -200,13 +214,13 @@ export function PipelinesView({ cwd, onOpenRelease }: PipelinesViewProps) {
 	// Live polling when runs or inspecting run are in progress
 	useEffect(() => {
 		const hasActive =
-			runs.some((r) => r.status === "in_progress" || r.status === "queued") ||
+			result?.some((r) => r.status === "in_progress" || r.status === "queued") ||
 			runDetail?.status === "in_progress" ||
 			runDetail?.status === "queued";
 
 		if (hasActive) {
 			activePollRef.current = setInterval(() => {
-				fetchRuns(true);
+				void fetchRuns();
 				if (inspectRun) fetchDetail(inspectRun.id, true);
 			}, 3500);
 		} else {
@@ -216,45 +230,35 @@ export function PipelinesView({ cwd, onOpenRelease }: PipelinesViewProps) {
 		return () => {
 			if (activePollRef.current) clearInterval(activePollRef.current);
 		};
-	}, [runs, runDetail, inspectRun, fetchRuns, fetchDetail]);
+	}, [result, runDetail, inspectRun, fetchRuns, fetchDetail]);
 
 	const toggleJob = (jobId: number) => {
 		setExpandedJobs((prev) => ({ ...prev, [jobId]: !prev[jobId] }));
 	};
 
-	// Skeletons during initial cold load
-	if (showSkeleton) {
+	const actions = <div className="flex shrink-0 items-center justify-end gap-1 px-2.5 py-1.5">
+		<IconButton icon={<RefreshCw size={13.5} className={refreshing ? "ly-spin" : undefined} />} label="刷新流水线" disabled={refreshing} onClick={() => void fetchRuns()} />
+		{onOpenRelease && <IconButton icon={<Tag size={13.5} />} label="打开发版中心" onClick={onOpenRelease} />}
+	</div>;
+
+	// An unknown result must never fall through to the run list during the skeleton grace period.
+	if (loading && !error) {
 		return (
-			<div className="flex h-full flex-col p-2.5 overflow-hidden">
-				<PipelineSkeletonList count={6} />
+			<div className="flex min-h-0 flex-1 flex-col overflow-hidden p-2.5" aria-busy="true">
+				{showSkeleton && <PipelineSkeletonList count={6} />}
 			</div>
 		);
 	}
 
-	// Empty state
-	if (!loading && runs.length === 0) {
+	if (runs.length === 0) {
 		return (
-			<div className="flex h-full flex-col items-center justify-center p-6 text-center">
-				<div className="relative mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-card-hover text-ink-muted">
-					<Activity className="h-6 w-6 text-ink-faint" />
-					<span className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-500">
-						<Sparkles size={10} />
-					</span>
+			<div className="flex min-h-0 flex-1 flex-col">
+				{actions}
+				<div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 pb-8 text-center">
+					<Activity size={28} strokeWidth={1.5} className="text-ink-faint" />
+					<p className="text-label text-ink-muted">{error ? "无法读取流水线" : "暂无运行记录"}</p>
+					{error && <p role="alert" className="max-w-full break-words text-detail text-danger">{error}</p>}
 				</div>
-				<div className="text-ui font-medium text-ink">暂无流水线运行记录</div>
-				<div className="mt-1 max-w-xs text-detail text-ink-muted leading-relaxed">
-					尚未在此仓库检测到 GitHub Actions 构建或发版记录。你可以使用发版中心进行打包与发布。
-				</div>
-				{onOpenRelease && (
-					<button
-						type="button"
-						onClick={onOpenRelease}
-						className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-card-hover px-3 py-1.5 text-detail font-medium text-ink transition-colors hover:bg-fill-muted cursor-pointer"
-					>
-						<Tag size={13.5} className="text-amber-500" />
-						打开发版中心
-					</button>
-				)}
 			</div>
 		);
 	}
@@ -343,7 +347,7 @@ export function PipelinesView({ cwd, onOpenRelease }: PipelinesViewProps) {
 							</div>
 						) : !runDetail?.jobs?.length ? (
 							<div className="py-6 text-center text-detail text-ink-muted rounded-xl bg-card">
-								暂无任务数据（等待调度或尚未初始化）
+								暂无任务
 							</div>
 						) : (
 							<div className="space-y-1.5">
@@ -423,39 +427,8 @@ export function PipelinesView({ cwd, onOpenRelease }: PipelinesViewProps) {
 	// Default Run List View
 	return (
 		<div className="flex h-full flex-col overflow-hidden bg-shell">
-			{/* Top Bar Actions */}
-			<div className="flex items-center justify-between px-3 py-2">
-				<div className="flex items-center gap-2">
-					<Activity size={15} className="text-ink-muted" />
-					<span className="text-detail font-medium text-ink">CI / CD 流水线</span>
-					{/*
-					 * No 「运行中」 badge here.
-					 *
-					 * Every run in the list below already carries its own state — a spinner, a cross, a
-					 * warning — so a badge at the top said the same thing a second time, in the loudest
-					 * treatment on the panel. It was drawing the eye to a summary of what was directly
-					 * underneath it, and away from the rows that actually differ from one another.
-					 */}
-				</div>
-				<div className="flex items-center gap-1">
-					<IconButton
-						icon={<RefreshCw size={13.5} className={refreshing ? "animate-spin" : ""} />}
-						onClick={() => fetchRuns(false)}
-						label="刷新流水线"
-					/>
-					{onOpenRelease && (
-						<button
-							type="button"
-							onClick={onOpenRelease}
-							className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-caption font-medium text-ink-muted hover:text-ink hover:bg-card-hover transition-colors cursor-pointer"
-							data-ly-tip="打开 Git 发版管理"
-						>
-							<Tag size={12.5} strokeWidth={1.8} className="text-ink-muted" />
-							发版
-						</button>
-					)}
-				</div>
-			</div>
+			{actions}
+			{error && <p role="alert" className="px-3 pb-2 text-detail text-danger">{error}</p>}
 
 			{/* Clean Runs List */}
 			<Scroller className="flex-1 px-2.5 pb-4 space-y-1">

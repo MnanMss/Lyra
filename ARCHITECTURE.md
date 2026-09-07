@@ -35,6 +35,7 @@ Lyra 是一个 agent 运行时加两个前端。`packages/core` 平台无关，�
 见 [ADR-0001](docs/adr/0001-mobile-hosts-the-desktop-renderer.md) 与
 [移动端宿主、同步与能力边界](docs/architecture/mobile-sync.md)。界面语言的来源、三层宿主边界与
 不翻译的内容见 [界面国际化](docs/architecture/i18n.md)。
+缓存、骨架屏与空结果在视图切换时的约定见 [视图切换与加载](docs/architecture/view-loading.md)。
 
 ## 渲染进程的九个目录
 

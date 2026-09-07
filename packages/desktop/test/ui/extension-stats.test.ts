@@ -59,9 +59,9 @@ test("a tripped extension says so, and an idle page says the numbers are not fro
 	await view.unmount();
 });
 
-test("nothing installed is said in words that tell you where to put one", async () => {
+test("an empty extension list shows a concise status", async () => {
 	const view = await mount(h(ExtensionStatsList, { live: true, extensions: [], diagnostics: [] }));
-	assert.match(view.text(), /\.lyra\/extensions\//);
+	assert.equal(view.text(), "暂无扩展");
 	await view.unmount();
 });
 

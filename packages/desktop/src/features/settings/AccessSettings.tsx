@@ -53,7 +53,7 @@ export function AccessSettings() {
 			<Card className="mb-6">
 				{allowed.length === 0 ? (
 					<div className="px-4 py-6">
-						<EmptyHint>还没有。批准弹窗上点「始终允许」就会记在这里。</EmptyHint>
+						<EmptyHint>暂无「始终允许」记录</EmptyHint>
 					</div>
 				) : (
 					allowed.map((subject, index) => (

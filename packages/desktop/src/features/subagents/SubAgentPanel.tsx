@@ -67,7 +67,7 @@ export function SubAgentPanel() {
 	if (agents.length === 0) {
 		return (
 			<PanelEmpty icon={Bot} title="子 Agent">
-				主 Agent 把一部分工作派发出去时，这里会显示每个子 Agent 在做什么。它们各自有独立的上下文，正在运行的可以直接对话来纠偏。
+				暂无委派任务
 			</PanelEmpty>
 		);
 	}
@@ -149,7 +149,7 @@ function Transcript({ agent, sessionId }: { agent: SubAgentSummary; sessionId: s
 			>
 				{!messages || messages.length === 0 ? (
 					<p className="px-2 py-8 text-center text-detail text-ink-faint">
-						{loading || agent.status === "running" ? "刚开始，还没有输出。" : "这个子 Agent 没有留下内容。"}
+						{loading || agent.status === "running" ? "等待输出…" : "暂无输出"}
 					</p>
 				) : (
 					<SubAgentTranscript messages={messages} isLive={agent.status === "running"} />

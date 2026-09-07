@@ -49,7 +49,7 @@ export const TaskPanel = memo(function TaskPanel() {
 	return (
 		<Scroller scrollRef={scrollRef} className="flex-1 pt-2" contentClassName="relative px-2 pb-3">
 			<SessionServices />
-			{todos.length === 0 && runs.length === 0 && <PanelEmpty icon={ListTodo} title="任务">这个对话还没有执行过任何操作。</PanelEmpty>}
+			{todos.length === 0 && runs.length === 0 && <PanelEmpty icon={ListTodo} title="任务">暂无执行记录</PanelEmpty>}
 			{todos.length > 0 && (
 				<>
 					<Header label="计划" hint={`${done}/${todos.length}`} />
@@ -74,7 +74,7 @@ export const TaskPanel = memo(function TaskPanel() {
 						<SearchField value={query} onChange={setQuery} placeholder="搜索命令、参数、完整结果…" className="flex-1" />
 						<select aria-label="筛选任务执行状态" value={status} onChange={event => setStatus(event.target.value)} className="max-w-20 bg-transparent text-caption text-ink-faint"><option value="">全部</option><option value="running">进行中</option><option value="error">失败</option><option value="done">完成</option></select>
 					</div>
-					{!matched.length && <p className="px-2 py-2 text-caption text-ink-faint">没有匹配的执行记录。</p>}
+					{!matched.length && <p className="px-2 py-2 text-caption text-ink-faint">没有匹配的执行记录</p>}
 					<TaskRuns key={`${sessionId}:${search}:${status}`} runs={matched} scrollRef={scrollRef} query={search} />
 				</>
 			)}

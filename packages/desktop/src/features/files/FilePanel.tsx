@@ -26,7 +26,7 @@ export function FilePanel() {
 	if (!path && !opening) {
 		return (
 			<PanelEmpty icon={FileText} title="文件内容">
-				在文件面板里选一个文件，这里显示它的内容。
+				选择一个文件查看内容
 			</PanelEmpty>
 		);
 	}

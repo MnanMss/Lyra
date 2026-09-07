@@ -9,14 +9,14 @@ import type { WorkflowRunStatus, WorkflowRunSummary } from "../../../electron/ip
 const RUNS_PREFIX = "lyra.pipelines.runs.v1:";
 const DETAIL_PREFIX = "lyra.pipelines.detail.v1:";
 
-export function readCachedRuns(cwd: string): WorkflowRunSummary[] {
+export function readCachedRuns(cwd: string): WorkflowRunSummary[] | null {
 	try {
 		const raw = localStorage.getItem(`${RUNS_PREFIX}${cwd}`);
-		if (!raw) return [];
+		if (!raw) return null;
 		const parsed = JSON.parse(raw);
-		return Array.isArray(parsed) ? parsed : [];
+		return Array.isArray(parsed) ? parsed : null;
 	} catch {
-		return [];
+		return null;
 	}
 }
 

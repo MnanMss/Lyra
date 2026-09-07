@@ -56,13 +56,13 @@ export function SideChat() {
 				// It reads the conversation it is attached to; without one there is nothing to be
 				// beside.
 				<PanelEmpty icon={MessageCirclePlus} title="侧边聊天">
-					先在左边开始一个对话。侧边聊天读的是那个对话，没有它就无从谈起。
+					先打开一个对话
 				</PanelEmpty>
 			) : loading && messages.length === 0 ? (
 				<div role="status" className="flex flex-1 items-center justify-center text-label text-ink-faint">正在读取侧边聊天…</div>
 			) : messages.length === 0 ? (
 				<PanelEmpty icon={MessageCirclePlus} title="侧边聊天">
-					它看得见主会话聊了什么，但说的话不会写进主会话；需要动手的事，它会交给主会话排队执行。这里的对话会保留，随时回来接着聊。
+					围绕当前对话聊一聊
 				</PanelEmpty>
 			) : (
 				<div className="relative flex min-h-0 flex-1 flex-col">

@@ -223,11 +223,7 @@ function SlashCommands() {
 
 			<Card>
 				{commands.length === 0 ? (
-					<EmptyHint>
-						还没有命令。上面建一个，或者把写好的 .md 文件放进命令目录——
-						{/* Said plainly, because the commonest question about this feature is where the files go. */}
-						项目的 .lyra/commands、你的 ~/.lyra/commands，以及 Claude Code 的 .claude/commands 都会被读取。
-					</EmptyHint>
+					<EmptyHint>暂无自定义命令</EmptyHint>
 				) : (
 					<div className="p-2">
 						{commands.map((command) => (
@@ -278,7 +274,7 @@ function ToolInventory() {
 			<SectionTitle>内置工具（{builtin.length}）</SectionTitle>
 			<Card className="mb-6">
 				{builtin.length === 0 ? (
-					<EmptyHint>打开一个会话后即可查看。</EmptyHint>
+					<EmptyHint>打开会话后查看</EmptyHint>
 				) : (
 					<div className="flex flex-wrap gap-2 p-4">
 						{builtin.map((tool) => (
@@ -293,7 +289,7 @@ function ToolInventory() {
 			<SectionTitle>MCP 工具（{external.length}）</SectionTitle>
 			<Card>
 				{external.length === 0 ? (
-					<EmptyHint>没有已连接的 MCP 工具。</EmptyHint>
+					<EmptyHint>暂无已连接的 MCP 工具</EmptyHint>
 				) : (
 					<div className="flex flex-wrap gap-2 p-4">
 						{external.map((tool) => (

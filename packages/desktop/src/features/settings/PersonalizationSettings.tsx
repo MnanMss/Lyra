@@ -298,7 +298,7 @@ export function PersonalizationSettings() {
 							</div>
 						) : (
 							<div className="rounded-xl border border-line/60 bg-card/40 py-8 text-center text-caption text-ink-faint">
-								{loadingMemory ? "正在读取记忆..." : "暂无持久化记忆条目，可在此手动添加或在对话中自动沉淀。"}
+								{loadingMemory ? "正在读取记忆..." : "暂无用户记忆"}
 							</div>
 						)}
 					</div>
