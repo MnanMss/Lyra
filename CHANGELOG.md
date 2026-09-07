@@ -5,6 +5,23 @@
 只收录 0.8.0 及之后的版本：更早的提交信息还没有统一格式，勉强解析出来的条目比留白更容易误导。
 那些版本的说明在 [GitHub Releases](https://github.com/kittors/Lyra/releases) 里。
 
+## [0.9.1](https://github.com/kittors/Lyra/releases/tag/v0.9.1) - 2026-09-07
+
+### 新功能
+
+- 整合子智能体派活控制、模型切换与交付卡片交互修复 ([e8d2393](https://github.com/kittors/Lyra/commit/e8d2393db4578a4e2ff13703b566471dc859b611))
+- **desktop**: 截图工具栏放大可拖动，新增置顶到桌面与下载 ([bab5782](https://github.com/kittors/Lyra/commit/bab578204a6fd9dd96a46349c09647ea171ea99e))
+
+### 修复
+
+- **desktop**: 一轮干净结束后按钮回到发送，不再显示「继续」 ([21a9b6a](https://github.com/kittors/Lyra/commit/21a9b6a9af9d62962522c4ac516ca40525c60120))
+- **desktop**: 修复流式过程中转录区停止跟随底部 ([8ec1918](https://github.com/kittors/Lyra/commit/8ec1918482b181213472e7e95175865fe48bb52a))
+- **desktop**: 连拍截图不再把上一次的浮层拍进去 ([c5485ba](https://github.com/kittors/Lyra/commit/c5485bac394995c370b96424a147006d063c7421))
+
+### 文档
+
+- 补上 macOS 屏幕录制权限的重置办法 ([4236be0](https://github.com/kittors/Lyra/commit/4236be04f9e732923b3f437a964bb043e8f6fca0))
+
 ## [0.9.0](https://github.com/kittors/Lyra/releases/tag/v0.9.0) - 2026-09-07
 
 ### 新功能
