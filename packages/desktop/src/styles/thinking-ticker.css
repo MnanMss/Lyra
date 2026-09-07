@@ -39,12 +39,18 @@
 /*
  * The padding on the right keeps the newest word mostly clear of the fade — the fade says the
  * line continues; it should not dim the one word actually being written.
+ *
+ * No transition on the movement, deliberately. This track is placed every frame by the loop that
+ * types the line out, and a transition on top of that is a second animation chasing the first:
+ * the position always lagging where it was told to be, and the lag growing with the size of the
+ * step. The smoothness comes from the steps being small — the component only ever hands it a
+ * frame's worth of new characters. The one moment it does want easing is letting go of a line
+ * held under the pointer, and that sets a transition inline for the length of the glide.
  */
 .ly-think-track {
   display: inline-flex;
   padding-right: 16px;
   white-space: nowrap;
-  transition: transform var(--ly-t-slow) var(--ly-e-out);
   will-change: transform;
 }
 

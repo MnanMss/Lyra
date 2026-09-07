@@ -46,6 +46,8 @@ export const MessageRow = memo(function MessageRow({
   index,
   upTo,
   from,
+  lead,
+  newest,
   continued,
   turnStats,
   viewKey,
@@ -68,6 +70,16 @@ export const MessageRow = memo(function MessageRow({
    * See `Run.from` in `grouping.ts`. Absent everywhere else, which is every other row.
    */
   from?: number;
+  /**
+   * This row is only the reasoning that opens the reply, not the reply.
+   *
+   * The same message gets two rows when it thinks and then speaks, and everything that belongs to
+   * the reply as a whole — the failure, the delivery card, the timestamp and copy button — belongs
+   * to the second one. Without this they were drawn under both, so a turn came back stamped twice.
+   */
+  lead?: boolean;
+  /** The newest reply in the transcript: the only one whose reasoning can still be arriving. */
+  newest?: boolean;
   /** The runtime told it to keep going, so this is a pause rather than a finish. */
   continued?: boolean;
   /** Accumulated statistics for the turn this message concludes. */
@@ -117,7 +129,7 @@ export const MessageRow = memo(function MessageRow({
   if (message.role === "toolResult") return null;
 
   return (
-    <AssistantRow message={message} index={index} upTo={upTo} from={from} continued={continued} turnStats={turnStats} viewKey={viewKey} />
+    <AssistantRow message={message} index={index} upTo={upTo} from={from} lead={lead} newest={newest} continued={continued} turnStats={turnStats} viewKey={viewKey} />
   );
 });
 
@@ -126,6 +138,8 @@ function AssistantRow({
   index,
   upTo,
   from = 0,
+  lead,
+  newest,
   continued,
   turnStats,
   viewKey,
@@ -134,6 +148,8 @@ function AssistantRow({
   index: number;
   upTo: number;
   from?: number;
+  lead?: boolean;
+  newest?: boolean;
   continued?: boolean;
   turnStats?: TurnStats;
   viewKey?: string;
@@ -172,15 +188,22 @@ function AssistantRow({
           // `segments` numbers what it was handed; `from` puts that back on the message's own scale.
           const at = from + index;
           if (block.type === "thinking") {
-            // Ticking while it is the block being written: only the newest block of a reply that is
-            // still arriving can be, whatever the message as a whole is doing.
+            /*
+             * Typing itself out while it is the reasoning still being written.
+             *
+             * Not `stopReason === "pending"`, which is the reply's state and answers a different
+             * question. A provider that batches hands over the reasoning and the call after it in
+             * one breath, so the reply has already settled by the first render — and that is the
+             * case the typing exists for, not the one it should skip. What matters is that this is
+             * the newest reasoning in a transcript that is still moving; `grouping.ts` says which.
+             */
             return (
               <ThinkingBlock
                 key={at}
                 stateKey={viewKey ? `${viewKey}:thinking:${at}` : undefined}
                 text={block.thinking}
                 redacted={block.redacted === true}
-                live={message.stopReason === "pending" && at === message.content.length - 1}
+                live={newest === true && at === upTo - 1 && (running || message.stopReason === "pending")}
               />
             );
           }
@@ -198,7 +221,7 @@ function AssistantRow({
         return <ToolRunGroup key={`group-${position}`} calls={calls} />;
       })}
 
-      {message.stopReason === "error" && message.errorMessage && (
+      {!lead && message.stopReason === "error" && message.errorMessage && (
         /*
          * Stated, not staged.
          *
@@ -276,8 +299,8 @@ function AssistantRow({
        * one was getting its own timestamp and copy button, so a single reply came back stamped
        * four times. The row belongs to the message that finished the turn.
        */}
-      {settled(message.stopReason) && !continued && <TurnDeliveryCard timestamp={message.timestamp} />}
-      {settled(message.stopReason) && !continued && text.trim() && (
+      {!lead && settled(message.stopReason) && !continued && <TurnDeliveryCard timestamp={message.timestamp} />}
+      {!lead && settled(message.stopReason) && !continued && text.trim() && (
         <MessageActions
           timestamp={message.timestamp}
           text={text}
