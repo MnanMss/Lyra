@@ -5,6 +5,7 @@
 桌面主进程的 `browser-workspace.ts` 持有标签注册表；渲染进程只显示注册表对应的 sandboxed
 `webview`。用户和 Agent 操作同一页面，Agent 不再另开用户看不到的窗口。标签使用 UUID，
 最多 20 个，切换与关闭面板保留 DOM、表单、历史和页面脚本；关闭标签或明确释放会话才销毁。
+标签与底层存储按会话物理隔离：`<webview>` 使用 `persist:ly-browser-${sessionId}` 分区，会话销毁时主动清理该分区的存储数据。
 有浏览器标签或仍运行后台任务的会话不会被普通空闲淘汰回收。
 
 `browser_open`、`browser_tabs`、`browser_act`、`browser_viewport`、`browser_screenshot`

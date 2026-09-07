@@ -191,3 +191,19 @@ export function registerPreviewProtocols(options: {
 	protocol.handle(PREVIEW_SCHEME, servePreview);
 	session.fromPartition(browserPartition).protocol.handle(PREVIEW_SCHEME, servePreview);
 }
+
+export function installPreviewSchemeForPartition(partitionName: string): void {
+	const ses = session.fromPartition(partitionName);
+	const servePreview = async (request: Request): Promise<Response> => {
+		const url = new URL(request.url);
+		const root = previewsHome(lyraHome());
+		const target = resolve(root, url.hostname, decodeURIComponent(url.pathname).replace(/^\//, ""));
+		if (target !== root && !target.startsWith(root + sep)) return new Response("forbidden", { status: 403 });
+		const body = await readFile(target).catch(() => null);
+		if (!body) return new Response("not found", { status: 404 });
+		const type = contentTypeFor(target);
+		const payload = type.startsWith("text/html") ? withHeightReporter(body.toString("utf8")) : body;
+		return new Response(payload, { headers: { "content-type": type } });
+	};
+	if (!ses.protocol.isProtocolHandled(PREVIEW_SCHEME)) ses.protocol.handle(PREVIEW_SCHEME, servePreview);
+}

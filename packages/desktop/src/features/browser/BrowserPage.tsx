@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { BrowserTab } from "../../../shared/browser.ts";
+import { browserPartition, type BrowserTab } from "../../../shared/browser.ts";
 import { bridge } from "../../services/index.ts";
 import { useApp } from "../../store/index.ts";
 import { motionReduced } from "../../ui/motion/reduced.ts";
@@ -39,7 +39,7 @@ export function BrowserPage({ tab, active }: { tab: BrowserTab; active: boolean 
 	const x = Math.max(0, Math.min(size.width - 1, (pointer?.x ?? 0) * tab.zoom * scale));
 	const y = Math.max(0, Math.min(size.height - 1, (pointer?.y ?? 0) * tab.zoom * scale));
 	return <div className="absolute inset-0" style={{ visibility: active ? "visible" : "hidden", pointerEvents: active ? "auto" : "none" }}>
-		<webview ref={ref} src={initialUrl} partition="persist:ly-browser" data-browser-page={tab.id} className="absolute inset-0 h-full w-full bg-white" />
+		<webview ref={ref} src={initialUrl} partition={browserPartition(tab.sessionId)} data-browser-page={tab.id} className="absolute inset-0 h-full w-full bg-white" />
 		{pointer && <>
 			<div aria-hidden="true" className="pointer-events-none absolute left-0 top-0 z-10" style={{ transform: `translate(${x}px, ${y}px)` }}>
 				<div ref={ring} data-browser-click-ring className="absolute -left-3 -top-3 h-6 w-6 rounded-full border border-sky-300/70 bg-sky-400/15 opacity-0" />

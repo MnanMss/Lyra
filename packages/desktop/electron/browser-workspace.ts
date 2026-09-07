@@ -1,15 +1,26 @@
 import { randomUUID } from "node:crypto";
-import { webContents, type BrowserWindow, type WebContents } from "electron";
-import { browserUrl, browserViewport, browserZoom, type BrowserCommand, type BrowserPointer, type BrowserState, type BrowserTab } from "../shared/browser.ts";
+import { webContents, session as electronSession, type BrowserWindow, type WebContents } from "electron";
+import { browserPartition, browserUrl, browserViewport, browserZoom, type BrowserCommand, type BrowserPointer, type BrowserState, type BrowserTab } from "../shared/browser.ts";
+import { installPreviewSchemeForPartition } from "./preview-protocol.ts";
+import { installPermissionHandlersForPartition } from "./window-security.ts";
 
 interface Tab { size?: {width: number; height: number}; scale?: number; state: BrowserTab; contents?: WebContents; ready: Promise<WebContents>; resolve: (contents: WebContents) => void; reject: (error: Error) => void }
 const tabs = new Map<string, Tab>();
+const activeBySession = new Map<string, string | null>();
 let activeId: string | null = null;
+const preparedPartitions = new Set<string>();
+
+export function ensureBrowserPartition(partitionName: string): void {
+	if (preparedPartitions.has(partitionName)) return;
+	preparedPartitions.add(partitionName);
+	installPermissionHandlersForPartition(partitionName);
+	installPreviewSchemeForPartition(partitionName);
+}
 let host: (() => BrowserWindow | null) = () => null;
 let preferences: () => { defaultZoom?: number } = () => ({});
 export function configureBrowser(window: () => BrowserWindow | null, settings: () => { defaultZoom?: number }): void { host = window; preferences = settings; }
 export function browserState(): BrowserState { return { tabs: [...tabs.values()].map((tab) => ({ ...tab.state })), activeId }; }
-function publish(reveal = false): void {
+function publish(reveal: boolean | string = false): void {
 	const window = host();
 	if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send("browser:changed", { ...browserState(), reveal });
 }
@@ -30,12 +41,14 @@ function refresh(tab: Tab): void {
 
 export async function openBrowser(url: string, sessionId: string | null, newTab = false): Promise<string> {
 	const location = browserUrl(url);
-	const active = activeId ? tabs.get(activeId) : undefined;
+	const sessionKey = sessionId ?? "";
+	const preferredActiveId = activeBySession.get(sessionKey) ?? (activeId && tabs.get(activeId)?.state.sessionId === sessionId ? activeId : null);
+	const active = preferredActiveId ? tabs.get(preferredActiveId) : undefined;
 	const existing = !newTab && active?.state.sessionId === sessionId ? active : undefined;
 	if (existing) {
 		existing.state.error = undefined;
 		existing.state.url = location;
-		publish(true);
+		publish(sessionId ?? true);
 		const contents = await readyBrowser(existing);
 		await contents.loadURL(location);
 		return existing.state.id;
@@ -47,10 +60,12 @@ export async function openBrowser(url: string, sessionId: string | null, newTab 
 	const ready = new Promise<WebContents>((done, fail) => { resolve = done; reject = fail; });
 	// A closed pending tab may have no waiter after an open timeout.
 	void ready.catch(() => {});
+	ensureBrowserPartition(browserPartition(sessionId));
 	const tab: Tab = { resolve, reject, ready, state: { id, sessionId, url: location, title: "新标签页", loading: true, canGoBack: false, canGoForward: false, zoom: browserZoom(preferences().defaultZoom ?? 1), viewport: null } };
 	tabs.set(id, tab);
 	activeId = id;
-	publish(true);
+	activeBySession.set(sessionKey, id);
+	publish(sessionId ?? true);
 	await readyBrowser(tab);
 	return id;
 }
@@ -68,9 +83,9 @@ export function attachBrowser(id: string, contentsId: number, sender: WebContent
 	const tab = tabs.get(id);
 	const contents = webContents.fromId(contentsId);
 	if (!tab || !contents || contents.getType() !== "webview" || contents.hostWebContents !== sender) throw new Error("无效的浏览器页面");
+	ensureBrowserPartition(browserPartition(tab.state.sessionId));
 	if (tab.contents === contents) return;
 	if (tab.contents && !tab.contents.isDestroyed()) throw new Error("标签已经连接另一个页面");
-	tab.contents = contents;
 	contents.on("did-start-loading", () => refresh(tab));
 	contents.on("did-stop-loading", () => refresh(tab));
 	contents.on("did-navigate", () => refresh(tab));
@@ -116,7 +131,14 @@ export async function browserCommand(command: BrowserCommand): Promise<BrowserSt
 	const contents = browserContents(command.id);
 	switch (command.type) {
 		// Chromium shares zoom by origin; restore this tab's preference when bringing it forward.
-		case "select": activeId = command.id; contents.setZoomFactor(tab.state.zoom); fitViewport(tab); publish(true); break;
+		case "select": {
+			activeId = command.id;
+			activeBySession.set(tab.state.sessionId ?? "", command.id);
+			contents.setZoomFactor(tab.state.zoom);
+			fitViewport(tab);
+			publish(tab.state.sessionId ?? true);
+			break;
+		}
 		case "back": if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack(); break;
 		case "forward": if (contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward(); break;
 		case "reload": tab.state.error = undefined; contents.reload(); break;
@@ -143,13 +165,30 @@ export function closeBrowser(id: string): void {
 	const tab = tabs.get(id);
 	if (!tab) return;
 	tabs.delete(id);
-	if (activeId === id) activeId = [...tabs.keys()].at(-1) ?? null;
+	const sessionKey = tab.state.sessionId ?? "";
+	if (activeBySession.get(sessionKey) === id) {
+		const remainingSessionTabs = [...tabs.values()].filter((entry) => (entry.state.sessionId ?? "") === sessionKey);
+		activeBySession.set(sessionKey, remainingSessionTabs.at(-1)?.state.id ?? null);
+	}
+	if (activeId === id) activeId = activeBySession.get(sessionKey) ?? [...tabs.keys()].at(-1) ?? null;
 	if (tab.contents && !tab.contents.isDestroyed()) tab.contents.close();
 	else tab.reject(new Error("浏览器标签已关闭"));
 	publish();
 }
 export function closeSessionBrowser(sessionId: string): void {
 	for (const tab of tabs.values()) if (tab.state.sessionId === sessionId) closeBrowser(tab.state.id);
+	activeBySession.delete(sessionId);
+}
+
+export async function clearSessionBrowserStorage(sessionId: string): Promise<void> {
+	closeSessionBrowser(sessionId);
+	const partitionName = browserPartition(sessionId);
+	try {
+		const ses = electronSession.fromPartition(partitionName);
+		await ses.clearStorageData();
+	} catch {
+		// Ignore errors if partition was never accessed or already torn down
+	}
 }
 
 function fitViewport(tab: Tab): void {

@@ -50,6 +50,10 @@ export function browserViewport(value: BrowserViewport | null): BrowserViewport 
 	return { width: value.width, height: value.height };
 }
 
+export function browserPartition(sessionId: string | null): string {
+	return sessionId ? `persist:ly-browser-${sessionId}` : "persist:ly-browser-global";
+}
+
 /** IPC data is not made safe by a TypeScript annotation. */
 export function parseBrowserCommand(value: unknown): BrowserCommand {
 	if (!value || typeof value !== "object" || !("type" in value)) throw new Error("无效的浏览器操作");

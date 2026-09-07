@@ -12,8 +12,11 @@ import { BrowserSelectionCard } from "./BrowserSelectionCard.tsx";
 import { commandBrowser, useBrowser } from "./browser-store.ts";
 
 export function BrowserPanel() {
-	const tabs = useBrowser((state) => state.tabs);
-	const activeId = useBrowser((state) => state.activeId);
+	const allTabs = useBrowser((state) => state.tabs);
+	const globalActiveId = useBrowser((state) => state.activeId);
+	const activeSessionId = useApp((state) => state.activeSessionId);
+	const tabs = allTabs.filter((entry) => entry.sessionId === activeSessionId);
+	const activeId = tabs.some((entry) => entry.id === globalActiveId) ? globalActiveId : (tabs.at(-1)?.id ?? null);
 	const tab = tabs.find((entry) => entry.id === activeId);
 	const settings = useApp((state) => state.settings);
 	const saveSettings = useApp((state) => state.saveSettings);
@@ -28,7 +31,7 @@ export function BrowserPanel() {
 	const blank = !tab || tab.url === "about:blank";
 	useEffect(() => { setAddress(tab?.url === "about:blank" ? "" : tab?.url ?? ""); setSelection(null); setInspecting(null); }, [tab?.id, tab?.url]);
 	const command = (type: "back" | "forward" | "reload" | "devtools") => { if (tab) void commandBrowser({ type, id: tab.id }); };
-	const open = (url: string, newTab = false) => void commandBrowser({ type: "open", url, sessionId: useApp.getState().activeSessionId, newTab });
+	const open = (url: string, newTab = false) => void commandBrowser({ type: "open", url, sessionId: activeSessionId, newTab });
 	const mark = async () => {
 		if (!tab || !settings) return;
 		const list = settings.browser?.bookmarks ?? [];

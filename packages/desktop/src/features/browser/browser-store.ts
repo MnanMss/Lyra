@@ -16,7 +16,12 @@ export function useBrowserWorkspace(): void {
 		if (onPhone()) return;
 		const unsubscribe = bridge.browser.onChanged((state) => {
 			useBrowser.setState({ tabs: state.tabs, activeId: state.activeId });
-			if (state.reveal) useDock.getState().open("browser");
+			if (state.reveal) {
+				const activeSessionId = useApp.getState().activeSessionId;
+				if (state.reveal === true || state.reveal === activeSessionId) {
+					useDock.getState().open("browser");
+				}
+			}
 		});
 		void bridge.browser.state().then((state) => useBrowser.setState(state));
 		const unwatch = useSide.subscribe((state, previous) => {

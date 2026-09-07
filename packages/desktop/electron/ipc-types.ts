@@ -172,7 +172,7 @@ export interface LyraApi {
 		attach(id: string, contentsId: number): Promise<void>;
 		inspect(id: string, mode: "element" | "region"): Promise<import("../shared/browser.ts").BrowserSelection | null>;
 		cancelInspect(id: string): Promise<void>;
-		onChanged(handler: (state: import("../shared/browser.ts").BrowserState & { reveal: boolean }) => void): () => void;
+		onChanged(handler: (state: import("../shared/browser.ts").BrowserState & { reveal: boolean | string }) => void): () => void;
 	};
 	/**
 	 * Which operating system this is, available before the first paint.

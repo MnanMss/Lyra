@@ -11,7 +11,7 @@
 
 import { AgentSession, backgroundJobs, type AgentEvent, type SessionStorage, type Settings, type SideChat } from "@lyra/core";
 import type { BrowserWindow } from "electron";
-import { browserState, closeSessionBrowser } from "./browser-workspace.ts";
+import { browserState, closeSessionBrowser, clearSessionBrowserStorage } from "./browser-workspace.ts";
 import { createBrowserTools } from "./browser-tools.ts";
 import { autoCreateSessionWorktree, cleanOldWorktrees } from "./git-worktrees.ts";
 import type { SessionChange } from "./ipc-shapes.ts";
@@ -211,7 +211,7 @@ export async function disposeSession(sessionId: string): Promise<void> {
 	submitted.delete(sessionId);
 	try { await initializing.get(sessionId); } catch { /* Failed initialization still owns resources to release. */ }
 	await sessions.get(sessionId)?.dispose();
-	closeSessionBrowser(sessionId);
+	await clearSessionBrowserStorage(sessionId);
 	browsers.get(sessionId)?.();
 	browsers.delete(sessionId);
 	// A side chat reads its session's live message list; without the session it has nothing

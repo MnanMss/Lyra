@@ -62,23 +62,29 @@ export function guardWebviews(contents: WebContents): void {
 	});
 }
 
+/** Apply permission request and check handlers to an Electron session. */
+function bindPermissionHandlers(ses: import("electron").Session): void {
+	ses.setPermissionRequestHandler((contents, permission, callback) => {
+		callback(isPermissionGranted(contents?.getURL() ?? "", permission, devServer()));
+	});
+	/*
+	 * The synchronous half.
+	 *
+	 * Some capabilities are checked rather than requested — a page asking whether it *could*
+	 * have the microphone. Leaving this unset means the answer is yes for things the handler
+	 * above would refuse, which is a confusing pair of answers to give.
+	 */
+	ses.setPermissionCheckHandler((contents, permission) =>
+		isPermissionGranted(contents?.getURL() ?? "", permission, devServer()),
+	);
+}
+
 /** Answer permission requests for the default session and any extra partitions. */
 export function installPermissionHandlers(partitions: string[]): void {
 	const sessions = [session.defaultSession, ...partitions.map((name) => session.fromPartition(name))];
+	for (const ses of sessions) bindPermissionHandlers(ses);
+}
 
-	for (const ses of sessions) {
-		ses.setPermissionRequestHandler((contents, permission, callback) => {
-			callback(isPermissionGranted(contents?.getURL() ?? "", permission, devServer()));
-		});
-		/*
-		 * The synchronous half.
-		 *
-		 * Some capabilities are checked rather than requested — a page asking whether it *could*
-		 * have the microphone. Leaving this unset means the answer is yes for things the handler
-		 * above would refuse, which is a confusing pair of answers to give.
-		 */
-		ses.setPermissionCheckHandler((contents, permission) =>
-			isPermissionGranted(contents?.getURL() ?? "", permission, devServer()),
-		);
-	}
+export function installPermissionHandlersForPartition(partitionName: string): void {
+	bindPermissionHandlers(session.fromPartition(partitionName));
 }
