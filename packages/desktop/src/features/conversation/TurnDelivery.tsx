@@ -16,23 +16,25 @@ import { latestDeliveryTimestamp } from "./delivery-state.ts";
 const PREVIEW_FILES = 3;
 
 /**
- * How long the pointer has to mean it.
+ * How long the pointer has to rest on a row before that row is what it meant.
  *
- * The preview used to open on the frame the pointer touched a row, and a card whose rows sit
- * directly under its own 「撤销」 and 「审核」 is a card you cannot reach those buttons on: going for
- * them crosses the rows, and the preview was up before the pointer had left them. Waiting is what
- * separates "reading this file" from "on my way somewhere".
+ * Two things depend on this being long, and both of them used to be broken by it being zero.
  *
- * Switching is quicker, because by then the question has already been answered — the surface is
- * open and only its subject changes. Long enough that dragging the pointer down five rows does not
- * play five files.
+ * The card's own 「撤销」 and 「审核」 sit directly above these rows, so going for them crosses them —
+ * and the preview was up before the pointer had left. It opens above the row, over the buttons, so
+ * the one action this turn offers became unreachable by trying to reach it.
+ *
+ * And the rows are flush against each other, with the preview 8px above the one it belongs to — so
+ * that 8px is the row above. Nudging up from the last file lands there, and if switching were quick
+ * the whole surface would jump a row and redraw, which from the outside is the preview vanishing.
+ * Switching waits exactly as long as opening does: cross that row on the way into the preview and
+ * the switch is cancelled before it ever happens.
  */
-const HOVER_OPEN_MS = 350;
-const HOVER_SWITCH_MS = 90;
+const HOVER_OPEN_MS = 2000;
 /**
  * And how long it has to mean leaving.
  *
- * The gap between the card and the preview above it is real, and crossing it is how you get to the
+ * The gap between a row and the preview above it is real, and crossing it is how you get to the
  * diff to scroll it. Closing on the frame the pointer left the card would make that crossing
  * impossible.
  */
@@ -60,19 +62,8 @@ function Delivery({ sessionId, timestamp }: { sessionId: string; timestamp: numb
 	const [expanded, setExpanded] = useState(false);
 	const [review, setReview] = useState<string | true | null>(null);
 	const [undoing, setUndoing] = useState(false);
-	/**
-	 * Which file is being previewed — not which row it came from.
-	 *
-	 * The preview hangs off the card, so moving between rows changes what it shows and nothing
-	 * else. Anchored to the row, it was 36px lower for every row down the list and 36px higher for
-	 * every row up: the rows are flush against each other and the preview sits 8px above the one it
-	 * belongs to, so nudging the pointer up from the last file landed on the row above it and the
-	 * whole surface jumped and redrew. What that looks like from the outside is the preview
-	 * vanishing. It also put the preview over the card's own 「撤销」 and 「审核」, which is the other
-	 * half of why they could not be reached.
-	 */
-	const [hover, setHover] = useState<DeliveryFile | null>(null);
-	const card = useRef<HTMLElement>(null);
+	/** The row being previewed, and the file it stands for — the preview hangs off that row. */
+	const [hover, setHover] = useState<{ anchor: HTMLElement; file: DeliveryFile } | null>(null);
 	const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const live = useRef(true);
 	const undoLock = useRef(false);
@@ -84,7 +75,8 @@ function Delivery({ sessionId, timestamp }: { sessionId: string; timestamp: numb
 	}, [sessionId, timestamp]);
 	// Opening, switching and closing are the same decision made three ways, so they share one timer:
 	// whichever happened last is the one that gets to land.
-	const schedule = (next: DeliveryFile | null, delay: number) => { clearTimeout(hoverTimer.current); hoverTimer.current = setTimeout(() => setHover(next), delay); };
+	type Hovered = { anchor: HTMLElement; file: DeliveryFile } | null;
+	const schedule = (next: Hovered, delay: number) => { clearTimeout(hoverTimer.current); hoverTimer.current = setTimeout(() => setHover(next), delay); };
 	const keepHover = () => clearTimeout(hoverTimer.current);
 	const closeHover = () => schedule(null, HOVER_CLOSE_MS);
 	/** Gone now, and no pending intent left to bring it back a moment later. */
@@ -114,9 +106,9 @@ function Delivery({ sessionId, timestamp }: { sessionId: string; timestamp: numb
 		className="flex h-9 w-full items-center gap-3 rounded-md px-3 text-left text-label transition-colors hover:bg-card-hover focus-visible:bg-card-hover"
 		// No `onMouseLeave` here: leaving a row for the row below it, or for the card's own header,
 		// is not leaving the preview. The card answers that, once, below.
-		onMouseEnter={() => schedule(file, hover ? HOVER_SWITCH_MS : HOVER_OPEN_MS)}
+		onMouseEnter={(event) => schedule({ anchor: event.currentTarget, file }, HOVER_OPEN_MS)}
 		// Focus is not a pointer passing through — it is already the answer, so it does not wait.
-		onFocus={() => { keepHover(); setHover(file); }} onBlur={closeHover}
+		onFocus={(event) => { keepHover(); setHover({ anchor: event.currentTarget, file }); }} onBlur={closeHover}
 		onClick={() => { hideHover(); setReview(file.path); }}>
 		<FileName path={relative(file.path)} /><Counts added={file.added} removed={file.removed} />
 	</button>;
@@ -131,12 +123,26 @@ function Delivery({ sessionId, timestamp }: { sessionId: string; timestamp: numb
 		 * card, and a `section` is not something a pointer listener may hang on.
 		 */}
 		<div className="mt-3" onMouseLeave={closeHover}>
-			<section ref={card} data-turn-delivery aria-label="文件变更" className="rounded-xl border border-line bg-card/30 text-label">
+			<section data-turn-delivery aria-label="文件变更" className="rounded-xl border border-line bg-card/30 text-label">
 				<div className="flex min-h-16 flex-wrap items-center gap-3 px-3 py-3">
 					<span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-card-hover text-ink-muted"><FileDiff size={21} strokeWidth={1.7} /></span>
 					<div className="min-w-0 flex-1"><p className="font-medium text-ink">已编辑 {data.files.length} 个文件</p><Counts added={added} removed={removed} /></div>
 					<div className="ml-auto flex shrink-0 items-center gap-1">
-						<Button size="sm" variant="subtle" icon={<Undo2 size={14} />} disabled={!data.files.every((file) => file.canUndo)} loading={undoing} label="撤销这次文件改动" onClick={() => askUndo()}>撤销</Button>
+						{/*
+						 * Offered only when it can actually be done.
+						 *
+						 * It used to sit here greyed out, and a disabled button explains nothing: the
+						 * browser sends it no pointer events, so its tooltip never opens — a dead grey
+						 * block holding a place, saying neither what it would do nor why it will not.
+						 * A file this turn touched can stop being undoable for reasons that have nothing
+						 * to do with this card (something else wrote to it afterwards, or a command did),
+						 * and none of that is a state this row can usefully show.
+						 *
+						 * Undoing one file at a time is still there, in 「审核」, where the same condition
+						 * is per file and does carry its reason.
+						 */}
+						{data.files.every((file) => file.canUndo) &&
+							<Button size="sm" variant="subtle" icon={<Undo2 size={14} />} loading={undoing} label="撤销这次文件改动" onClick={() => askUndo()}>撤销</Button>}
 						<Button size="sm" icon={<Files size={14} />} label="审核全部文件改动" onClick={() => { hideHover(); setReview(true); }}>审核</Button>
 					</div>
 				</div>
@@ -152,29 +158,48 @@ function Delivery({ sessionId, timestamp }: { sessionId: string; timestamp: numb
 			</section>
 		</div>
 		{/*
-		 * As wide as the card, and directly above it.
+		 * Directly above the row it came out of, and as wide as it.
 		 *
 		 * The width was 720 — a number from nowhere, and on an ordinary window some 250px wider than
 		 * the card underneath it. The preview hung off both sides of the thing that produced it and
-		 * read as a surface from some other layout that happened to land there. The card has no
-		 * width of its own to copy: it is as wide as the column, and the column follows the window.
+		 * read as a surface from some other layout that happened to land there. The row has no width
+		 * of its own to copy: it is as wide as the column, and the column follows the window.
 		 *
 		 * Measured off the anchor at open time, on the same terms as the position — a popover is
 		 * placed by the layout it opened into, and width is part of that placement, not a separate
 		 * thing to keep chasing afterwards.
 		 *
-		 * The anchor is the card and not the row, which is what keeps the surface still while the
-		 * pointer reads down the list, and keeps it off the card's own two buttons. See `hover`.
+		 * Off the row rather than off the card, so it stays attached to what it is previewing.
+		 * Hung off the card it was steady, and pointlessly far: on a card with five files it opened
+		 * a full card-height above the row it was showing, with the header and the other rows in
+		 * between, and nothing about it said which file it belonged to. Staying still is what
+		 * `HOVER_OPEN_MS` is for — time, not distance.
 		 */}
-		{hover && card.current && <Popover anchor={card.current} onClose={hideHover} role="group" label="文件变更预览" placement="top" align="start" width={card.current.offsetWidth} maxHeight={420}
+		{hover && <Popover anchor={hover.anchor} onClose={hideHover} role="group" label="文件变更预览" placement="top" align="start" width={hover.anchor.offsetWidth} maxHeight={420}
 			surface="panel" onMouseEnter={keepHover} onMouseLeave={closeHover}
-			header={<div className="flex min-w-0 items-center gap-3 px-3 py-2 text-label"><FileName path={relative(hover.path)} /><Counts added={hover.added} removed={hover.removed} /></div>}>
-			<DiffView path={hover.path} hunks={hover.hunks} maxLines={Infinity} />
+			header={<div className="flex min-w-0 items-center gap-3 px-3 py-2 text-label"><FileName path={relative(hover.file.path)} /><Counts added={hover.file.added} removed={hover.file.removed} /></div>}>
+			<DiffView path={hover.file.path} hunks={hover.file.hunks} maxLines={Infinity} />
 		</Popover>}
+		{/*
+		 * A reading surface, not a form with diffs on it.
+		 *
+		 * Everything here used to scroll together inside 16px of padding: the dialog's title left
+		 * the top of the window as soon as you moved, each file's name went with it — so halfway
+		 * down a five-file review nothing on screen said which file you were reading — and the code,
+		 * inset on all four sides, sat as a smaller rectangle inside the dialog with the dialog's own
+		 * colour showing around it and the scrollbar riding 16px clear of the text it scrolls.
+		 *
+		 * So: the title is a fixed rail, each file's name holds at the top of the scroll until the
+		 * next one pushes it off, and the code goes edge to edge with the bar over it. `top="line"`
+		 * rather than a fade, because content here slides under something solid rather than
+		 * dissolving into the window — and a fade would have softened the very names being held.
+		 */}
 		{review && <Overlay onClose={() => setReview(null)} width={850}>
-			<Scroller className="max-h-[75vh]" contentClassName="p-4"><h2 data-dialog-title className="mb-3 text-body text-ink">文件变更</h2>
-				{data.files.filter((file) => review === true || review === file.path).map((file) => <div key={file.path} className="mb-4">
-					<div className="mb-2 flex items-center gap-3 text-label"><FileName path={relative(file.path)} /><Counts added={file.added} removed={file.removed} /><IconButton size="sm" icon={<Undo2 size={14} />} label={file.canUndo ? "撤销此文件的改动" : "无法自动撤销，请核对后续修改"} explainDisabled disabled={!file.canUndo || undoing} onClick={() => askUndo(file)} /></div>
+			<div className="shrink-0 border-b border-line px-4 py-3"><h2 data-dialog-title className="text-body text-ink">文件变更</h2></div>
+			<Scroller className="min-h-0 flex-auto" top="line" bottom="none">
+				{data.files.filter((file) => review === true || review === file.path).map((file) => <div key={file.path} className="border-t border-line first:border-t-0">
+					{/* Above the diff's own pinned columns and its sideways bar — see `DiffView`. */}
+					<div className="sticky top-0 z-[3] flex items-center gap-3 border-b border-line-soft bg-float px-3 py-2 text-label"><FileName path={relative(file.path)} /><Counts added={file.added} removed={file.removed} /><IconButton size="sm" icon={<Undo2 size={14} />} label={file.canUndo ? "撤销此文件的改动" : "无法自动撤销，请核对后续修改"} explainDisabled disabled={!file.canUndo || undoing} onClick={() => askUndo(file)} /></div>
 					<DiffView path={file.path} hunks={file.hunks} maxLines={Infinity} />
 				</div>)}
 			</Scroller>
