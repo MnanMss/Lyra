@@ -138,25 +138,23 @@ export function PaneHeader({
 			 */
 			className="drag-region group/header relative flex shrink-0 items-center gap-1.5"
 		>
-			{!hideTitle && !title && icon && (
-				<span className="flex shrink-0 items-center text-ink-faint">{icon}</span>
-			)}
 			{/*
 			 * A panel may put a control here instead of its name — the terminal's tab strip does,
 			 * because once a pane holds several of something, choosing between them *is* the title.
 			 */}
-			{title ? (
-				<div className="flex min-w-0 flex-1" style={{
+			<div data-dock-heading-slot className="min-w-0 flex-1" style={{
 					// The grip is centered on the full header, including the OS control insets.
-					maxWidth: draggable
+					maxWidth: title && draggable
 						? `calc(50% + ${((insetEnd ?? 0) + 6 - (inset ?? 0) - HEADER_PAD - GRIP_WIDTH) / 2 - 6}px)`
 						: undefined,
-				}}>{title}</div>
-			) : (
-				<span className="min-w-0 flex-1 truncate text-detail text-ink-muted select-none">
-					{hideTitle ? "" : label}
-				</span>
-			)}
+				}}>
+				<div data-dock-heading className="flex min-w-0 items-center gap-1.5">
+					{title ?? <>
+						{!hideTitle && icon && <span className="flex shrink-0 items-center text-ink-faint">{icon}</span>}
+						<span className="min-w-0 flex-1 truncate text-detail text-ink-muted select-none">{hideTitle ? "" : label}</span>
+					</>}
+				</div>
+			</div>
 
 			{/*
 			 * The grip: a short bar near the top edge, centred, and the only thing that moves the pane.
@@ -178,6 +176,7 @@ export function PaneHeader({
 				<button
 					type="button"
 					data-dock-grip={kind}
+					data-dock-heading
 					aria-label={shortcutLabel(`移动${label}：拖动，或 ⌥ 加方向键`)}
 					data-ly-tip="移动"
 					onPointerDown={onDragStart}
@@ -203,7 +202,7 @@ export function PaneHeader({
 			 * — which does not visibly break anything, but leaves the pane lifted for the length
 			 * of the click and the layout flickering under it.
 			 */}
-			<div className="no-drag ml-auto flex shrink-0 items-center gap-0.5">
+			<div data-dock-actions className="no-drag relative z-[1] ml-auto flex shrink-0 items-center gap-0.5">
 				{actions}
 				{/*
 				 * Only where there is something to maximise *from*.

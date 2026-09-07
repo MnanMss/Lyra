@@ -2,7 +2,7 @@
  * Branches, and the diff between any two of them.
  */
 import { Input } from "../../ui/inputs/NativeField.tsx";
-import { GitBranchPlus, FolderGit2 } from "lucide-react";
+import { GitBranchPlus, FolderGit2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import type { GitStatus, WorkspaceDiffFile } from "../../../electron/ipc-types.ts";
@@ -14,6 +14,7 @@ import { Scroller } from "../../ui/scroll/Scroller.tsx";
 import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
 import { SkeletonList, useSlowLoad } from "../../ui/primitives/Skeleton.tsx";
 import { Text } from "../../ui/primitives/Text.tsx";
+import { IconButton } from "../../ui/primitives/IconButton.tsx";
 
 import { FileDiffList } from "./FileDiffList.tsx";
 
@@ -139,7 +140,7 @@ export function BranchesView({
            */}
           {checkouts.length > 1 && (
             <>
-              <GroupHeader label="工作区" count={checkouts.length} action="" disabled onAction={() => {}} />
+							<GroupHeader label="工作区" count={checkouts.length} />
               {checkouts.map((entry) => (
                 <button
                   key={entry.path}
@@ -169,12 +170,18 @@ export function BranchesView({
           <GroupHeader
             label="本地"
             count={branches.local.length}
-            action={creating ? "取消" : "新建"}
-            disabled={busy}
-            onAction={() => {
-              setCreating(!creating);
-              setName("");
-            }}
+						actions={
+							<IconButton
+								label={creating ? "取消新建分支" : "新建分支"}
+								icon={creating ? <X size={13} strokeWidth={1.9} /> : <GitBranchPlus size={13} strokeWidth={1.9} />}
+								size="sm"
+								disabled={busy}
+								onClick={() => {
+									setCreating(!creating);
+									setName("");
+								}}
+							/>
+						}
           />
 
           {creating && (
@@ -250,13 +257,7 @@ export function BranchesView({
           ))}
 
           {remotes.length > 0 && (
-            <GroupHeader
-              label="远程"
-              count={remotes.length}
-              action=""
-              disabled
-              onAction={() => {}}
-            />
+						<GroupHeader label="远程" count={remotes.length} />
           )}
           {remotes.map((branch) => (
             <BranchRow

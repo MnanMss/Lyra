@@ -87,6 +87,8 @@ async function measure(kind: string, restore: boolean): Promise<Measurement> {
 	const label = restore ? "退出全屏" : "全屏";
 	return app.evaluate(`(async()=>{
 		const pane = document.querySelector('[data-dock-pane="${kind}"]');
+		// The root owns final layout; its retained visual surface owns the composited movement.
+		const surface = pane.querySelector('[data-dock-motion]');
 		const peers = [...document.querySelectorAll('[data-dock-pane]')].map(e=>[e.dataset.dockPane,e,e.querySelector('.ly-scroll-view,.xterm-screen,.cm-editor,webview')]);
 		const scroller = pane.querySelector('.ly-scroll-view,.cm-scroller');
 		const scrollBefore = scroller?.scrollTop ?? 0;
@@ -97,7 +99,7 @@ async function measure(kind: string, restore: boolean): Promise<Measurement> {
 		const out=[]; let previous=performance.now();
 		pane.querySelector('button[aria-label^="${label}"]').click();
 		for(let i=0;i<40;i++) {
-			await new Promise(requestAnimationFrame); const now=performance.now(), box=pane.getBoundingClientRect();
+			await new Promise(requestAnimationFrame); const now=performance.now(), box=surface.getBoundingClientRect();
 			out.push({interval:now-previous,left:box.left,top:box.top,width:box.width,height:box.height,layoutWidth:pane.offsetWidth,layoutHeight:pane.offsetHeight}); previous=now;
 		}
 		observer.disconnect();tasks.disconnect();loaf.disconnect();
@@ -163,7 +165,8 @@ test("rapid fullscreen reversals preserve scroll and finish without a second dri
 	const result = await app.evaluate<{ deltas: number[]; tail: string[]; scroll: number; hiddenInteractive: boolean; animations: number }>(`(async()=>{
 		const pane=document.querySelector('[data-dock-pane="file"]'), scroll=pane.querySelector('.ly-scroll-view');
 		scroll.scrollTop=1200;
-		const frame=()=>new Promise(requestAnimationFrame), rect=()=>{const r=pane.getBoundingClientRect();return [r.x,r.y,r.width,r.height];};
+		const surface=pane.querySelector('[data-dock-motion]');
+		const frame=()=>new Promise(requestAnimationFrame), rect=()=>{const r=surface.getBoundingClientRect();return [r.x,r.y,r.width,r.height];};
 		const deltas=[];
 		for(let i=0;i<8;i++) {
 			await frame();await frame();const from=rect();
@@ -172,7 +175,7 @@ test("rapid fullscreen reversals preserve scroll and finish without a second dri
 		}
 		for(let i=0;i<20;i++)await frame();const tail=[];
 		for(let i=0;i<10;i++){await frame();tail.push(rect().map(Math.round).join(','));}
-		return {deltas,tail,scroll:scroll.scrollTop,hiddenInteractive:[...document.querySelectorAll('[data-dock-pane][inert]')].some(e=>getComputedStyle(e).opacity!=='0'),animations:pane.getAnimations().length};
+		return {deltas,tail,scroll:scroll.scrollTop,hiddenInteractive:[...document.querySelectorAll('[data-dock-pane][inert]')].some(e=>getComputedStyle(e).opacity!=='0'),animations:surface.getAnimations().length};
 	})()`);
 	t.diagnostic(JSON.stringify(result));
 	assert.ok(result.deltas.every(delta => delta < 1), "reversal starts at the currently displayed position");

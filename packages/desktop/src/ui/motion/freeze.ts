@@ -76,8 +76,10 @@ export function freezeMotion(): () => void {
 		frozen = [...document.querySelectorAll(FREEZABLE)];
 		for (const element of frozen) {
 			// A splitter or window resize takes over immediately, including a compositor flight.
-			for (const motion of element.getAnimations()) {
-				if (motion.id === "ly-dock-geometry") motion.finish();
+			for (const surface of [element, ...element.querySelectorAll(":scope > [data-dock-motion], :scope > .ly-dock-chrome [data-dock-heading]")]) {
+				for (const motion of surface.getAnimations()) {
+					if (motion.id === "ly-dock-geometry") motion.finish();
+				}
 			}
 			element.setAttribute(FROZEN, "");
 		}

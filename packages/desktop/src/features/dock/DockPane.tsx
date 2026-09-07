@@ -10,7 +10,7 @@
 import { PaneHeader } from "./PaneHeader.tsx";
 import { PaneSurface } from "./PaneSurface.tsx";
 import { pct } from "./css.ts";
-import { PANE_INSET } from "./geometry.ts";
+import { HEADER_HEIGHT, PANE_INSET } from "./geometry.ts";
 import type { Box } from "./layout.ts";
 import type { DropSide, PaneKind } from "./tree.ts";
 
@@ -160,6 +160,26 @@ export function DockPane({
 			className={`ly-dock-pane group/pane absolute flex min-w-0 flex-col ${
 				carried ? "ly-dock-pane-carried" : floats ? "z-10" : "z-0"
 			} ${landing ? "ly-dock-pane-landing" : ""}`}
+			header={<div className="ly-dock-chrome absolute inset-x-0 top-0 z-[1]" style={{ margin: floats ? PANE_INSET + 1 : 0, background: "transparent" }}>
+				<PaneHeader
+					kind={kind}
+					label={label}
+					icon={icon}
+					maximized={maximized}
+					draggable={draggable}
+					carried={Boolean(carried)}
+					hideTitle={kind === "conversation"}
+					title={title}
+					onDragStart={onDragStart}
+					onMove={onMove}
+					actions={actions}
+					inset={inset}
+					insetEnd={insetEnd}
+					lift={floats ? PANE_INSET + 1 : 0}
+					onToggleMaximized={onToggleMaximized}
+					onClose={onClose}
+				/>
+			</div>}
 		>
 			{/*
 			 * Panels float; the conversation does not.
@@ -182,24 +202,8 @@ export function DockPane({
 				className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${floats ? "ly-dock-card" : ""}`}
 				style={floats ? { margin: PANE_INSET } : undefined}
 			>
-			<PaneHeader
-				kind={kind}
-				label={label}
-				icon={icon}
-				maximized={maximized}
-				draggable={draggable}
-				carried={Boolean(carried)}
-				hideTitle={kind === "conversation"}
-				title={title}
-				onDragStart={onDragStart}
-				onMove={onMove}
-				actions={actions}
-				inset={inset}
-				insetEnd={insetEnd}
-				lift={floats ? PANE_INSET + 1 : 0}
-				onToggleMaximized={onToggleMaximized}
-				onClose={onClose}
-			/>
+			{/* Controls keep their endpoint geometry while this retained surface composites its resize. */}
+			<div aria-hidden className="shrink-0" style={{ height: HEADER_HEIGHT }} />
 			<div className="relative flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
 			</div>
 		</PaneSurface>

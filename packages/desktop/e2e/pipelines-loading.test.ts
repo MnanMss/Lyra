@@ -79,7 +79,26 @@ async function until(expression: string): Promise<void> {
 
 async function click(expression: string): Promise<void> {
 	await until(expression);
-	const point = await app.evaluate<{ x: number; y: number }>(`(()=>{const e=${expression},r=e.getBoundingClientRect();if(!r.width||!r.height)throw Error('Click target is hidden');return {x:r.left+r.width/2,y:r.top+r.height/2}})()`);
+	// Pane layout changes can move this toolbar; separate CDP messages must not press stale coordinates.
+	const point = await app.evaluate<{ x: number; y: number }>(`(async()=>{
+		const end=performance.now()+10000;let previous='',last;
+		while(performance.now()<end){
+			const e=${expression},r=e?.getBoundingClientRect();
+			if(e&&r){
+				const x=r.left+r.width/2,y=r.top+r.height/2;
+				let ready=e.isConnected&&!e.matches(':disabled')&&e.checkVisibility({visibilityProperty:true,opacityProperty:true})&&r.width>0&&r.height>0&&e.contains(document.elementFromPoint(x,y));
+				for(let ancestor=e;ancestor;ancestor=ancestor.parentElement){
+					ready&&=!ancestor.getAnimations().some(a=>Number.isFinite(a.effect?.getComputedTiming().endTime)&&(a.pending||a.playState==='running'));
+				}
+				const box=JSON.stringify([r.x,r.y,r.width,r.height]);
+				last={box,ready,hit:document.elementFromPoint(x,y)?.outerHTML.slice(0,300)};
+				if(ready&&box===previous)return {x,y};
+				previous=ready?box:'';
+			}
+			await new Promise(requestAnimationFrame);
+		}
+		throw Error('Click target did not become visible and stable: '+${JSON.stringify(expression)}+'; '+JSON.stringify(last));
+	})()`);
 	await app.send("Input.dispatchMouseEvent", { type: "mousePressed", ...point, button: "left", buttons: 1, clickCount: 1 });
 	await app.send("Input.dispatchMouseEvent", { type: "mouseReleased", ...point, button: "left", buttons: 0, clickCount: 1 });
 }

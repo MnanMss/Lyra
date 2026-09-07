@@ -8,37 +8,25 @@
 import { Text } from "../../ui/primitives/Text.tsx";
 
 export function GroupHeader({
-  label,
-  count,
-  action,
-  disabled,
-  onAction,
+	label,
+	count,
+	actions,
 }: {
-  label: string;
-  count: number;
-  action: string;
-  disabled: boolean;
-  onAction: () => void;
+	label: string;
+	count: number;
+	actions?: React.ReactNode;
 }) {
-  return (
-    <div className="flex items-center gap-1.5 px-1.5 pt-2 pb-1">
-      <Text size="caption" tone="faint" weight="medium">
-        {label}
-      </Text>
-      <Text size="caption" tone="faint" numeric>
-        {count}
-      </Text>
-      <div className="min-w-1 flex-1" />
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={onAction}
-        className="w-9 rounded text-right text-caption text-ink-faint transition-colors hover:text-ink disabled:opacity-40"
-      >
-        {action}
-      </button>
-    </div>
-  );
+	return (
+		<div className="flex min-w-0 items-center gap-1.5 px-1.5 pt-2 pb-1">
+			<Text size="caption" tone="faint" weight="medium" className="shrink-0 whitespace-nowrap">
+				{label}
+			</Text>
+			<Text size="caption" tone="faint" numeric className="shrink-0 whitespace-nowrap">
+				{count}
+			</Text>
+			{actions && <div className="ml-auto flex shrink-0 items-center gap-0.5">{actions}</div>}
+		</div>
+	);
 }
 
 /**

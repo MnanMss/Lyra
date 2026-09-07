@@ -50,16 +50,26 @@ else if(q.method==='tools/list')reply({tools:[]});else reply({});});`);
 		settings.mcpServers = [{ id: "slow-qa", name: "Slow QA", transport: "stdio", enabled: true, command: process.execPath, args: [mcp] }];
 		await writeFile(file, JSON.stringify(settings));
 	} });
+	await app.evaluate(`(() => {
+		window.qaStartupTrace=[];
+		for(const type of ['pointerdown','pointerup','click','focusin','input'])document.addEventListener(type,event=>{
+			const target=event.target;
+			window.qaStartupTrace.push({type,time:performance.now(),target:target.outerHTML?.slice(0,240),value:target.value,
+				field:document.querySelector('textarea')?.value,heading:document.querySelector('h1')?.textContent});
+			if(window.qaStartupTrace.length>80)window.qaStartupTrace.shift();
+		},true);
+	})()`);
 });
 after(async () => { await cleanupFixture(() => app?.stop(), () => closeListeningServer(server)); });
 afterEach(async (t) => {
 	if (t.passed) return;
 	await shot("group-loading-failure");
+	t.diagnostic(await app.evaluate<string>(`JSON.stringify({trace:window.qaStartupTrace,field:document.querySelector('textarea')?.value,active:document.activeElement?.outerHTML.slice(0,300),body:document.body.innerText.slice(-1600)})`));
 	t.diagnostic(await app.evaluate<string>(`JSON.stringify([...document.querySelectorAll('[class~="group/project"] > button[aria-expanded]')].map(b=>({text:b.textContent,expanded:b.getAttribute('aria-expanded'),html:b.innerHTML})))`));
 });
 
 async function click(selector: string): Promise<void> {
-	const at = await app.evaluate<{ x: number; y: number }>(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.checkVisibility({visibilityProperty:true}));if(!e)throw new Error(${JSON.stringify(selector)});e.scrollIntoView({block:'nearest',behavior:'instant'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+	const at = await app.evaluate<{ x: number; y: number }>(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.checkVisibility({visibilityProperty:true}));if(!e)throw new Error(${JSON.stringify(selector)});e.scrollIntoView({block:'nearest',behavior:'instant'});const r=e.getBoundingClientRect();const x=r.x+r.width/2,y=r.y+r.height/2;window.qaStartupTrace.push({type:'aim',selector:${JSON.stringify(selector)},time:performance.now(),rect:r.toJSON(),hit:document.elementFromPoint(x,y)?.outerHTML.slice(0,240),field:document.querySelector('textarea')?.value});return {x,y};})()`);
 	await app.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...at });
 	await app.send("Input.dispatchMouseEvent", { type: "mousePressed", button: "left", clickCount: 1, ...at });
 	await app.send("Input.dispatchMouseEvent", { type: "mouseReleased", button: "left", clickCount: 1, ...at });
@@ -70,8 +80,16 @@ async function frames(n: number): Promise<void> {
 }
 async function submit(): Promise<{ meta: SessionMeta; elapsed: number }> {
 	await click('button[aria-label="在「交互验证」里新建会话"]');
+	// Returning from a worktree replaces the previous conversation's composer after workspace.info.
+	// Target the new draft, rather than focusing an old textarea between its pointerdown and unmount.
+	await app.evaluate(`new Promise((resolve,reject)=>{const end=performance.now()+8000;const step=()=>{
+		if(document.querySelector('main h1')&&!document.querySelector('.ly-transcript')&&document.querySelector('textarea'))resolve();
+		else if(performance.now()<end)requestAnimationFrame(step);else reject(new Error('new project draft did not appear'));
+	};step();})`);
 	await click('textarea');
+	assert.equal(await app.evaluate(`document.activeElement===document.querySelector('textarea')`), true, "typing targets the new draft's live field");
 	await app.send("Input.insertText", { text: "相同提示词隔离验证" });
+	assert.equal(await app.evaluate(`document.querySelector('textarea').value`), "相同提示词隔离验证");
 	const before = await app.evaluate<string[]>(`[...document.querySelectorAll('[data-ly-row]')].map(e=>e.dataset.lyRow)`);
 	const start = performance.now();
 	await click('button[aria-label="发送"]');

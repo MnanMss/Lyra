@@ -47,10 +47,10 @@
  * `--color-danger` mean "selected", "added" and "wrong" — they are not part of a palette that a
  * syntax theme gets to reassign, and a diff whose additions stopped being green would be lying.
  */
-.ly-dock-pane[data-pane="file"] .ly-dock-card,
-.ly-dock-pane[data-pane="files"] .ly-dock-card,
-.ly-dock-pane[data-pane="terminal"] .ly-dock-card,
-.ly-dock-pane[data-pane="review"] .ly-dock-card {
+.ly-dock-pane[data-pane="file"] :is(.ly-dock-card, .ly-dock-chrome),
+.ly-dock-pane[data-pane="files"] :is(.ly-dock-card, .ly-dock-chrome),
+.ly-dock-pane[data-pane="terminal"] :is(.ly-dock-card, .ly-dock-chrome),
+.ly-dock-pane[data-pane="review"] :is(.ly-dock-card, .ly-dock-chrome) {
   --color-shell: var(--ly-code-bg, var(--color-shell));
   --color-panel: var(--ly-code-bg, var(--color-shell));
   --color-card: color-mix(in srgb, var(--ly-code-fg) 4%, var(--ly-code-bg));
