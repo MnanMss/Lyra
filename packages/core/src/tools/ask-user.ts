@@ -12,9 +12,10 @@ export const askUserTool: Tool<AskUserArgs> = {
 	guidelines: [
 		"Use ask_user whenever you need clarification, technical direction choice, confirmation, or assistance before proceeding.",
 		"When ask_user is called, the loop pauses and shows an interactive option box for the user, preventing premature completion loops.",
+		"Never stop with a plain text question when a plan is in progress. If you need user input or decision to proceed with a todo item, call ask_user rather than narrating the question.",
 	],
 	description:
-		"Ask the user a question with interactive choice options when you need human guidance, approval, or a decision between multiple technical paths.",
+		"Ask the user a question with interactive choice options when you need human guidance, approval, or a decision between multiple technical paths. Call this tool when blocked instead of merely writing the question in assistant prose.",
 	parameters: {
 		type: "object",
 		properties: {

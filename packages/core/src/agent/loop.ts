@@ -413,7 +413,12 @@ export async function runAgent(config: AgentRunConfig, emit: AgentEventSink): Pr
 					const listStr = unfinished
 						.map((t, idx) => `  ${idx + 1}. [${t.status === "in_progress" ? "进行中" : "待处理"}] ${t.content}`)
 						.join("\n");
-					nudgeText = `（自动继续）清单里还有 ${unfinished.length} 项没有完成：\n${listStr}\n\n请直接执行【${inProgress.content}】，调用工具继续，不要只描述计划。`;
+					nudgeText =
+						`（自动继续）清单里还有 ${unfinished.length} 项没有完成：\n${listStr}\n\n` +
+						`请直接调用工具继续，不要只描述计划，也不要只输出文本：\n` +
+						`1. 若【${inProgress.content}】或相关任务此前已实际做完（例如漏更了清单），严禁重复执行！请立即调用 todo_write 将其更新为 completed；\n` +
+						`2. 若尚未做完，请直接调用相关工具执行【${inProgress.content}】；\n` +
+						`3. 若遇到阻碍、需要用户决策或确认方向，严禁仅在回复文本中提问，必须调用 ask_user 工具向用户发起提问。`;
 				}
 
 				const nudge: Message = {

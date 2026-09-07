@@ -63,8 +63,8 @@ export async function offerRuleFromCorrection(input: OfferInputs): Promise<boole
 	 * local model gets it for free.
 	 */
 	const resolved = resolveModelRef(input.settings, "@fast", { provider: input.provider, model: input.model });
-
 	const timeout = AbortSignal.timeout(CLASSIFY_TIMEOUT_MS);
+	const signal = input.signal ? AbortSignal.any([input.signal, timeout]) : timeout;
 	let suggestion;
 	try {
 		suggestion = await classifyCorrection({
@@ -72,7 +72,7 @@ export async function offerRuleFromCorrection(input: OfferInputs): Promise<boole
 			provider: resolved.provider,
 			model: resolved.model,
 			stream: input.stream,
-			signal: timeout,
+			signal,
 		});
 	} catch {
 		return false;

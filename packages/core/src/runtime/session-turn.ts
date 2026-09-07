@@ -75,7 +75,21 @@ export interface TurnInputs {
  */
 export async function driveTurn(input: TurnInputs): Promise<void> {
 	const { cwd, can, log } = input;
-	const onEvent = (event: AgentEvent) => recordTurnEvent(input.log, event);
+	let lastEnd: Extract<AgentEvent, { type: "agent_end" }> | null = null;
+	const onEvent = async (event: AgentEvent) => {
+		if (event.type === "agent_end") {
+			lastEnd = event;
+			if (event.reason === "stalled") {
+				await log.emit({
+					type: "notice",
+					level: "warn",
+					message: "同一个调用反复得到相同结果，已停下。告诉它换个方向，或直接说明你想怎么处理。",
+				});
+			}
+			return;
+		}
+		return recordTurnEvent(input.log, event);
+	};
 	const { config, systemPrompt } = await assembleTurn(input);
 
 	/*
@@ -91,7 +105,7 @@ export async function driveTurn(input: TurnInputs): Promise<void> {
 	void can.extensions.dispatch("turn_start", { cwd, sessionId: log.meta.id }).catch(() => {});
 
 	const first = await runTurn(config, onEvent);
-	await continueWhileWorkRemains(first, {
+	const final = await continueWhileWorkRemains(first, {
 		run: (messages) => runTurn({ ...config, messages, systemPrompt }, onEvent),
 		// 续跑重建历史时也要带上——少了末尾那条，前缀就跟上一次不一样，缓存反而白丢一次。
 		messages: () => withEnvironment(modelHistory(input.log, input.provider, input.model)),
@@ -123,6 +137,15 @@ export async function driveTurn(input: TurnInputs): Promise<void> {
 		signal: input.signal,
 		emit: input.emit,
 	});
+
+	const endReason: "done" | "aborted" | "error" | "max_turns" | "stalled" = final.reason ?? (lastEnd ? (lastEnd as Extract<AgentEvent, { type: "agent_end" }>).reason : "done");
+	const endError = final.error ?? (lastEnd ? (lastEnd as Extract<AgentEvent, { type: "agent_end" }>).error : undefined);
+	const finalEnd: AgentEvent = {
+		type: "agent_end",
+		reason: endReason,
+		...(endError ? { error: endError } : {}),
+	};
+	await log.emit(finalEnd);
 }
 
 /**

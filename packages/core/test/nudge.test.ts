@@ -124,6 +124,8 @@ test("the nudge says what is left and asks for action, not a plan", async () => 
 	const text = nudge?.content.map((c) => (c.type === "text" ? c.text : "")).join("") ?? "";
 	assert.match(text, /还有 2 项/, "it counts what actually remains");
 	assert.match(text, /不要只描述计划/);
+	assert.match(text, /严禁重复执行/);
+	assert.match(text, /ask_user/);
 	assert.match(text, /step 2/, "it includes the task details");
 });
 

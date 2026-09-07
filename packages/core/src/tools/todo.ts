@@ -26,6 +26,7 @@ export const todoTool: Tool<TodoArgs> = {
 		"A plan belongs in the list, not in prose. Steps written out in the reply instead scroll away, and nothing afterwards knows the work was left unfinished.",
 		"Exactly one task may be in_progress at a time.",
 		"Never make todo_write a turn's only tool call. Batch the update with the next real step (a read, an edit, a command) in the same reply — a reply that only updates the list is a wasted round trip.",
+		"When finishing an item or finishing all items, always mark them completed via todo_write. Do not declare completion in prose while leaving items pending or in_progress.",
 	],
 	description:
 		"Record and update the task list for the current piece of work. Call it when a task has three or more steps. " +
