@@ -156,8 +156,13 @@ export function todosFrom(messages: Message[]): TodoItem[] {
 	return [];
 }
 
-/** Reconstruct tool cards when opening a stored session. */
-export function rebuildToolRuns(messages: Message[]): Record<string, ToolRun> {
+/**
+ * Reconstruct tool cards when opening a stored session.
+ *
+ * When `running` is explicitly true (e.g. from live session state or snapshot.running),
+ * tools awaiting a result remain running instead of being marked as aborted.
+ */
+export function rebuildToolRuns(messages: Message[], running?: boolean): Record<string, ToolRun> {
   const runs: Record<string, ToolRun> = {};
   for (const message of messages) {
     if (message.role === "assistant") {
@@ -193,19 +198,22 @@ export function rebuildToolRuns(messages: Message[]): Record<string, ToolRun> {
    * Tool state is rebuilt from the log, and a call is only marked finished when its result is
    * written. Quit the app — or lose the renderer — while a command is running and no result is
    * ever recorded, so re-opening that session showed a spinner counting up from a process that
-   * stopped existing minutes ago. Nine minutes on a `git status` is not a slow command, it is a
-   * lie about what is happening.
+   * stopped existing minutes ago.
    *
-   * Only when the turn itself has settled: a session that is genuinely mid-turn in the
-   * background has calls that legitimately have no result yet.
+   * Only when the session or turn has actually settled: a session that is genuinely running or
+   * has a turn in flight has calls that legitimately have no result yet.
    */
   const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
-  const turnInFlight = lastAssistant?.role === "assistant" && lastAssistant.stopReason === "pending";
+  const turnInFlight = running === true || (lastAssistant?.role === "assistant" && lastAssistant.stopReason === "pending");
   if (!turnInFlight) {
     for (const run of Object.values(runs)) {
       if (run.status !== "running") continue;
       run.status = "error";
-      run.result = { content: [{ type: "text", text: "这次调用没有结果：应用在它结束之前退出了。" }], isError: true };
+      const isTask = run.toolName === "task";
+      const text = isTask
+        ? "子任务在完成前中断（应用退出或会话已结束）。可在下方点击继续以恢复。"
+        : "这次调用没有结果：会话在它结束之前退出了。";
+      run.result = { content: [{ type: "text", text }], isError: true };
       run.finishedAt = run.startedAt;
     }
   }

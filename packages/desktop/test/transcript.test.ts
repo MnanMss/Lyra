@@ -91,6 +91,26 @@ test("a turn still in flight keeps its running calls", () => {
 	assert.equal(rebuildToolRuns(messages)["call-1"].status, "running");
 });
 
+test("a live running session keeps calls awaiting result as running even if stopReason is toolUse", () => {
+	const messages: Message[] = [
+		{ role: "user", content: [{ type: "text", text: "请子代理查一下" }], timestamp: 1 },
+		{
+			role: "assistant",
+			content: [{ type: "toolCall", id: "task-1", name: "task", arguments: { prompt: "search" } }],
+			stopReason: "toolUse",
+			timestamp: 2,
+			usage: emptyUsage(),
+		},
+	];
+
+	// If the session is actively running in background, switching to it must keep task-1 running
+	assert.equal(rebuildToolRuns(messages, true)["task-1"].status, "running");
+	// If the session has settled/stopped without a result, it should become an error with helpful text
+	const settled = rebuildToolRuns(messages, false)["task-1"];
+	assert.equal(settled.status, "error");
+	assert.match(settled.result?.content[0]?.type === "text" ? settled.result.content[0].text : "", /子任务在完成前中断/);
+});
+
 test("a call that did get its result is unaffected", () => {
 	const messages: Message[] = [
 		{ role: "user", content: [{ type: "text", text: "跑一下" }], timestamp: 1 },

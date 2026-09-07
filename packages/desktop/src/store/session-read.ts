@@ -56,7 +56,7 @@ export async function readSelectedSession(meta: SessionMeta, set: Set, get: Get,
 	// Cold visits need the disk prefix as well as events that arrived during the read.
 	if ((before.loadingSession || resync) && events.length) {
 		let merged: Cache[string] = {
-			meta: snapshot.meta, messages: snapshot.messages, toolRuns: rebuildToolRuns(snapshot.messages),
+			meta: snapshot.meta, messages: snapshot.messages, toolRuns: rebuildToolRuns(snapshot.messages, snapshot.running),
 			state: { running: snapshot.running, commandRuns: snapshot.commandRuns ?? [], todos: todosFrom(snapshot.messages), compactions: (snapshot.compactions ?? []).map((at) => ({ at, before: 0, after: 0 })),
 				approvals: snapshot.pendingApprovals, stopped: howItStopped(snapshot.messages), retrying: null, capabilities: null, pendingUserMessage: null },
 		};
@@ -93,7 +93,7 @@ export async function readSelectedSession(meta: SessionMeta, set: Set, get: Get,
 		cached.meta.seq === snapshot.meta.seq &&
 		cached.messages.length === snapshot.messages.length;
 	const messages = advanced ? current.messages : unchanged ? cached.messages : snapshot.messages;
-	const toolRuns = advanced ? current.toolRuns : unchanged ? cached.toolRuns : rebuildToolRuns(messages);
+	const toolRuns = advanced ? current.toolRuns : unchanged ? cached.toolRuns : rebuildToolRuns(messages, snapshot.running);
 	set({
 		meta: advanced ? current.meta : snapshot.meta,
 		messages,

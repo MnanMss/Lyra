@@ -39,7 +39,7 @@ export function cachedEvent(cached: Cache[string], event: AgentEvent): Cache[str
 		case "title": meta = { ...meta, title: event.title }; break;
 		case "rewound":
 			messages = messages.slice(0, event.messageCount);
-			toolRuns = rebuildToolRuns(messages);
+			toolRuns = rebuildToolRuns(messages, state.running);
 			state = { ...state, todos: todosFrom(messages), pendingUserMessage: null,
 				commandRuns: state.commandRuns?.filter((run) => run.at <= event.messageCount),
 				compactions: state.compactions.filter((run) => run.at <= event.messageCount) };
