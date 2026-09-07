@@ -7,6 +7,8 @@ import { globToRegExp } from "./glob.ts";
 import { looksBinary, resolveWorkspacePath } from "./paths.ts";
 
 const MAX_MATCHES = 200;
+const MAX_LINE_CHARS = 2000;
+const MAX_OUTPUT_BYTES = 64 * 1024;
 const SKIP_DIRS = new Set([
 	"node_modules", ".git", "dist", "build", "out", ".next", "target",
 	"__pycache__", ".venv", "venv", ".turbo", ".cache", ".expo",
@@ -227,12 +229,34 @@ function formatMatches(lines: string[], args: GrepArgs, limit: number, literal =
 			uneventful: true,
 		};
 	}
-	const shown = lines.slice(0, limit);
+	let totalBytes = 0;
+	let byteTruncated = false;
+	const limitedLines: string[] = [];
+
+	for (let i = 0; i < Math.min(lines.length, limit); i++) {
+		let line = lines[i];
+		if (line.length > MAX_LINE_CHARS) {
+			line = `${line.slice(0, MAX_LINE_CHARS)}… [line truncated]`;
+		}
+		const lineBytes = Buffer.byteLength(line, "utf8") + 1;
+		if (totalBytes + lineBytes > MAX_OUTPUT_BYTES && limitedLines.length > 0) {
+			byteTruncated = true;
+			break;
+		}
+		limitedLines.push(line);
+		totalBytes += lineBytes;
+	}
+
 	const header = literal ? `${note}\n\n` : "";
-	const footer = lines.length > shown.length ? `\n\n[truncated at ${limit} matches]` : "";
+	let footer = "";
+	if (byteTruncated) {
+		footer = `\n\n[truncated at ${MAX_OUTPUT_BYTES / 1024}KB; narrow your search with path or glob]`;
+	} else if (lines.length > limitedLines.length) {
+		footer = `\n\n[truncated at ${limit} matches]`;
+	}
 	return {
-		content: [{ type: "text", text: header + shown.join("\n") + footer }],
-		details: { kind: "grep", pattern: args.pattern, count: lines.length, matches: shown, literal },
+		content: [{ type: "text", text: header + limitedLines.join("\n") + footer }],
+		details: { kind: "grep", pattern: args.pattern, count: lines.length, matches: limitedLines, literal },
 	};
 }
 

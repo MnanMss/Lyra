@@ -104,3 +104,30 @@ test("a regular expression that matches nothing is reported as itself", async (t
 	assert.match(res.content[0].text, /No matches for \/class\\s\+Missing\/\./);
 	assert.doesNotMatch(res.content[0].text, /literally/);
 });
+
+test("grep limits single line length to prevent mega-line explosion", async (t) => {
+	const dir = await mkdtemp(join(tmpdir(), "lyra-grep-line-"));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+
+	const longLine = `export const geo = [${"123.456,789.012,".repeat(500)}];`;
+	await writeFile(join(dir, "data.ts"), longLine);
+
+	const res = await grepTool.execute({ pattern: "export const geo" }, ctx(dir));
+	assert.equal(res.isError, undefined);
+	assert.match(res.content[0].text, /… \[line truncated\]/);
+	assert.ok(res.content[0].text.length < 3000, "truncated line stays within bounds");
+});
+
+test("grep truncates total output at byte threshold", async (t) => {
+	const dir = await mkdtemp(join(tmpdir(), "lyra-grep-bytes-"));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+
+	// Generate 100 lines of 1,000 characters each (~100KB > 64KB limit)
+	const lines = Array.from({ length: 100 }, (_, i) => `// match_item_${i}: ${"x".repeat(950)}`).join("\n");
+	await writeFile(join(dir, "large.ts"), lines);
+
+	const res = await grepTool.execute({ pattern: "match_item_" }, ctx(dir));
+	assert.equal(res.isError, undefined);
+	assert.match(res.content[0].text, /\[truncated at 64KB; narrow your search with path or glob\]/);
+	assert.ok(Buffer.byteLength(res.content[0].text, "utf8") <= 70 * 1024, "total output stays around 64KB");
+});

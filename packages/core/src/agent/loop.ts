@@ -286,6 +286,19 @@ export async function runAgent(config: AgentRunConfig, emit: AgentEventSink): Pr
 				messages.length = 0;
 				messages.push(...stripped);
 				({ message: assistant, ruleMatches, deferredMatches } = await streamTurn(config, { ...context, messages }, emit));
+				if (assistant.stopReason !== "error") {
+					/*
+					 * Persist the stripped view as a boundary so subsequent turns don't reload the
+					 * original unstripped payload from disk and repeat the 400 rejection loop.
+					 */
+					await emit({
+						type: "compacted",
+						before: stripped.length,
+						after: stripped.length,
+						summary: "",
+						kept: stripped.length,
+					});
+				}
 			}
 		}
 		/*

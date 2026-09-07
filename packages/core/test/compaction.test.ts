@@ -667,3 +667,25 @@ test("compaction uses custom summarizer model when provided", async () => {
 	assert.equal(calledWithProvider?.id, "p-custom");
 	assert.match(result.summary, /自定义模型摘要/);
 });
+
+test("modelHistory auto-prunes extreme oversized tool outputs even before compaction threshold", async () => {
+	const { modelHistory } = await import("../src/runtime/session-turn.ts");
+	const { SessionLog } = await import("../src/runtime/session-log.ts");
+	const hugeToolOutput = "x".repeat(100_000);
+	const messages: Message[] = [
+		user("search"),
+		reply("running grep"),
+		toolResult("c1", hugeToolOutput),
+	];
+	const log = {
+		messages,
+		compaction: null,
+	} as unknown as InstanceType<typeof SessionLog>;
+
+	const history = modelHistory(log, PROVIDER, { ...MODEL, contextWindow: 1_000_000 });
+	const resultToolMsg = history.find((m) => m.role === "toolResult");
+	assert.ok(resultToolMsg, "toolResult must be in history");
+	const text = resultToolMsg.content[0].text;
+	assert.match(text, /characters omitted by Lyra to fit the context window/);
+	assert.ok(text.length < 50_000, "oversized tool result is securely pruned in history view");
+});

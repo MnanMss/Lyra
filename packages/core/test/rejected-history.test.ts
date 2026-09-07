@@ -189,3 +189,29 @@ test("recovery happens once per turn, not in a loop", async () => {
 	assert.equal(sent.length, 2);
 	assert.equal(result.reason, "error");
 });
+
+test("successful 400 recovery emits compacted event to anchor boundary", async () => {
+	const emitted: AgentEvent[] = [];
+	const replies = [rejected(400), reply({ stopReason: "stop" })];
+	await runAgent(
+		{
+			sessionId: "s",
+			cwd: "/tmp",
+			provider: PROVIDER,
+			model: MODEL,
+			systemPrompt: "",
+			tools: [],
+			messages: history(),
+			streamFn: async () => replies.shift() ?? reply({}),
+		},
+		async (event) => {
+			emitted.push(event);
+		},
+	);
+	const compacted = emitted.find((e) => e.type === "compacted");
+	assert.ok(compacted, "should emit compacted event after successful recovery");
+	if (compacted && compacted.type === "compacted") {
+		assert.equal(compacted.summary, "");
+		assert.ok(compacted.kept !== undefined && compacted.kept > 0);
+	}
+});

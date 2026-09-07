@@ -34,6 +34,7 @@ import type {
 	ThinkingLevel,
 } from "../types.ts";
 import { droppedMessage, lastRequest, summaryMessages } from "./compaction.ts";
+import { pruneToolResults, PRUNE_THRESHOLD_CHARS } from "./prune.ts";
 import { makeAfterToolCall, makeBeforeToolCall } from "./hooks.ts";
 import type { SessionCapabilities } from "./session-capabilities.ts";
 import type { SessionLog } from "./session-log.ts";
@@ -190,18 +191,32 @@ async function recordTurnEvent(log: SessionLog, event: AgentEvent): Promise<void
  */
 export function modelHistory(log: SessionLog, provider: ProviderConfig, model: ModelConfig): Message[] {
 	const boundary = log.compaction;
-	if (!boundary) return log.messages;
-
-	const older = log.messages.slice(0, boundary.keptFrom);
-	const tail = log.messages.slice(boundary.keptFrom);
-	if (!boundary.summary) {
-		const standing = lastRequest(older) ?? lastRequest(log.messages);
-		return [droppedMessage(standing), ...tail];
+	let messages: Message[];
+	if (!boundary) {
+		messages = log.messages;
+	} else {
+		const older = log.messages.slice(0, boundary.keptFrom);
+		const tail = log.messages.slice(boundary.keptFrom);
+		if (!boundary.summary) {
+			const standing = lastRequest(older) ?? lastRequest(log.messages);
+			messages = [droppedMessage(standing), ...tail];
+		} else {
+			const head = summaryMessages(boundary.summary, lastRequest(older), provider, model);
+			const at = boundary.at ?? Math.max(0, ...tail.map((message) => message.timestamp));
+			messages = [...head.map((message) => ({ ...message, timestamp: at })), ...tail];
+		}
 	}
 
-	const head = summaryMessages(boundary.summary, lastRequest(older), provider, model);
-	const at = boundary.at ?? Math.max(0, ...tail.map((message) => message.timestamp));
-	return [...head.map((message) => ({ ...message, timestamp: at })), ...tail];
+	/*
+	 * Safety guard against individual oversized tool outputs that exceed physical gateway limits
+	 * before conversation-level compaction triggers (e.g. on 1M context models where 80% threshold
+	 * is 800k tokens, but a single tool dump of 1MB+ text trips hard request limits).
+	 */
+	const HARD_TOOL_LIMIT_CHARS = PRUNE_THRESHOLD_CHARS * 4; // 32,768 chars
+	const hasHugeToolResult = messages.some(
+		(m) => m.role === "toolResult" && m.content.some((b) => b.type === "text" && b.text.length > HARD_TOOL_LIMIT_CHARS),
+	);
+	return hasHugeToolResult ? pruneToolResults(messages, HARD_TOOL_LIMIT_CHARS) : messages;
 }
 
 async function assembleTurn(input: TurnInputs): Promise<{ config: AgentRunConfig; systemPrompt: string }> {
