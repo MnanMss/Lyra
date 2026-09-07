@@ -139,7 +139,15 @@ test("switching split reasoning and answers never accumulates orphan DOM rows", 
 		}
 		return counts;
 	})()`);
-	assert.deepEqual(counts, Array(8).fill(1));
+	/*
+	 * Two, and the same two every time.
+	 *
+	 * The fixture reasons twice: once before its tool call, once in the reply that answers. Only
+	 * the second used to reach the transcript at all — a reply with a call and no prose got no row
+	 * — so this read 1. What the test is actually watching for is the count *growing*, which is
+	 * what a duplicate React key looks like from the outside: the old session's rows left behind.
+	 */
+	assert.deepEqual(counts, Array(8).fill(2));
 });
 
 test("scrolling an unchanged transcript leaves the scrollbar range constant", async () => {
