@@ -216,3 +216,27 @@ test("restart commits empty history even when the configured default disappeared
 	await assert.rejects(chat.restart(), /disk full/); assert.equal(chat.messages.length, 1);
 	fail = false; await chat.restart(); assert.deepEqual(saved, ["removed"]); assert.deepEqual(chat.messages, []); assert.equal(chat.state().modelId, "removed");
 });
+
+test("stopping sidechat cancels a summary wait and passes its configured retry policy", { timeout: 3000 }, async t => {
+	let started: (() => void) | undefined;
+	const ready = new Promise<void>(resolve => { started = resolve; });
+	let summarySignal: AbortSignal | undefined;
+	let requestCount = 0;
+	const { chat } = await fixture(t, {
+		emit: () => {},
+		summaryStream: async function* (_provider, _model, _context, streamOptions) {
+			summarySignal = streamOptions?.signal;
+			assert.deepEqual(streamOptions?.retryPolicy, settings.retryPolicy);
+			started?.();
+			assert.ok(summarySignal);
+			await new Promise<void>(resolve => summarySignal?.addEventListener("abort", () => resolve(), { once: true }));
+			const message = { ...reply(""), stopReason: "aborted" as const };
+			yield { type: "done", message }; return message;
+		},
+		streamFn: async () => { requestCount++; return reply(); },
+	});
+	chat.restore(Array.from({ length: 200 }, (_, index) => index % 2 ? reply("old answer ".repeat(300)) : question("old question ".repeat(300))));
+	const pending = chat.ask([{ type: "text", text: "Continue" }]);
+	await ready; chat.abort(); await pending;
+	assert.equal(summarySignal?.aborted, true); assert.equal(requestCount, 0);
+});

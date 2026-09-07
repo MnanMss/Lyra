@@ -26,5 +26,6 @@
 | [0017](0017-front-door-versus-code-splitting.md) | 整屏视图不进功能域的出口 |
 | [0018](0018-fuses-not-yet.md) | Electron fuses 暂不启用——配了但验证不了 |
 | [0019](0019-no-virtual-list-yet.md) | 长会话不上虚拟列表——量过了，不需要 |
+| [0020](0020-trajectory-inspector-in-panel.md) | 轨迹时间轴和详情留在面板内 |
 
 写一份新的：复制最近一份的结构，编号往下走，加进这张表。

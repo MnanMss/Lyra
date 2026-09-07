@@ -47,6 +47,13 @@ export interface Method extends Reach {
  * written.
  */
 export const METHODS = {
+	agentDefinitions: {
+		list: { channel: "agentdefs:list", remote: false, why: "Desktop definition editor reads local configuration." },
+		read: { channel: "agentdefs:read", remote: false, why: "Desktop definition editor reads local configuration." },
+		save: { channel: "agentdefs:save", remote: false, why: "Local agent definitions require the desktop editor." },
+		remove: { channel: "agentdefs:remove", remote: false, why: "Local agent definitions require the desktop editor." },
+		restore: { channel: "agentdefs:restore", remote: false, why: "Local agent definitions require the desktop editor." },
+	},
 	delivery: {
 		get: { channel: "delivery:get", remote: false, why: "本机文件差异和实现记录" },
 		undo: { channel: "delivery:undo", remote: false, why: "恢复本轮文件，要求本机审阅" },

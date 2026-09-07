@@ -17,7 +17,7 @@ import { join } from "node:path";
 import type { AgentEvent } from "../agent/events.ts";
 import type { AgentRunConfig } from "../agent/loop.ts";
 import { runTurn } from "../agent/runner.ts";
-import type { streamAssistant } from "../ai/index.ts";
+import { streamAssistant } from "../ai/index.ts";
 import type { Settings } from "../config/settings.ts";
 import { resolveModelRef } from "../config/model-roles.ts";
 import { withEnvironment } from "../prompt/environment.ts";
@@ -252,6 +252,7 @@ export async function runSubAgent(
 				 */
 				thinking: chosen.thinking,
 				retryAttempts: options.settings.retryAttempts,
+				retryPolicy: options.settings.retryPolicy,
 				signal: controller.signal,
 				state: subState,
 				/*
@@ -341,7 +342,7 @@ export async function runSubAgent(
 						messages,
 						model,
 						runProvider,
-						options.summaryStream,
+						(provider, summaryModel, context, streamOptions) => (options.summaryStream ?? streamAssistant)(provider, summaryModel, context, { ...streamOptions, retryPolicy: options.settings.retryPolicy, signal: controller.signal }),
 						textTokens(subAgentPrompt) + toolTokens(allowed),
 						undefined,
 						summarizer,

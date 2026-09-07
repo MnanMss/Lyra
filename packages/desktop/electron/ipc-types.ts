@@ -9,7 +9,7 @@
  */
 
 import type { SessionChange } from "./ipc-shapes.ts";
-import type { TrajectoryEntry, TrajectoryChanges } from "@lyra/core";
+import type { TrajectoryEntry, TrajectoryChanges, AgentDefinitionRecord, AgentDefinitionSave } from "@lyra/core";
 import type { ForgeAccount, ForgeKind, ForgeKindInfo } from "./forge/types.ts";
 import type {
 	BranchList,
@@ -158,6 +158,13 @@ export type ExternalFormatResult =
 	| { ok: false; reason: "missing"; tool: string; install: string };
 
 export interface LyraApi {
+	agentDefinitions: {
+		list(projectId: string | null): Promise<{ records: AgentDefinitionRecord[]; tools: string[] }>;
+		read(projectId: string | null, id: string): Promise<AgentDefinitionRecord>;
+		save(projectId: string | null, input: AgentDefinitionSave): Promise<{ warning?: string }>;
+		remove(projectId: string | null, id: string, revision: string): Promise<{ undoToken: string; warning?: string }>;
+		restore(projectId: string | null, token: string): Promise<{ warning?: string }>;
+	};
 	services: {
 		list(sessionId: string): Promise<import("../shared/session-services.ts").SessionServices>;
 		stop(sessionId: string, id: string, force: boolean): Promise<boolean>;

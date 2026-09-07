@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { act, createElement as h } from "react";
-import { DEFAULT_SETTINGS, type ModelConfig, type Settings } from "@lyra/core";
+import { BUILTIN_AGENTS, DEFAULT_SETTINGS, type ModelConfig, type Settings } from "@lyra/core";
 import { AgentsSettings } from "../../src/features/settings/AgentsSettings.tsx";
 import { useApp } from "../../src/store/index.ts";
 import { click, mount } from "../helpers/mount.ts";
@@ -12,7 +12,7 @@ const settings: Settings = { ...DEFAULT_SETTINGS, defaultModelId: model.id, prov
 const capabilities = { agents: [{ name: "explore", source: "builtin", tools: "*", description: "Read" }], skills: [], skillDiagnostics: [], plugins: [], pluginDiagnostics: [], mcp: [], toolNames: [] } satisfies NonNullable<ReturnType<typeof useApp.getState>["capabilities"]>;
 function setup(initial: Settings, save: (settings: Settings) => Promise<Settings>) {
 	useApp.setState({ activeSessionId: "qa", meta: null, settings: initial, capabilities });
-	Object.defineProperty(window, "lyra", { configurable: true, value: { sessions: { capabilities: async () => capabilities }, settings: { save } } });
+	Object.defineProperty(window, "lyra", { configurable: true, value: { agentDefinitions: { list: async () => ({ records: BUILTIN_AGENTS.map(definition => ({ definition, id: definition.name, scope: "builtin", editable: true, customized: false, revision: "1", raw: "", shadowedSources: [] })), tools: [] }) }, sessions: { capabilities: async () => capabilities }, settings: { save } } });
 }
 async function choose(text: string) {
 	const item = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.startsWith(text));
@@ -23,7 +23,7 @@ test("built-in profiles are configurable before a session exists and while a col
 	for (const sessionId of [null, "cold-session"]) {
 		setup(settings, async (next) => next);
 		useApp.setState({ activeSessionId: sessionId, capabilities: null });
-		Object.defineProperty(window, "lyra", { configurable: true, value: { sessions: { capabilities: async () => null } } });
+		Object.defineProperty(window, "lyra", { configurable: true, value: { agentDefinitions: { list: async () => ({ records: BUILTIN_AGENTS.map(definition => ({ definition, id: definition.name, scope: "builtin", editable: true, customized: false, revision: "1", raw: "", shadowedSources: [] })), tools: [] }) }, sessions: { capabilities: async () => null } } });
 		const view = await mount(h(I18nProvider, { locale: "zh-CN", children: h(AgentsSettings) }));
 		try {
 			for (const name of ["general", "explore", "review", "verify", "plan", "fast", "deep"]) {
@@ -36,17 +36,15 @@ test("built-in profiles are configurable before a session exists and while a col
 	}
 });
 
-test("a cold session's loaded project definitions replace the built-in view without reopening settings", async () => {
-	setup(settings, async (next) => next);
-	useApp.setState({ capabilities: null });
-	Object.defineProperty(window, "lyra", { configurable: true, value: { sessions: { capabilities: async () => null } } });
+test("project changes reload the catalogue without reopening settings", async () => {
+	setup({ ...settings, projects: [{ id: "project", name: "Project", path: "/qa-project", pinned: false, lastOpenedAt: 0 }] }, async next => next);
+	Object.defineProperty(window, "lyra", { configurable: true, value: { agentDefinitions: { list: async (projectId: string | null) => ({ records: [{ definition: { ...BUILTIN_AGENTS[0], description: projectId ? "Project exploration policy" : "Global policy" }, id: "definition", scope: "user", editable: true, customized: false, revision: "1", raw: "", shadowedSources: [] }], tools: [] }) } } });
 	const view = await mount(h(I18nProvider, { locale: "zh-CN", children: h(AgentsSettings) }));
 	try {
-		assert.ok(view.host.querySelector('[data-agent-profile="general"]'));
-		await act(async () => { useApp.setState({ capabilities: { ...capabilities, agents: [{ ...capabilities.agents[0], source: "workspace", description: "Project exploration policy" }] } }); });
+		assert.match(view.text(), /Global policy/);
+		await act(async () => { useApp.setState({ workspace: { path: "/qa-project", name: "Project", isGitRepo: false, branch: null } }); });
 		assert.match(view.text(), /Project exploration policy/);
-		assert.equal(view.host.querySelectorAll('[data-agent-profile="explore"]').length, 1);
-	} finally { await view.unmount(); }
+	} finally { await view.unmount(); useApp.setState({ workspace: null }); }
 });
 
 test("switching to a non-reasoning model clears the incompatible saved effort and offers no fake levels", async () => {

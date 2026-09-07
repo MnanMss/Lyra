@@ -9,14 +9,17 @@ import { ScrollText } from "../../../ui/scroll/ScrollText.tsx";
 const OVERSCAN = 8;
 type Row = { id: string; entry: Entry } | { id: string; turn: number; count: number };
 
-export const TraceList = memo(function TraceList({ entries, selected, onSelect, resetKey, collapsed, onCollapse, target }: {
+export const TraceList = memo(function TraceList({ entries, selected, onSelect, resetKey, collapsed, onCollapse, target, focused: timeFocus, paused = false, onFollowing }: {
 	entries: Entry[]; selected: string | null; onSelect: (entry: Entry) => void; resetKey: string;
+	focused?: ReadonlySet<string> | null; paused?: boolean; onFollowing?: (following: boolean) => void;
 	collapsed: Set<number>; onCollapse: (turn: number) => void; target: string | null;
 }) {
 	const height = onPhone() ? 44 : 36;
 	const viewport = useRef<HTMLDivElement>(null);
 	const follow = useRef(true);
-	const previous = useRef("");
+	const [seen, setSeen] = useState(entries.length);
+	useLayoutEffect(() => { if (paused) { follow.current = false; onFollowing?.(false); } }, [paused, onFollowing]);
+	const previous = useRef(resetKey);
 	const consumedTarget = useRef<string | null>(null);
 	const [range, setRange] = useState({ start: 0, end: 40 });
 	const [focused, setFocused] = useState<string | null>(null);
@@ -33,8 +36,8 @@ export const TraceList = memo(function TraceList({ entries, selected, onSelect, 
 	}, [entries, collapsed]);
 	useLayoutEffect(() => {
 		const el = viewport.current; if (!el) return;
-		if (previous.current !== resetKey) { previous.current = resetKey; follow.current = true; }
-		if (follow.current) el.scrollTop = el.scrollHeight;
+		if (previous.current !== resetKey) { previous.current = resetKey; follow.current = false; el.scrollTop = 0; setSeen(entries.length); }
+		if (follow.current && !paused) { el.scrollTop = el.scrollHeight; setSeen(entries.length); }
 		const measure = () => {
 			if (!el.clientHeight) return;
 			setRange({ start: Math.max(0, Math.floor(el.scrollTop / height) - OVERSCAN), end: Math.min(rows.length, Math.ceil((el.scrollTop + el.clientHeight) / height) + OVERSCAN) });
@@ -42,7 +45,7 @@ export const TraceList = memo(function TraceList({ entries, selected, onSelect, 
 		measure(); const observer = new ResizeObserver(measure); observer.observe(el);
 		el.addEventListener("scroll", measure, { passive: true });
 		return () => { observer.disconnect(); el.removeEventListener("scroll", measure); };
-	}, [rows, resetKey, height]);
+	}, [rows, resetKey, height, paused, entries.length]);
 	useLayoutEffect(() => {
 		if (!target) { consumedTarget.current = null; return; }
 		if (consumedTarget.current === target) return; const index = rows.findIndex(row => row.id === target), el = viewport.current;
@@ -51,19 +54,30 @@ export const TraceList = memo(function TraceList({ entries, selected, onSelect, 
 	const indices = Array.from({ length: Math.max(0, range.end - range.start) }, (_, i) => range.start + i).filter(index => index < rows.length);
 	const focusedIndex = rows.findIndex(row => row.id === focused);
 	if (focusedIndex >= 0 && !indices.includes(focusedIndex)) indices.push(focusedIndex);
-	return <Scroller scrollRef={viewport} className="min-h-0 flex-1" contentClassName="pl-2 pr-3" onScroll={el => { follow.current = el.scrollHeight - el.clientHeight - el.scrollTop < 4; }}>
+	return <><Scroller scrollRef={viewport} className="min-h-0 flex-1" contentClassName="pl-2 pr-3" onScroll={el => { follow.current = !paused && el.scrollHeight - el.clientHeight - el.scrollTop < 4; onFollowing?.(follow.current); if (follow.current) setSeen(entries.length); }}>
 		<div data-trace-list role="list" aria-label="轨迹记录" className="relative" style={{ height: rows.length * height }}>
 			{indices.map(index => {
 				const row = rows[index];
 				return <div key={row.id} role="listitem" aria-posinset={index + 1} aria-setsize={rows.length} className="absolute inset-x-0" style={{ top: index * height, height: height }}>
-					{"entry" in row ? <button type="button" data-trace-entry={row.id} aria-pressed={selected === row.id} onClick={() => onSelect(row.entry)} onFocus={() => setFocused(row.id)} onBlur={() => setFocused(null)}
-						className={`ly-scroll flex h-full w-full items-center gap-2 rounded-md px-1.5 text-left text-caption ${selected === row.id ? "bg-card-hover text-ink" : "text-ink-muted hover:bg-card-hover/50"}`} style={{ paddingLeft: row.entry.parentId ? 18 : undefined }}>
+					{"entry" in row ? <button type="button" data-trace-entry={row.id} data-time-focus={timeFocus?.has(row.id) || undefined} aria-pressed={selected === row.id} onClick={() => onSelect(row.entry)} onKeyDown={event => {
+							if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+							event.preventDefault();
+							const candidates = event.key === "ArrowDown" ? rows.slice(index + 1) : rows.slice(0, index).reverse();
+							const next = candidates.find(candidate => "entry" in candidate);
+							if (!next) return;
+							setFocused(next.id); follow.current = false; onFollowing?.(false);
+							requestAnimationFrame(() => {
+								const button = [...(viewport.current?.querySelectorAll<HTMLButtonElement>("[data-trace-entry]") ?? [])].find(element => element.dataset.traceEntry === next.id);
+								button?.focus({ preventScroll: true }); button?.scrollIntoView({ block: "nearest" });
+							});
+						}} onFocus={() => setFocused(row.id)} onBlur={() => setFocused(null)}
+						className={`ly-scroll flex h-full w-full items-center gap-2 rounded-md px-1.5 text-left text-caption ${selected === row.id ? "bg-card-hover text-ink" : timeFocus?.has(row.id) ? "bg-info/10 text-ink" : "text-ink-muted hover:bg-card-hover/50"}`} style={{ paddingLeft: row.entry.parentId ? 18 : undefined }}>
 						<span className={`flex shrink-0 items-center ${row.entry.status === "running" ? "ly-pulse text-info" : row.entry.status === "error" ? "text-danger" : "text-ink-faint"}`} data-ly-tip={row.entry.status ? STATUS_LABEL[row.entry.status] : SOURCE_LABEL[row.entry.source]}><SourceIcon source={row.entry.source} /></span>
 						<ScrollText text={row.entry.summary} className="min-w-0 flex-1" />
-						<span className="shrink-0 text-ink-faint tabular-nums" data-ly-tip={`步骤 ${row.entry.step ?? "—"} · ${row.entry.durationMs === undefined ? "未记录耗时" : `${row.entry.durationMs} ms`}`}>#{row.entry.seq}</span>
+						<span className="shrink-0 text-ink-faint tabular-nums" data-ly-tip={`步骤 ${row.entry.step ?? "—"} · ${row.entry.durationMs === undefined ? "未记录耗时" : `${row.entry.durationMs} ms`}`}>{row.entry.durationMs === undefined ? `#${row.entry.seq}` : row.entry.durationMs < 1000 ? `${row.entry.durationMs}ms` : `${(row.entry.durationMs / 1000).toFixed(1)}s`}</span>
 					</button> : <button type="button" aria-expanded={!collapsed.has(row.turn)} onClick={() => onCollapse(row.turn)} className="flex h-full w-full items-center gap-1.5 px-1.5 text-left text-caption text-ink-faint"><ChevronRight size={12} style={{ transform: collapsed.has(row.turn) ? undefined : "rotate(90deg)" }} /><span>第 {row.turn} 轮</span><span className="ml-auto tabular-nums">{row.count}</span></button>}
 				</div>;
 			})}
 		</div>
-	</Scroller>;
+	</Scroller>{entries.length > seen && !paused && <button type="button" className="shrink-0 self-center rounded-full border border-line bg-shell px-3 py-1 text-caption text-info" onClick={() => { follow.current = true; onFollowing?.(true); setSeen(entries.length); if (viewport.current) viewport.current.scrollTop = viewport.current.scrollHeight; }}>有 {entries.length - seen} 条新记录 ↓</button>}</>;
 });

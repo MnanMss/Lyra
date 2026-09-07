@@ -20,7 +20,7 @@ import type {
 } from "../types.ts";
 import { emptyUsage } from "../types.ts";
 import { computeCost } from "../utils/pricing.ts";
-import { fetchWithRetry, isRetryableError, retryStream, toolCallId } from "./retry.ts";
+import { RetryBudget, fetchWithRetry, isRetryableError, retryStream, toolCallId } from "./retry.ts";
 import { parseToolArguments, readSse } from "../utils/sse.ts";
 import { resolveReasoningEffort } from "./thinking-options.ts";
 
@@ -115,6 +115,7 @@ async function* streamAnthropic(
 	/** The provider answered with an error of its own, which no amount of retrying will change. */
 	let refused = false;
 
+	const retryBudget = new RetryBudget(options.retryPolicy, options.retryAttempts);
 	try {
 		// The whole exchange, not just the connection — see the same wrapper in the Responses
 		// adapter for why a stream that dies part way through is worth asking for again.
@@ -136,7 +137,7 @@ async function* streamAnthropic(
 						signal: options.signal,
 					},
 					{
-						attempts: options.retryAttempts,
+						budget: retryBudget,
 						signal: options.signal,
 						onRetry: options.onRetry,
 					},
@@ -295,7 +296,7 @@ async function* streamAnthropic(
 				}
 			},
 			{
-				attempts: options.retryAttempts,
+				budget: retryBudget,
 				signal: options.signal,
 				onRetry: options.onRetry,
 				reset: () => {

@@ -4,6 +4,7 @@ import type { BrowserCommand, BrowserSelection } from "../../../shared/browser.t
 import { bridge } from "../../services/index.ts";
 import { useApp } from "../../store/index.ts";
 import { Input } from "../../ui/inputs/NativeField.tsx";
+import { PanelEmpty } from "../../ui/layout/PanelEmpty.tsx";
 import { IconButton } from "../../ui/primitives/IconButton.tsx";
 import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
 import { Popover, MenuBody, MenuItem, MenuSeparator, usePopover } from "../../ui/overlay/Popover.tsx";
@@ -18,6 +19,7 @@ export function BrowserPanel() {
 	const settings = useApp((state) => state.settings);
 	const saveSettings = useApp((state) => state.saveSettings);
 	const [address, setAddress] = useState("");
+	const addressInput = useRef<HTMLInputElement>(null);
 	const [selection, setSelection] = useState<BrowserSelection | null>(null);
 	const [inspecting, setInspecting] = useState<string | null>(null);
 	const inspection = useRef({ generation: 0, id: "" });
@@ -55,12 +57,12 @@ export function BrowserPanel() {
 			</div>
 			<IconButton size="sm" label="新标签页" icon={<Plus size={14} />} onClick={() => open("about:blank", true)} />
 		</div>}
-		<div className="flex h-10 shrink-0 items-center gap-1 border-b border-line-soft px-2" data-browser-toolbar>
+		<div className="flex h-10 shrink-0 items-center gap-1 px-2" data-browser-toolbar>
 			<IconButton size="sm" label="后退" icon={<ArrowLeft size={13} />} disabled={!tab?.canGoBack} onClick={() => command("back")} />
 			<IconButton size="sm" label="前进" icon={<ArrowRight size={13} />} disabled={!tab?.canGoForward} onClick={() => command("forward")} />
 			<IconButton size="sm" label="刷新" icon={<RotateCw size={13} className={tab?.loading ? "ly-pulse" : ""} />} disabled={!tab} onClick={() => command("reload")} />
 			<form className="min-w-0 flex-1" onSubmit={(event) => { event.preventDefault(); open(address); }}>
-				<Input aria-label="浏览器地址" value={address} onChange={(event) => setAddress(event.target.value)} spellCheck={false} placeholder="输入网址" className="h-[26px] w-full rounded-md border border-line bg-input px-2.5 text-detail text-ink placeholder:text-ink-faint focus:border-ink-faint" />
+				<Input ref={addressInput} aria-label="浏览器地址" value={address} onChange={(event) => setAddress(event.target.value)} spellCheck={false} placeholder="输入网址" className="h-[26px] w-full rounded-md border border-line bg-input px-2.5 text-detail text-ink placeholder:text-ink-faint focus:border-ink-faint" />
 			</form>
 			<button type="button" aria-label="浏览器菜单" aria-haspopup="menu" aria-expanded={options.open} onClick={(event) => { setMenu("actions"); options.toggle(event); }} className={`flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md hover:bg-card-hover ${options.open || inspecting ? "bg-card-hover text-ink" : "text-ink-faint hover:text-ink"}`}>
 				<Ellipsis size={16} />
@@ -70,9 +72,9 @@ export function BrowserPanel() {
 			<span>选取页面 · Esc 退出</span><IconButton size="sm" label="退出检查" icon={<X size={12} />} onClick={() => void bridge.browser.cancelInspect(inspecting)} />
 		</div>}
 		{tab?.error && <p role="status" className="px-3 py-2 text-detail text-danger">{tab.error}</p>}
-		<div className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-card">
+		<div className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-shell">
 			{tabs.map((entry) => <BrowserPage key={entry.id} tab={entry} active={entry.id === activeId} />)}
-			{blank && <div className="absolute inset-0 flex items-center justify-center bg-card px-4" data-browser-empty><p className="text-detail text-ink-faint">输入网址开始浏览</p></div>}
+			{blank && <div className="absolute inset-0 flex flex-col bg-shell" data-browser-empty><PanelEmpty icon={Globe} title="打开一个网页">在上方输入网址，按 Enter 开始浏览<button type="button" className="mx-auto mt-3 block rounded px-3 py-1 text-info hover:bg-hover" onClick={() => addressInput.current?.focus()}>输入网址</button></PanelEmpty></div>}
 		</div>
 		{selection && <BrowserSelectionCard selection={selection} onClose={() => setSelection(null)} />}
 		{options.open && <Popover anchor={options.anchor} onClose={options.close} placement="bottom" width="default" maxHeight={340} label="浏览器菜单"

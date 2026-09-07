@@ -1,3 +1,4 @@
+import type { RetryPolicy } from "../config/retry-policy.ts";
 /**
  * The agent loop.
  *
@@ -41,6 +42,7 @@ export interface AgentRunConfig {
 	thinking?: ThinkingLevel;
 	/** Attempts per request, including the first; see `Settings.retryAttempts`. */
 	retryAttempts?: number;
+	retryPolicy?: RetryPolicy;
 	maxTokens?: number;
 	temperature?: number;
 	maxTurns?: number;
@@ -251,6 +253,8 @@ export async function runAgent(config: AgentRunConfig, emit: AgentEventSink): Pr
 			}
 		}
 
+		// Compaction can wait on a model; cancellation during that await must prevent a new request.
+		if (config.signal?.aborted) return finish("aborted");
 		const context: LlmContext = {
 			systemPrompt: config.systemPrompt,
 			messages,
@@ -590,6 +594,7 @@ async function streamTurn(config: AgentRunConfig, context: LlmContext, emit: Age
 		maxTokens: config.maxTokens,
 		temperature: config.temperature,
 		retryAttempts: config.retryAttempts,
+		retryPolicy: config.retryPolicy,
 		/*
 		 * Said out loud, because the alternative is a turn that appears to hang.
 		 *

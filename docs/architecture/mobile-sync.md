@@ -123,3 +123,5 @@ MCP、hooks、scheduled tasks、搜索密钥与同步令牌。手机保存设置
 `arch` 无错误，仍报告 147 条警告。移动端同步 E2E 为 5/5 通过，桌面 production build 以及
 包含最后安全区修正的 iOS、Android、Web Expo export 均成功。局域网测试中手机消息显示到桌面
 约 30ms、重连补齐约 90ms；这些来自本机可控 SSE 服务，不能当作公网或真实模型服务的延迟承诺。
+
+智能体定义文件管理（`agentdefs:*`）仅桌面开放。模型偏好和分类 `retryPolicy` 仍可经既有安全设置合并同步；手机不能通过此接口修改本地定义文件。

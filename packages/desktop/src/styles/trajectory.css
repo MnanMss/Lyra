@@ -1,0 +1,85 @@
+.ly-trajectory {
+  container: trajectory / inline-size;
+}
+
+.ly-trace-body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ly-trace-ledger {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ly-trace-inspector {
+  position: relative;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-width: 360px;
+  max-width: calc(100% - 320px);
+  min-height: 0;
+  border-left: 1px solid var(--color-line-soft);
+  background: var(--color-shell);
+}
+
+.ly-trace-resize {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+@container trajectory (width < 720px) {
+  .ly-trace-inspector {
+    position: absolute;
+    inset: 0;
+    width: 100% !important;
+    min-width: 0;
+    max-width: none;
+    border-left: 0;
+  }
+
+  .ly-trace-body[data-has-detail="true"] .ly-trace-ledger {
+    visibility: hidden;
+  }
+
+  .ly-trace-resize {
+    display: none;
+  }
+}
+
+.ly-trace-pan {
+  appearance: none;
+  background: transparent;
+}
+
+.ly-trace-pan::-webkit-slider-runnable-track {
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-line);
+}
+
+.ly-trace-pan::-webkit-slider-thumb {
+  width: 8px;
+  height: 8px;
+  margin-top: -3px;
+  appearance: none;
+  border-radius: 50%;
+  background: var(--color-ink-muted);
+}
+
+.ly-trace-pan:disabled::-webkit-slider-thumb {
+  background: var(--color-line);
+}

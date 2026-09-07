@@ -16,7 +16,7 @@ import type {
 } from "../types.ts";
 import { emptyUsage } from "../types.ts";
 import { computeCost } from "../utils/pricing.ts";
-import { fetchWithRetry, isRetryableError, retryStream, toolCallId } from "./retry.ts";
+import { RetryBudget, fetchWithRetry, isRetryableError, retryStream, toolCallId } from "./retry.ts";
 import { parseToolArguments, readSse } from "../utils/sse.ts";
 import { describeFetchError, joinUrl, truncate } from "./anthropic-messages.ts";
 import { resolveReasoningEffort } from "./thinking-options.ts";
@@ -71,6 +71,7 @@ async function* streamChatCompletions(
 	const inventedIds = new Map<number, string>();
 	let refused = false;
 
+	const retryBudget = new RetryBudget(options.retryPolicy, options.retryAttempts);
 	try {
 		yield* retryStream(
 			async function* attempt() {
@@ -88,7 +89,7 @@ async function* streamChatCompletions(
 						signal: options.signal,
 					},
 					{
-						attempts: options.retryAttempts,
+						budget: retryBudget,
 						signal: options.signal,
 						onRetry: options.onRetry,
 					},
@@ -257,7 +258,7 @@ async function* streamChatCompletions(
 				}
 			},
 			{
-				attempts: options.retryAttempts,
+				budget: retryBudget,
 				signal: options.signal,
 				onRetry: options.onRetry,
 				reset: () => {

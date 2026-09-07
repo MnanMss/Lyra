@@ -1,3 +1,4 @@
+import { DEFAULT_RETRY_POLICY, normalizeRetryPolicy, type RetryPolicy } from "./retry-policy.ts";
 import { withCatalogDefaults } from "../model-catalog.ts";
 import { normalizeSubAgentProfiles, type SubAgentProfile } from "./sub-agent-profiles.ts";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -291,18 +292,9 @@ export interface Settings {
 	favoriteModelIds?: string[];
 	permissionMode: PermissionMode;
 	thinking: ThinkingLevel;
-	/**
-	 * Attempts per model request, including the first.
-	 *
-	 * Only the connection is retried — a stream already delivering text never is. Worth raising
-	 * on a flaky relay, worth setting to 1 when you would rather see failures immediately.
-	 *
-	 * Five by default rather than three. A relay that has run out of credentials for a model
-	 * answers 503 with a reset time just under a minute, and the waits are spaced to sit that out
-	 * (see `ai/retry`) — at three attempts the budget ran out well before the outage did, and a
-	 * turn that had already spent a minute reading files died for a wait it could have survived.
-	 */
+	/** Legacy total attempts, retained when reading older settings. Prefer retryPolicy. */
 	retryAttempts: number;
+	retryPolicy?: RetryPolicy;
 	/** Last level chosen above "off", restored when fast mode is switched back off. */
 	lastThinking?: ThinkingLevel;
 	/**
@@ -536,7 +528,8 @@ export const DEFAULT_SETTINGS: Settings = {
 	permissionMode: "auto",
 	thinking: "medium",
 	commitLanguage: "zh",
-	retryAttempts: 5,
+	retryAttempts: 11,
+	retryPolicy: DEFAULT_RETRY_POLICY,
 	appearance: DEFAULT_APPEARANCE,
 	formatting: DEFAULT_FORMATTING,
 	hooks: [],
@@ -682,6 +675,7 @@ export function normalizeSettings(parsed: Partial<Settings>): Settings {
 			...DEFAULT_SETTINGS,
 			...parsed,
 			uiLocale: normalizeUiLocale(parsed.uiLocale),
+			retryPolicy: normalizeRetryPolicy(parsed.retryPolicy, parsed.retryAttempts),
 			sync: { ...DEFAULT_SETTINGS.sync, ...parsed.sync },
 			editor: { ...DEFAULT_SETTINGS.editor, ...parsed.editor },
 			screenshot: { ...DEFAULT_SCREENSHOT_SETTINGS, ...parsed.screenshot },

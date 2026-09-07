@@ -1,3 +1,4 @@
+import { RetrySettings } from "./RetrySettings.tsx";
 import type { PermissionMode, UiLocale } from "@lyra/core";
 import { FolderOpen, Languages } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -177,22 +178,7 @@ export function GeneralSettings() {
             />
           }
         />
-        <Row
-			title={t("general.retry")}
-			detail={t("general.retryDetail")}
-          control={
-            <Segmented
-              value={String(settings.retryAttempts)}
-              onChange={(value) => patch({ retryAttempts: Number(value) })}
-              options={[
-				{ value: "1", label: t("retry.none") },
-				{ value: "2", label: t("retry.count", { count: 2 }) },
-				{ value: "3", label: t("retry.count", { count: 3 }) },
-				{ value: "5", label: t("retry.count", { count: 5 }) },
-              ]}
-            />
-          }
-        />
+		<RetrySettings settings={settings} />
         <Row
           title={t("general.autoSummarizeTitle")}
           detail={t("general.autoSummarizeTitleDetail")}

@@ -1,3 +1,4 @@
+export { DEFAULT_RETRY_POLICY, DEFAULT_RETRY_RULE, normalizeRetryPolicy, policyDelay, type RetryPolicy, type RetryRule, type RetryFailure } from "./config/retry-policy.ts";
 export {
 	APPROVAL,
 	COMPACTION,
@@ -261,3 +262,5 @@ export { projectMemoryDir } from "./runtime/project-memory.ts";
 export { computeDiff } from "./tools/diff.ts";
 
 export { readFileChange, undoFileChanges, undoFileChangeBatches, type RecordedChange } from "./tools/file-changes.ts";
+export { AgentDefinitionStore } from "./agents/definition-store.ts";
+export type { AgentDraft, AgentDefinitionRecord, AgentDefinitionSave } from "./agents/definition-document.ts";

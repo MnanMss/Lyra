@@ -56,6 +56,7 @@ export function Composer() {
 	const meta = useApp((s) => s.meta);
 	const messages = useApp((s) => s.messages);
 	const running = useApp((s) => s.running);
+	const stopped = useApp((s) => s.stopped);
 	const activeSessionId = useApp((s) => s.activeSessionId);
 	// "底部面板" in Settings → 常规. Saved but read by nothing until now.
 	const showBottomPanel = useApp((s) => s.settings?.editor.showBottomPanel) ?? true;
@@ -80,6 +81,8 @@ export function Composer() {
 	const [attachments, setAttachments] = useState<Attachment[]>(() => (savedDraft?.attachments as Attachment[]) ?? []);
 
 	// Keep a ref of current text and attachments so we can sync them to store on unmount or key change.
+	const lastMessage = messages.at(-1);
+	const continueReady = Boolean(activeSessionId && !running && !stopped && lastMessage?.role === "assistant" && lastMessage.stopReason === "stop" && !text.trim() && !attachments.length && !sessionRefs.length);
 	const textRef = useRef(text);
 	textRef.current = text;
 	const attachmentsRef = useRef(attachments);
@@ -217,7 +220,10 @@ export function Composer() {
 
 	async function submitOnce(release: () => void) {
 		const trimmed = text.trim();
-		if (!trimmed && attachments.length === 0 && sessionRefs.length === 0) return;
+		if (!trimmed && attachments.length === 0 && sessionRefs.length === 0) {
+			if (continueReady) await send([{ type: "text", text: "继续推进当前任务；如果已经完成，请简要说明结果，不要重复执行已完成的操作。" }], { synthetic: true });
+			return;
+		}
 
 		/*
 		 * A command becomes the prompt it stands for, here, before anything is sent.
@@ -776,7 +782,9 @@ export function Composer() {
 							{running && (text.trim() || attachments.length > 0) && <ComposerSend running={false} onSend={() => void submit()} onStop={() => void abort()} />}
 							<ComposerSend
 								running={running}
-								disabled={!text.trim() && attachments.length === 0 && sessionRefs.length === 0}
+								continueReady={continueReady}
+								tip={continueReady ? "继续" : undefined}
+								disabled={!continueReady && !text.trim() && attachments.length === 0 && sessionRefs.length === 0}
 								onSend={() => void submit()}
 								onStop={() => void abort()}
 							/>

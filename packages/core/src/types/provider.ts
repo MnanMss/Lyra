@@ -1,3 +1,4 @@
+import type { RetryPolicy } from "../config/retry-policy.ts";
 /**
  * Models, providers, and the stream a request comes back as.
  *
@@ -105,6 +106,7 @@ export interface RequestOptions {
 	 * Only the connection is retried, never a stream already in flight. 1 disables it.
 	 */
 	retryAttempts?: number;
+	retryPolicy?: RetryPolicy;
 	/** Told about each wait, so the UI can say why a turn is taking longer than usual. */
 	onRetry?: (info: { attempt: number; delayMs: number; reason: string }) => void;
 }

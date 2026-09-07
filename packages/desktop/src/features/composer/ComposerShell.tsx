@@ -290,9 +290,11 @@ export function ComposerSend({
   disabled,
   onSend,
   onStop,
+	continueReady = false,
 	tip,
 }: {
   running: boolean;
+	continueReady?: boolean;
   disabled?: boolean;
   onSend: () => void;
   onStop: () => void;
@@ -336,7 +338,7 @@ export function ComposerSend({
         strokeLinejoin="round"
         aria-hidden
       >
-        <path d="M12 19V5M5 12l7-7 7 7" />
+        {continueReady ? <path d="m8 5 11 7-11 7Z" /> : <path d="M12 19V5M5 12l7-7 7 7" />}
       </svg>
     </button>
   );

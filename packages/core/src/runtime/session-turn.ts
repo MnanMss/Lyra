@@ -102,6 +102,7 @@ export async function driveTurn(input: TurnInputs): Promise<void> {
 		resuming: (info) => input.emit({ type: "retry", ...info, resume: true }),
 		// So that pressing stop during a minute-long wait is felt immediately.
 		signal: input.signal,
+		requestRetriesHandled: true,
 	});
 
 	void can.extensions.dispatch("turn_end", { cwd, sessionId: log.meta.id, messages: log.messages.length }).catch(() => {});
@@ -118,7 +119,7 @@ export async function driveTurn(input: TurnInputs): Promise<void> {
 		settings: input.settings,
 		provider: input.provider,
 		model: input.model,
-		stream: summaryStream(input.streamFn, { sessionId: log.meta.id, cwd }) ?? streamAssistant,
+		stream: summaryStream(input.streamFn, { sessionId: log.meta.id, cwd, retryPolicy: input.settings.retryPolicy, signal: input.signal }) ?? streamAssistant,
 		budget: input.can.correctionBudget,
 		signal: input.signal,
 		emit: input.emit,
@@ -261,7 +262,7 @@ async function assembleTurn(input: TurnInputs): Promise<{ config: AgentRunConfig
 			streamFn: input.streamFn,
 			requestApproval: input.requestApproval,
 			emit: input.emit,
-			summaryStream: summaryStream(input.streamFn, { sessionId: log.meta.id, cwd }),
+			summaryStream: summaryStream(input.streamFn, { sessionId: log.meta.id, cwd, retryPolicy: input.settings.retryPolicy, signal: input.signal }),
 			// 压缩剪掉的大块输出存进会话，占位标记里给出 `artifact://` 地址。
 			artifacts: { keep: (tool, content) => can.keepArtifact(tool, content) },
 			beforeToolCall: makeBeforeToolCall(settings.hooks, cwd, input.signal, can.extensions),
@@ -286,9 +287,9 @@ async function assembleTurn(input: TurnInputs): Promise<{ config: AgentRunConfig
  */
 export function summaryStream(
 	override: AgentRunConfig["streamFn"] | undefined,
-	scope: Pick<AgentRunConfig, "sessionId" | "cwd">,
+	scope: Pick<AgentRunConfig, "sessionId" | "cwd" | "retryPolicy" | "signal">,
 ): typeof streamAssistant | undefined {
-	if (!override) return undefined;
+	if (!override) return (provider, model, context, options) => streamAssistant(provider, model, context, { ...options, retryPolicy: options?.retryPolicy ?? scope.retryPolicy, signal: options?.signal ?? scope.signal });
 	return (provider, model, context, options) => {
 		const call = override;
 		// A generator that only returns: compaction asks for a stream, the override answers with a
@@ -298,7 +299,7 @@ export function summaryStream(
 			return call({ ...context }, {
 				...scope, provider, model, messages: context.messages,
 				systemPrompt: context.systemPrompt ?? "", tools: [],
-				thinking: options?.thinking, maxTokens: options?.maxTokens, signal: options?.signal,
+				thinking: options?.thinking, maxTokens: options?.maxTokens, signal: options?.signal ?? scope.signal,
 			});
 		}
 		return once();
