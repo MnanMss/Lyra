@@ -121,7 +121,7 @@ export function makeYieldTool(
 
 			if (errors.length === 0) {
 				ctx.state.set(YIELD_KEY, { value: args, warnings: [] } satisfies YieldOutcome);
-				return { content: [{ type: "text", text: "结果已提交。" }] };
+				return { content: [{ type: "text", text: "结果已提交。" }], terminate: true };
 			}
 
 			if (attempts < maxAttempts) {
@@ -153,6 +153,7 @@ export function makeYieldTool(
 			ctx.state.set(YIELD_KEY, { value: args, warnings: errors } satisfies YieldOutcome);
 			return {
 				content: [{ type: "text", text: `结果已提交，但有 ${errors.length} 处不符合要求，已按原样接受。` }],
+				terminate: true,
 			};
 		},
 	};

@@ -471,6 +471,16 @@ export async function runAgent(config: AgentRunConfig, emit: AgentEventSink): Pr
 		await emit({ type: "turn_end", message: assistant, toolResults });
 
 		/*
+		 * A tool can signal that the loop should terminate immediately after executing it.
+		 *
+		 * Used by tools like `yield` whose execution contract is the final delivery of the run:
+		 * returning control to the model after a successful yield would only invite redundant turns.
+		 */
+		if (toolResults.some((r) => r.terminate)) {
+			return finish("done");
+		}
+
+		/*
 		 * Same call, same arguments, same answer — again.
 		 *
 		 * Told once, most models change approach. Told and ignored, the turn ends: an agent

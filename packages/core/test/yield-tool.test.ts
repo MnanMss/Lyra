@@ -108,6 +108,13 @@ test("a valid submission is stored and reported as accepted", async () => {
 	assert.deepEqual(stored.warnings, []);
 });
 
+test("a valid submission sets terminate to end the agent loop", async () => {
+	const tool = makeYieldTool(SCHEMA);
+	const context = ctx();
+	const result = await tool.execute({ summary: "好了", files: [] }, context);
+	assert.equal(result.terminate, true, "successful yield must signal the agent loop to terminate");
+});
+
 test("an invalid submission is refused with the reasons, and nothing is stored", async () => {
 	const tool = makeYieldTool(SCHEMA);
 	const context = ctx();

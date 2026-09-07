@@ -61,6 +61,7 @@ export async function runTools(
 			isError: result.isError === true,
 			/* An error is always worth keeping, whatever else the tool said about itself. */
 			uneventful: result.isError !== true && result.uneventful === true,
+			terminate: result.terminate === true,
 			timestamp: Date.now(),
 		};
 		await emit({ type: "message_start", message });

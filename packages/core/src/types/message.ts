@@ -191,6 +191,8 @@ export interface ToolResultMessage {
 	isError: boolean;
 	/** See `ToolResult.uneventful`. Carried on the message so compaction can see it. */
 	uneventful?: boolean;
+	/** See `ToolResult.terminate`. Ends the agent loop after this turn. */
+	terminate?: boolean;
 	timestamp: number;
 }
 
