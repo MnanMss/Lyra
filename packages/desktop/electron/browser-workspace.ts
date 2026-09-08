@@ -128,7 +128,8 @@ export async function browserCommand(command: BrowserCommand): Promise<BrowserSt
 		if (!Number.isFinite(command.width) || !Number.isFinite(command.height) || command.width <= 0 || command.height <= 0) throw new Error("无效的页面尺寸");
 		tab.size = { width: command.width, height: command.height }; fitViewport(tab); return browserState();
 	}
-	const contents = browserContents(command.id);
+	const contents = await readyBrowser(tab);
+	if (contents.isDestroyed()) throw new Error("浏览器标签已关闭");
 	switch (command.type) {
 		// Chromium shares zoom by origin; restore this tab's preference when bringing it forward.
 		case "select": {

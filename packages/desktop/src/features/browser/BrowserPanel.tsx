@@ -74,7 +74,7 @@ export function BrowserPanel() {
 		</div>}
 		{tab?.error && <p role="status" className="px-3 py-2 text-detail text-danger">{tab.error}</p>}
 		<div className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-card">
-			{tabs.map((entry) => <BrowserPage key={entry.id} tab={entry} active={entry.id === activeId} />)}
+			{allTabs.map((entry) => <BrowserPage key={entry.id} tab={entry} active={entry.id === activeId} />)}
 			{blank && <div className="absolute inset-0 flex items-center justify-center bg-card px-4" data-browser-empty><p className="text-detail text-ink-faint">输入网址开始浏览</p></div>}
 		</div>
 		{selection && <BrowserSelectionCard selection={selection} onClose={() => setSelection(null)} />}

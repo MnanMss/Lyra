@@ -15,3 +15,7 @@ test("browserPartition assigns scoped persistent partition per session", () => {
 	assert.equal(browserPartition(""), "persist:ly-browser-global");
 	assert.equal(browserPartition(null), "persist:ly-browser-global");
 });
+
+test("browserCommand allows valid reload command format", () => {
+	assert.deepEqual(parseBrowserCommand({ type: "reload", id: "tab-1" }), { type: "reload", id: "tab-1" });
+});
