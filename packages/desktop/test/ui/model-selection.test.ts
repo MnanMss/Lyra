@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement as h } from "react";
-import { DEFAULT_SETTINGS, type Settings } from "@lyra/core";
+import { BUILTIN_AGENTS, DEFAULT_SETTINGS, type Settings } from "@lyra/core";
 import { effortLabel, ModelSelect } from "../../src/features/models/index.ts";
 import { AgentsSettings } from "../../src/features/settings/AgentsSettings.tsx";
 import { ModelEditor } from "../../src/features/settings/ModelEditor.tsx";
@@ -39,6 +39,7 @@ test("configuration picker shares favourites/search and never selects the active
 
 test("a failed role save leaves the explicit unavailable model visible", async () => {
 	const original = useApp.getState().saveSettings;
+	Object.defineProperty(window, "lyra", { configurable: true, value: { agentDefinitions: { list: async () => ({ records: BUILTIN_AGENTS.map(definition => ({ definition, id: definition.name, scope: "builtin", editable: true, customized: false, revision: "1", raw: "", shadowedSources: [] })), tools: [] }) } } });
 	useApp.setState({ activeSessionId: null, capabilities: null, settings: { ...settings, modelRoles: { fast: "missing/model" } }, saveSettings: async () => { throw new Error("disk full"); } });
 	const view = await mount(h(I18nProvider, { locale: "zh-CN", children: h(AgentsSettings) }));
 	try {

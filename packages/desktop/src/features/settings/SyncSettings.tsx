@@ -1,6 +1,7 @@
-import { Check, ChevronDown, Copy, QrCode, RotateCw, Smartphone } from "lucide-react";
+import { Check, Copy, QrCode, RotateCw, Smartphone } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useMemo, useState } from "react";
+import { Disclosure } from "../../ui/layout/Disclosure.tsx";
 import { useApp } from "../../store/index.ts";
 import { Badge, Card, Field, GhostButton, Row, SectionTitle, TextInput, Toggle } from "./controls.tsx";
 import { pairingCode, parseEndpoint, routeLabel, type PairingRoute } from "./pairing.ts";
@@ -223,81 +224,65 @@ export function SyncSettings() {
 							</div>
 						</div>
 
-						<div className="mt-5 border-t border-line-soft pt-4">
-							<button
-								type="button"
-								onClick={() => setManualOpen((open) => !open)}
-								className="flex w-full cursor-pointer items-center justify-between text-label text-ink-muted transition-colors hover:text-ink"
-							>
-								无法扫描？查看手动连接信息与令牌
-								<ChevronDown
-									size={14}
-									strokeWidth={2}
-									className="transition-transform duration-[var(--ly-t-base)]"
-									style={manualOpen ? { transform: "rotate(180deg)" } : undefined}
-								/>
-							</button>
-
-							<div className="ly-reveal" data-open={manualOpen} aria-hidden={!manualOpen}>
-								<div>
-									<div className="mt-4 space-y-4">
-										<div>
-											<div className="mb-1.5 text-detail text-ink-faint">在手机上填写这个地址</div>
-											<div className="flex items-center gap-2 rounded-[10px] border border-line bg-input px-3.5 py-2.5">
-												<span className="min-w-0 flex-1 truncate font-mono text-label text-ink">
-													{active ? routeLabel(active) : "未检测到可用地址"}
-												</span>
-											</div>
+						<div className="mt-5 border-t border-line-soft">
+							<Disclosure title="无法扫描？查看手动连接信息与令牌" open={manualOpen} onToggle={() => setManualOpen((open) => !open)}>
+								<div className="space-y-4 pt-1">
+									<div>
+										<div className="mb-1.5 text-detail text-ink-faint">在手机上填写这个地址</div>
+										<div className="flex items-center gap-2 rounded-[10px] border border-line bg-input px-3.5 py-2.5">
+											<span className="min-w-0 flex-1 truncate font-mono text-label text-ink">
+												{active ? routeLabel(active) : "未检测到可用地址"}
+											</span>
 										</div>
+									</div>
 
+									<div>
+										<div className="mb-1.5 flex items-center gap-2">
+											<span className="text-detail text-ink-faint">配对令牌</span>
+											<GhostButton
+												onClick={() => {
+													void bridge.sync.rotateToken().then(() => void refreshSync());
+												}}
+											>
+												<span className="flex items-center gap-1.5">
+													<RotateCw size={11} strokeWidth={2} />
+													重置
+												</span>
+											</GhostButton>
+										</div>
+										<div className="flex items-center gap-2 rounded-[10px] border border-line bg-input px-3.5 py-2.5">
+											<span className="min-w-0 flex-1 truncate font-mono text-label text-ink">{sync?.token}</span>
+											<CopyButton
+												done={copied === "token"}
+												onCopy={() => {
+													void navigator.clipboard.writeText(sync?.token ?? "");
+													setCopied("token");
+													setTimeout(() => setCopied(null), 1500);
+												}}
+											/>
+										</div>
+									</div>
+
+									{code && (
 										<div>
-											<div className="mb-1.5 flex items-center gap-2">
-												<span className="text-detail text-ink-faint">配对令牌</span>
-												<GhostButton
-													onClick={() => {
-														void bridge.sync.rotateToken().then(() => void refreshSync());
-													}}
-												>
-													<span className="flex items-center gap-1.5">
-														<RotateCw size={11} strokeWidth={2} />
-														重置
-													</span>
-												</GhostButton>
+											<div className="mb-1.5 text-detail text-ink-faint">
+												配对链接，复制后在手机上粘贴也可以
 											</div>
 											<div className="flex items-center gap-2 rounded-[10px] border border-line bg-input px-3.5 py-2.5">
-												<span className="min-w-0 flex-1 truncate font-mono text-label text-ink">{sync?.token}</span>
+												<code className="min-w-0 flex-1 truncate font-mono text-detail text-ink-muted">{code}</code>
 												<CopyButton
-													done={copied === "token"}
+													done={copied === "code"}
 													onCopy={() => {
-														void navigator.clipboard.writeText(sync?.token ?? "");
-														setCopied("token");
+														void navigator.clipboard.writeText(code);
+														setCopied("code");
 														setTimeout(() => setCopied(null), 1500);
 													}}
 												/>
 											</div>
 										</div>
-
-										{code && (
-											<div>
-												<div className="mb-1.5 text-detail text-ink-faint">
-													配对链接，复制后在手机上粘贴也可以
-												</div>
-												<div className="flex items-center gap-2 rounded-[10px] border border-line bg-input px-3.5 py-2.5">
-													<code className="min-w-0 flex-1 truncate font-mono text-detail text-ink-muted">{code}</code>
-													<CopyButton
-														done={copied === "code"}
-														onCopy={() => {
-															void navigator.clipboard.writeText(code);
-															setCopied("code");
-															setTimeout(() => setCopied(null), 1500);
-														}}
-													/>
-												</div>
-											</div>
-										)}
-									</div>
+									)}
 								</div>
-							</div>
+							</Disclosure>
 						</div>
 					</div>
 				)}

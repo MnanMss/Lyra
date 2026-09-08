@@ -144,6 +144,20 @@ export function ModelMenu({ anchor, onClose, selection }: { anchor: Anchor; onCl
 		[sections, collapsed, query],
 	);
 
+	/*
+	 * A switch that does not go through has to say so.
+	 *
+	 * `setModel` paints the new model first and rolls back if the write fails, so a silent rejection
+	 * leaves the composer showing the model it went back to — which is indistinguishable from never
+	 * having pressed anything. It was `void`ed here, so the rejection was an unhandled one in the
+	 * console and nothing else.
+	 */
+	const apply = (modelId: string, options?: { asDefault?: boolean }) => {
+		void setModel(modelId, options).catch((cause: unknown) => {
+			useApp.getState().notify(`切换模型失败：${cause instanceof Error ? cause.message : String(cause)}`, "error");
+		});
+	};
+
 	const choose = (modelId: string, options?: { asDefault?: boolean }) => {
 		if (selection) {
 			selection.onChange(modelId);
@@ -169,13 +183,13 @@ export function ModelMenu({ anchor, onClose, selection }: { anchor: Anchor; onCl
 				cancelLabel: "取消",
 				tone: "danger",
 				onConfirm: () => {
-					void setModel(modelId, options);
+					apply(modelId, options);
 					onClose();
 				},
 			});
 			return;
 		}
-		void setModel(modelId, options);
+		apply(modelId, options);
 		onClose();
 	};
 

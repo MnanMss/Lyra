@@ -1,9 +1,8 @@
-import { ChartNoAxesCombined, RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronDown, RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { entryKey, SOURCE_LABEL, type Entry } from "@lyra/core/trajectory-view";
-import { Popover } from "../../../ui/overlay/Popover.tsx";
 import { IconButton } from "../../../ui/primitives/IconButton.tsx";
-import { draggedRange, LANE_HEIGHT, timelineDomain, timelineHit, timelineLane, timelineTime, type TimeRange } from "./timeline-geometry.ts";
+import { draggedRange, LANE_HEIGHT, timelineDomain, timelineHit, timelineLane, type TimeRange } from "./timeline-geometry.ts";
 export type { TimeRange } from "./timeline-geometry.ts";
 
 const HEIGHT = LANE_HEIGHT * 3;
@@ -11,11 +10,16 @@ const hint = "点击查看记录 · 拖选范围 · 方向键浏览，Enter 查�
 const offset = (ms: number) => ms < 1000 ? `${Math.round(ms)}ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${(ms / 60_000).toFixed(1)}m`;
 
 /** Preview the brush locally; committing it once keeps the ledger still under the pointer. */
-export const TraceTimeline = memo(function TraceTimeline({ entries, range, selected, onRange, onSelect }: {
-	entries: Entry[]; range: TimeRange | null; selected: string | null;
+export const TraceTimeline = memo(function TraceTimeline({ entries, range, selected, onRange, onSelect, matches, paused = false }: {
+	matches?: ReadonlySet<string>; paused?: boolean; entries: Entry[]; range: TimeRange | null; selected: string | null;
 	onRange: (range: TimeRange | null) => void; onSelect: (entry: Entry) => void;
 }) {
-	const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+	const root = useRef<HTMLElement>(null);
+	const [expanded, setExpanded] = useState(true);
+	const initialized = useRef(false);
+	const [short, setShort] = useState(false);
+	const [cramped, setCramped] = useState(false);
+	const manualView = useRef(false);
 	const canvas = useRef<HTMLCanvasElement>(null);
 	const drag = useRef<number | null>(null);
 	const [draft, setDraft] = useState<TimeRange | null>(null);
@@ -25,24 +29,53 @@ export const TraceTimeline = memo(function TraceTimeline({ entries, range, selec
 	const points = useMemo(() => entries.filter(entry => entry.source === "request" || entry.source === "tool-call" || entry.source === "compaction" || entry.source === "subagent" || entry.source === "assistant" && !entry.linkedSeqs?.length), [entries]);
 	const domain = useMemo(() => timelineDomain(points), [points]);
 	const shown = view ?? domain;
+	const visible = expanded && !short;
 	const brush = draft ?? range;
 	const current = points.findIndex(entry => entryKey(entry) === (preview ?? selected));
 	const activeEntry = points[Math.max(0, current)];
 	const described = hover ?? (preview ? activeEntry : undefined);
-	const close = () => {
-		if (canvas.current?.closest("[data-trace-timeline]")?.contains(document.activeElement)) anchor?.focus({ preventScroll: true });
-		drag.current = null; setDraft(null); setHover(undefined); setPreview(null); setAnchor(null);
-	};
-	const reset = () => { setView(null); setDraft(null); onRange(null); };
+	const cancel = () => { drag.current = null; setDraft(null); setHover(undefined); setPreview(null); };
+	useEffect(() => {
+		const parent = root.current?.parentElement;
+		if (!parent) return;
+		const observer = new ResizeObserver(() => {
+			if (!parent.clientHeight) return;
+			setShort(parent.clientHeight < 240);
+			setCramped(parent.clientHeight < 160);
+			if (initialized.current) return;
+			initialized.current = true;
+			const preference = window.sessionStorage.getItem("lyra.trace.timeline");
+			setExpanded(preference ? preference === "open" : parent.clientHeight >= 400);
+		});
+		observer.observe(parent); return () => observer.disconnect();
+	}, []);
+	useEffect(() => {
+		if (paused || range) setView(current => current ?? domain);
+		else if (!manualView.current) setView(null);
+	}, [paused, range, domain]);
+	useEffect(() => {
+		const entry = points.find(item => entryKey(item) === selected);
+		if (!entry) return;
+		setPreview(null);
+		setView(current => {
+			if (!current) return current;
+			const start = entry.startedAt ?? entry.ts, end = entry.finishedAt ?? start;
+			if (end >= current.start && start <= current.end) return current;
+			const span = current.end - current.start;
+			const left = Math.max(domain.start, Math.min(domain.end - span, start));
+			return { start: left, end: left + span };
+		});
+	}, [selected, points, domain]);
+	const reset = () => { manualView.current = false; setView(null); setDraft(null); onRange(null); };
 	const zoom = (factor: number) => {
+		manualView.current = true;
 		const span = Math.min(domain.end - domain.start, Math.max(1, (shown.end - shown.start) * factor));
 		const at = brush ? (brush.start + brush.end) / 2 : (shown.start + shown.end) / 2;
 		const start = Math.max(domain.start, Math.min(domain.end - span, at - span / 2));
 		setView(span === domain.end - domain.start ? null : { start, end: start + span });
 	};
-	useEffect(() => { if (anchor) canvas.current?.focus({ preventScroll: true }); }, [anchor]);
 	useEffect(() => {
-		const el = canvas.current; if (!el) return;
+		const el = canvas.current; if (!el || !visible) return;
 		const paint = () => {
 			const width = el.clientWidth; if (!width) return;
 			const dpr = devicePixelRatio, style = getComputedStyle(el);
@@ -56,7 +89,7 @@ export const TraceTimeline = memo(function TraceTimeline({ entries, range, selec
 				if (right < 0 || left > width) continue;
 				const lane = timelineLane(entry), y = lane * LANE_HEIGHT + 3;
 				ctx.fillStyle = entry.status === "error" ? color("danger") : lane === 1 ? color("ok") : lane === 2 ? color("violet") : color("info");
-				ctx.globalAlpha = brush && ((entry.finishedAt ?? entry.startedAt ?? entry.ts) < brush.start || (entry.startedAt ?? entry.ts) > brush.end) ? 0.18 : 0.65;
+				ctx.globalAlpha = matches && !matches.has(entryKey(entry)) ? 0.2 : brush && ((entry.finishedAt ?? entry.startedAt ?? entry.ts) < brush.start || (entry.startedAt ?? entry.ts) > brush.end) ? 0.18 : 0.65;
 				ctx.fillRect(Math.max(0, left), y, Math.min(width, right) - Math.max(0, left), 10);
 				if (entryKey(entry) === (preview ?? selected) || entry === hover) {
 					ctx.globalAlpha = 1; ctx.strokeStyle = color("ink"); ctx.lineWidth = 1.5;
@@ -72,17 +105,18 @@ export const TraceTimeline = memo(function TraceTimeline({ entries, range, selec
 		paint(); const observer = new ResizeObserver(paint); observer.observe(el);
 		const theme = new MutationObserver(paint); theme.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-theme"] });
 		return () => { observer.disconnect(); theme.disconnect(); };
-	}, [points, shown, brush, selected, hover, preview, anchor]);
+	}, [points, shown, brush, selected, hover, preview, visible, matches]);
 	const point = (el: HTMLCanvasElement, clientX: number, clientY: number) => { const bounds = el.getBoundingClientRect(); return { x: clientX - bounds.left, y: clientY - bounds.top, width: bounds.width }; };
-	return <>
-		<IconButton label="时间概览" icon={<ChartNoAxesCombined size={15} />} active={Boolean(range || anchor)} onClick={event => anchor ? close() : setAnchor(event.currentTarget)} />
-		{anchor && <Popover anchor={anchor} onClose={close} align="end" width="panel" role="dialog" label="时间概览"><div className="px-3 py-2" data-trace-timeline>
-		<div className="flex h-6 items-center gap-1 text-caption text-ink-faint">
-			<span className="mr-auto">{brush ? `${offset(brush.start - domain.start)} – ${offset(brush.end - domain.start)}` : "拖选时间范围"}</span>
-			<IconButton size="sm" label="放大时间范围" icon={<ZoomIn size={12} />} onClick={() => zoom(0.5)} disabled={shown.end - shown.start <= 1} />
-			<IconButton size="sm" label="缩小时间范围" icon={<ZoomOut size={12} />} onClick={() => zoom(2)} disabled={!view} />
-			{(range || view) && <IconButton size="sm" label="重置时间范围" icon={<RotateCcw size={12} />} onClick={reset} />}
+	return <section ref={root} hidden={cramped} className="shrink-0 px-3 pb-1" aria-label="时间概览" data-trace-timeline>
+		<div className="flex h-8 items-center gap-1 text-caption text-ink-muted">
+			<button type="button" aria-label="时间概览" aria-expanded={visible} className="mr-auto flex items-center gap-1 rounded py-1 hover:text-ink" onClick={() => { cancel(); window.sessionStorage.setItem("lyra.trace.timeline", expanded ? "closed" : "open"); setExpanded(!expanded); }}><ChevronDown size={12} style={{ transform: expanded ? undefined : "rotate(-90deg)" }} />{short ? "时间轴 · 放大面板查看" : expanded ? "时间轴" : "展开时间轴"}</button>
+			<IconButton explainDisabled size="sm" label="缩小时间范围" icon={<ZoomOut size={12} />} onClick={() => zoom(2)} disabled={!view || !visible} />
+			<IconButton explainDisabled size="sm" label="放大时间范围" icon={<ZoomIn size={12} />} onClick={() => zoom(0.5)} disabled={!visible || !points.length || shown.end - shown.start <= 1} />
+			<IconButton explainDisabled size="sm" label="重置时间范围" icon={<RotateCcw size={12} />} onClick={reset} disabled={!range && !view} />
 		</div>
+		<div hidden={!visible}>
+		<div className="flex h-6 items-center justify-between text-caption text-ink-muted"><span>{brush ? `聚焦 ${offset(brush.start - domain.start)} 至 ${offset(brush.end - domain.start)}` : "点击记录 · 拖选聚焦"}</span>{brush && <button type="button" className="rounded px-1 hover:bg-hover" onClick={() => { setDraft(null); onRange(null); }}>清除范围</button>}</div>
+
 		<div className="flex items-start gap-2">
 			<div aria-hidden className="flex w-7 shrink-0 flex-col text-caption text-ink-faint" style={{ lineHeight: `${LANE_HEIGHT}px` }}><span>模型</span><span>工具</span><span>协作</span></div>
 			<canvas ref={canvas} className="block min-w-0 flex-1 touch-none rounded bg-card/30 outline-offset-2 focus-visible:outline-2 focus-visible:outline-accent" style={{ height: HEIGHT }} tabIndex={0} role="slider" aria-label={hint} aria-valuemin={0} aria-valuemax={Math.max(0, points.length - 1)} aria-valuenow={Math.max(0, current)} aria-valuetext={activeEntry ? `#${activeEntry.seq} ${SOURCE_LABEL[activeEntry.source]} ${activeEntry.summary}` : undefined} data-ly-tip={described ? `#${described.seq} ${SOURCE_LABEL[described.source]} · ${described.summary}\n${described.durationMs === undefined ? "未记录耗时" : offset(described.durationMs)}` : hint}
@@ -100,19 +134,15 @@ export const TraceTimeline = memo(function TraceTimeline({ entries, range, selec
 					if (next) onRange(next);
 					else {
 						const near = timelineHit(points, x, y, width, shown);
-						if (near) { onSelect(near); close(); }
-						else if (points.length) {
-							const time = timelineTime(x, width, shown);
-							const closest = points.reduce((a, b) => Math.abs((a.startedAt ?? a.ts) - time) <= Math.abs((b.startedAt ?? b.ts) - time) ? a : b);
-							onSelect(closest); close();
-						}
+						if (near) onSelect(near);
 					}
 				}}
 				onPointerCancel={() => { drag.current = null; setDraft(null); }}
 				onKeyDown={event => {
+					if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancel(); onRange(null); return; }
 					if (event.key === "Enter" && points.length) {
 						event.preventDefault(); event.stopPropagation();
-						if (!event.repeat) { onSelect(points[Math.max(0, current)]); close(); }
+						if (!event.repeat) onSelect(points[Math.max(0, current)]);
 						return;
 					}
 					if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) || !points.length) return;
@@ -127,6 +157,7 @@ export const TraceTimeline = memo(function TraceTimeline({ entries, range, selec
 				}} />
 		</div>
 		<div aria-hidden className="mt-0.5 flex justify-between pl-9 text-caption text-ink-faint tabular-nums"><span>{offset(shown.start - domain.start)}</span><span>{offset(shown.end - domain.start)}</span></div>
-	</div></Popover>}
-	</>;
+	<input type="range" aria-label="平移时间视口" className="ly-trace-pan block h-3 w-full" min={domain.start} max={Math.max(domain.start, domain.end - (shown.end - shown.start))} step={1} value={shown.start} disabled={!view} onChange={event => { manualView.current = true; const start = Number(event.target.value); setView({ start, end: start + shown.end - shown.start }); }} />
+		</div>
+	</section>;
 });

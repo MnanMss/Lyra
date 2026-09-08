@@ -205,7 +205,8 @@ test("the dashboard paints a skeleton, then shows priced, cached and unpriced us
 			sawSkeleton,
 			landed,
 			text: document.querySelector('[data-usage-dashboard="true"]')?.innerText || "",
-			paths: chart?.querySelectorAll("polyline").length || 0,
+			// 一个供应商一条曲线。面积那条 path 没有 stroke，所以数出来的正好是线本身。
+			paths: chart?.querySelectorAll("path[stroke]").length || 0,
 			overflow: document.documentElement.scrollWidth - window.innerWidth,
 			chartHeight: Math.round(chart?.getBoundingClientRect().height || 0),
 			metricColumns: Math.max(1, Math.ceil(metrics.children.length / metricRows.size)),
@@ -260,6 +261,117 @@ test("range, metric, breakdown and refresh controls update without blanking the 
 	assert.ok(result.dayRows, JSON.stringify(result));
 	assert.ok(result.refreshed, JSON.stringify(result));
 	assert.ok(result.remained, JSON.stringify(result));
+});
+
+/*
+ * 曲线本身、图例那个开关，以及换口径时那条线是不是自己走过去的。
+ *
+ * 三件都是只能在真窗口里问的事。曲线画到哪里由浏览器的路径求值说了算——这里用 `getPointAtLength`
+ * 让它自己报，而不是在测试里把我们算它的那套公式再写一遍；补间有没有跑，只有逐帧看那条 `d` 才
+ * 知道，采样会漏掉、等一会儿再看则永远只看得到终点，而终点在有没有动画时是同一个。
+ */
+test("趋势图画的是曲线，图例是开关，换口径时那条线自己走过去", async (t) => {
+	const seen = await ui<{
+		curved: boolean;
+		baseline: number;
+		lowest: number;
+		shapes: number;
+		pressedBefore: string | null;
+		pressedAfter: string | null;
+		opacityAfter: number;
+		axisMoved: boolean;
+		railMoved: boolean;
+	}>(`
+		click(byText("button", "费用"));
+		await wait(400);
+
+		const svg = () => document.querySelector('[data-usage-chart] svg');
+		const line = () => svg().querySelector('path[stroke]');
+
+		// 折线全是直线段；三次贝塞尔是曲线独有的。
+		const curved = /C/.test(line().getAttribute("d"));
+
+		/*
+		 * 曲线有没有跑到 0 底下。
+		 *
+		 * 最下面那条网格线就是 0，而用量不会是负的——一条平滑曲线在一个尖峰旁边冲下去，画出来
+		 * 就是那一段钻到横轴底下，读出来是一天负的花费。
+		 */
+		const baseline = Math.max(...[...svg().querySelectorAll("line")].map((element) => Number(element.getAttribute("y1"))));
+		let lowest = -Infinity;
+		for (const path of svg().querySelectorAll('path[stroke]')) {
+			const length = path.getTotalLength();
+			for (let i = 0; i <= 120; i++) lowest = Math.max(lowest, path.getPointAtLength((length * i) / 120).y);
+		}
+
+		/*
+		 * 图例：点一下关掉那条线，纵轴按剩下的重新分配。
+		 *
+		 * 在费用这一侧点，因为这批 fixture 里每个供应商的 token 都是 125M——关掉一个，token 的
+		 * 最大值纹丝不动，纵轴当然也就不动，而那不能算这件事没做。费用差得很开（$645 对 $144），
+		 * 关掉最大的那个，刻度必须跟着重画。
+		 */
+		const legend = document.querySelector("[data-usage-legend]");
+		const id = legend.dataset.usageLegend;
+		const pressedBefore = legend.getAttribute("aria-pressed");
+		const axisBefore = [...svg().querySelectorAll("text")].map((element) => element.textContent).join("|");
+		click(legend);
+		await wait(500);
+		const group = svg().querySelector('[data-usage-trend="' + id + '"]');
+		const axisAfter = [...svg().querySelectorAll("text")].map((element) => element.textContent).join("|");
+		const pressedAfter = legend.getAttribute("aria-pressed");
+		const opacityAfter = Number(getComputedStyle(group).opacity);
+		click(legend);
+		await wait(400);
+
+		// 换口径，逐帧记这条线：补间跑过就会留下一串互不相同的中间形状。
+		const rail = () => byText("button", "Token").parentElement.querySelector("[data-segment-rail]");
+		const railBefore = rail()?.style.transform ?? "";
+		const shapes = [];
+		click(byText("button", "Token"));
+		await new Promise((resolve) => {
+			let frames = 0;
+			const step = () => {
+				shapes.push(line().getAttribute("d"));
+				if (++frames < 28) requestAnimationFrame(step);
+				else resolve();
+			};
+			requestAnimationFrame(step);
+		});
+		await wait(300);
+		const railAfter = rail()?.style.transform ?? "";
+
+		/*
+		 * 就停在 Token 上，因为进来的时候就是 Token。
+		 *
+		 * 这一串测试共用一个窗口，后面那条量窄屏的直接按 tokens 找那张图；把口径「还原」成费用，
+		 * 它就拿到一个 null。开头切到费用是这条自己要的——关掉一个供应商能不能让纵轴动，只有在
+		 * 费用那侧才问得出来——所以还的时候要还成借的样子。
+		 */
+		return {
+			curved,
+			baseline,
+			lowest,
+			shapes: new Set(shapes).size,
+			pressedBefore,
+			pressedAfter,
+			opacityAfter,
+			axisMoved: axisBefore !== axisAfter,
+			railMoved: railBefore !== railAfter && railAfter !== "",
+		};
+	`);
+
+	t.diagnostic(JSON.stringify(seen));
+	assert.ok(seen.curved, `画的是曲线而不是折线：${JSON.stringify(seen)}`);
+	assert.ok(seen.lowest <= seen.baseline + 0.5, `曲线钻到了 0 底下：${JSON.stringify(seen)}`);
+	// 三个以上互不相同的中间形状：一帧到位的切换只会留下两种（切之前和切之后）。
+	assert.ok(seen.shapes >= 3, `换口径时那条线是跳过去的，不是走过去的：${JSON.stringify(seen)}`);
+	assert.equal(seen.pressedBefore, "true");
+	assert.equal(seen.pressedAfter, "false", `点图例要真的关掉它：${JSON.stringify(seen)}`);
+	assert.equal(seen.opacityAfter, 0, `关掉的那条线要从图上退掉：${JSON.stringify(seen)}`);
+	assert.ok(seen.axisMoved, `关掉一个供应商之后纵轴要按剩下的重新分配：${JSON.stringify(seen)}`);
+	assert.ok(seen.railMoved, `分段控件那块底要滑到新的位置：${JSON.stringify(seen)}`);
+	await shot("usage-trend-curve");
 });
 
 test("the dashboard reflows in a narrow desktop window without horizontal overflow", async () => {
@@ -339,6 +451,216 @@ test("the heatmap centres when it fits and keeps both ends reachable when narrow
 	}
 });
 
+interface Reading {
+	shown: boolean;
+	text: string;
+	inBody: boolean;
+	visible: boolean;
+	zIndex: string;
+	cursor: number;
+	tip: { left: number; top: number; right: number; bottom: number };
+	chart: { top: number; bottom: number };
+	crosshair: number;
+	viewport: { width: number; height: number };
+	legacyTip: boolean;
+	/** What the pointer actually landed on, so a miss says why rather than just "no bubble". */
+	hit: string;
+	at: [number, number];
+}
+
+/** Read the chart with a real mouse, at a fraction of the plot's width and height. */
+async function hoverChart(share: number, height = 0.3): Promise<Reading> {
+	const box = await app.evaluate<{ left: number; top: number; width: number; height: number }>(`(() => {
+		const svg = document.querySelector('[data-usage-chart="cost"] svg');
+		const r = svg.getBoundingClientRect();
+		return { left: r.left, top: r.top, width: r.width, height: r.height };
+	})()`);
+	const x = Math.round(box.left + box.width * share);
+	const y = Math.round(box.top + box.height * height);
+	await app.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, buttons: 0, pointerType: "mouse" });
+	// Two frames: one for the pointer's state update, one for the layout effect that places the bubble.
+	await app.evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+	const read = () => app.evaluate<Reading>(`(() => {
+		const tip = document.querySelector('[data-chart-tip]');
+		const line = document.querySelector('[data-chart-cursor] line');
+		const rect = tip ? tip.getBoundingClientRect() : { left: 0, top: 0, right: 0, bottom: 0 };
+		const svg = document.querySelector('[data-usage-chart="cost"] svg').getBoundingClientRect();
+		const legacy = document.querySelector('.ly-tooltip');
+		return {
+			chart: { top: svg.top, bottom: svg.bottom },
+			shown: Boolean(tip),
+			text: tip ? tip.innerText.replace(/\\s+/g, " ").trim() : "",
+			inBody: tip ? tip.parentElement === document.body : false,
+			visible: tip ? tip.checkVisibility({ visibilityProperty: true }) : false,
+			zIndex: tip ? getComputedStyle(tip).zIndex : "",
+			cursor: document.querySelectorAll('[data-chart-cursor] circle').length,
+			tip: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
+			crosshair: line ? line.getBoundingClientRect().left : -1,
+			viewport: { width: innerWidth, height: innerHeight },
+			legacyTip: Boolean(legacy) && !legacy.hidden,
+			hit: (document.elementFromPoint(${x}, ${y})?.tagName || "none") + " " + (document.elementFromPoint(${x}, ${y})?.className?.baseVal ?? document.elementFromPoint(${x}, ${y})?.className ?? "").toString().slice(0, 60),
+			at: [${x}, ${y}],
+		};
+	})()`);
+
+	const first = await read();
+	if (first.shown) return first;
+	/*
+	 * One retry, because the window sits at the desktop's origin: a real hand moving a real mouse
+	 * across it delivers its own pointermove, and the last one wins. A reading that is genuinely
+	 * broken is broken twice.
+	 */
+	await app.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, buttons: 0, pointerType: "mouse" });
+	await app.evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+	return read();
+}
+
+function onScreen(reading: Reading): boolean {
+	const { tip, viewport } = reading;
+	return tip.left >= 0 && tip.top >= 0 && tip.right <= viewport.width && tip.bottom <= viewport.height && tip.right > tip.left && tip.bottom > tip.top;
+}
+
+/** The bubble annotates the crosshair; sitting on top of it hides the marks being read. */
+function clearOfCrosshair(reading: Reading): boolean {
+	return reading.tip.left >= reading.crosshair || reading.tip.right <= reading.crosshair;
+}
+
+/** Over the chart and nothing else: the legend and the 费用/Token switch sit just above it. */
+function overThePlot(reading: Reading): boolean {
+	return reading.tip.top >= reading.chart.top - 1 && reading.tip.bottom <= reading.chart.bottom + 1;
+}
+
+test("the trend chart answers a real pointer anywhere in the plot, and the reading escapes the card that clips it", async (t) => {
+	await app.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+	await ui(`
+		if (!document.querySelector('[data-usage-chart]')) {
+			click(await openUsage());
+			await wait(800);
+		}
+		click(byText("button", "30 天"));
+		await wait(400);
+		click(byText("button", "费用"));
+		await wait(200);
+		const chart = document.querySelector('[data-usage-chart="cost"]');
+		const pane = [...document.querySelectorAll("div")].find((el) => el.scrollHeight > el.clientHeight + 40 && el.contains(chart));
+		if (pane) pane.scrollTop = 0;
+		await wait(200);
+	`);
+
+	// Empty space in the upper half of the plot, nowhere near a line: this is the case that did nothing before.
+	const middle = await hoverChart(0.5, 0.2);
+	assert.ok(middle.shown, `hovering the plot must read the day: ${JSON.stringify(middle)}`);
+	assert.match(middle.text, /\d{4}\/\d+\/\d+ 周./, JSON.stringify(middle));
+	assert.match(middle.text, /Relay/, JSON.stringify(middle));
+	assert.match(middle.text, /合计/, JSON.stringify(middle));
+	assert.ok(middle.inBody, "the bubble must be portalled to the body, or the overflow-hidden card cuts it off");
+	assert.ok(middle.visible, JSON.stringify(middle));
+	assert.equal(middle.zIndex, "200", "the same layer as the app's own tooltips");
+	assert.ok(middle.cursor > 0, `the crosshair marks the day being read: ${JSON.stringify(middle)}`);
+	assert.ok(onScreen(middle), JSON.stringify(middle));
+	assert.ok(overThePlot(middle), `pointing near the top must not push the bubble over the legend: ${JSON.stringify(middle)}`);
+	assert.ok(!middle.legacyTip, "the old per-point tooltip must not fire as well");
+	await shot("usage-trend-hover-middle");
+
+	// The most recent day: hard against the card's right edge, which is where the window's edge is too.
+	const last = await hoverChart(1, 0.5);
+	assert.ok(last.shown, JSON.stringify(last));
+	assert.ok(onScreen(last), `the bubble stays on screen at the right edge: ${JSON.stringify(last)}`);
+	assert.ok(clearOfCrosshair(last), JSON.stringify(last));
+	await shot("usage-trend-hover-last");
+
+	// The oldest day, in the axis gutter, where there is room on the right.
+	const first = await hoverChart(0, 0.8);
+	assert.ok(first.shown && onScreen(first), JSON.stringify(first));
+	assert.ok(first.tip.left > first.crosshair, `it stays clear of the line: ${JSON.stringify(first)}`);
+	assert.ok(overThePlot(first), `pointing near the bottom must not hang the bubble below the card: ${JSON.stringify(first)}`);
+	assert.notEqual(first.text, last.text, "different days must read differently");
+	t.diagnostic(JSON.stringify({ middle: middle.text, last: last.text, first: first.text }));
+
+	// Away from the chart, the reading goes.
+	await app.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 20, y: 20, buttons: 0, pointerType: "mouse" });
+	await app.evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+	assert.equal(await app.evaluate<boolean>("Boolean(document.querySelector('[data-chart-tip]'))"), false, "the bubble must leave with the pointer");
+
+	// Ninety columns rather than thirty: a few pixels apart, and each still has to resolve to one day.
+	await ui(`click(byText("button", "90 天")); await wait(500);`);
+	const dense = await hoverChart(0.5, 0.5);
+	assert.ok(dense.shown && onScreen(dense) && overThePlot(dense), `a dense range reads the same way: ${JSON.stringify(dense)}`);
+	assert.match(dense.text, /\d{4}\/\d+\/\d+ 周./, JSON.stringify(dense));
+	const along = await hoverChart(0.6, 0.5);
+	assert.notEqual(along.text, dense.text, "moving across the plot must move through days, not stick on one");
+	await ui(`click(byText("button", "30 天")); await wait(400);`);
+
+	// TEMP light-theme look
+	await app.evaluate(`(() => { document.documentElement.classList.remove("dark"); return true; })()`);
+	await hoverChart(0.45, 0.4);
+	await shot("usage-trend-hover-light");
+	await app.evaluate(`(() => { document.documentElement.classList.add("dark"); return true; })()`);
+});
+
+test("the reading stays inside a narrow window and does not survive a scroll", async () => {
+	try {
+		await app.send("Emulation.setDeviceMetricsOverride", { width: 760, height: 640, deviceScaleFactor: 1, mobile: false });
+		await ui(`document.querySelector('[data-usage-chart="cost"]').scrollIntoView({ block: "end" }); await wait(200);`);
+
+		let rightmost: Reading | null = null;
+		for (const share of [0, 0.5, 1]) {
+			const reading = await hoverChart(share, 0.9);
+			assert.ok(reading.shown, `share ${share}: ${JSON.stringify(reading)}`);
+			assert.ok(onScreen(reading), `share ${share} must stay within 760x640: ${JSON.stringify(reading)}`);
+			assert.ok(clearOfCrosshair(reading), `share ${share} must not cover the line it annotates: ${JSON.stringify(reading)}`);
+			rightmost = reading;
+		}
+		// At 760 the window ends where the card does, so the last day is the case that has to flip.
+		assert.ok(rightmost && rightmost.tip.right <= rightmost.crosshair, `the bubble flips to the left when the right runs out: ${JSON.stringify(rightmost)}`);
+		await shot("usage-trend-hover-narrow");
+
+		const afterScroll = await app.evaluate<{ moved: boolean; shown: boolean }>(`(async () => {
+			const chart = document.querySelector('[data-usage-chart="cost"]');
+			const pane = [...document.querySelectorAll("div")].find((el) => el.scrollHeight > el.clientHeight + 40 && el.contains(chart)) ?? document.scrollingElement;
+			const before = pane.scrollTop;
+			pane.scrollTop += 60;
+			await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+			return { moved: pane.scrollTop !== before, shown: Boolean(document.querySelector('[data-chart-tip]')) };
+		})()`);
+		assert.ok(afterScroll.moved, `the page must actually scroll for this to prove anything: ${JSON.stringify(afterScroll)}`);
+		assert.equal(afterScroll.shown, false, "a bubble fixed to the window must not survive the chart scrolling away under it");
+	} finally {
+		await app.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+	}
+});
+
+test("the chart fills the height the spend list gives it, instead of leaving a band of empty card", async (t) => {
+	await app.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+	await app.evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+	const layout = await app.evaluate<{ left: number; right: number; slackUnderChart: number; rows: number; chart: number }>(`(() => {
+		const chart = document.querySelector('[data-usage-chart="cost"]');
+		const right = chart.parentElement;
+		const left = right.parentElement.firstElementChild;
+		const svg = chart.querySelector('svg').getBoundingClientRect();
+		const l = left.getBoundingClientRect(), r = right.getBoundingClientRect();
+		return {
+			left: Math.round(l.height),
+			right: Math.round(r.height),
+			slackUnderChart: Math.round(r.bottom - svg.bottom),
+			rows: left.querySelectorAll('.space-y-3 > div').length,
+			chart: Math.round(svg.height),
+		};
+	})()`);
+
+	assert.equal(layout.rows, 3, `the spend list is the top three: ${JSON.stringify(layout)}`);
+	assert.ok(Math.abs(layout.left - layout.right) <= 2, `the two cards share a row: ${JSON.stringify(layout)}`);
+	assert.ok(layout.slackUnderChart <= 24, `the chart must reach the bottom of its card: ${JSON.stringify(layout)}`);
+	assert.ok(layout.chart >= 220, `and take the height it was given: ${JSON.stringify(layout)}`);
+	t.diagnostic(JSON.stringify(layout));
+	await ui(`
+		const chart = document.querySelector('[data-usage-chart="cost"]');
+		const pane = [...document.querySelectorAll("div")].find((el) => el.scrollHeight > el.clientHeight + 40 && el.contains(chart));
+		if (pane) pane.scrollTop = 0;
+		await wait(150);
+	`);
+	await shot("usage-dashboard-top-three");
+});
 
 test("the model editor synchronises offline catalogue values and offers upstream references for relays", async () => {
 	const expected = catalogModelFor({ id: "openai", baseUrl: "https://api.openai.com/v1" }, "gpt-5.2");

@@ -6,6 +6,7 @@
  */
 
 
+import { useLayoutEffect, useRef, useState } from "react";
 import { Button } from "../../ui/primitives/Button.tsx";
 
 export * from "./inputs.tsx";
@@ -20,12 +21,14 @@ export * from "./layout.tsx";
  * which is the same treatment the appearance sliders use: white with a hairline and a shadow so
  * it stays visible on a pale track, lightened on dark so it does not glare.
  */
-export function Toggle({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
+export function Toggle({ checked, onChange, ariaLabel }: { checked: boolean; onChange: (checked: boolean) => void; ariaLabel?: string }) {
 	return (
 		<button
 			type="button"
 			role="switch"
 			aria-checked={checked}
+			// For the switches whose own label is not beside them, or is not unique on the page.
+			aria-label={ariaLabel}
 			onClick={() => onChange(!checked)}
 			className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors duration-[var(--ly-t-base)] ${
 				checked ? "bg-accent" : "bg-line"
@@ -39,6 +42,17 @@ export function Toggle({ checked, onChange }: { checked: boolean; onChange: (che
 	);
 }
 
+/**
+ * 一排互斥的选项，选中的那个下面垫着一块会滑过去的底。
+ *
+ * 底以前是选中那颗按钮自己的背景色，于是切换时唯一发生的事是一格的底色亮起、另一格暗下——两
+ * 个各自淡入淡出的方块，中间那段路没有东西走过。一块共用的底会从这里滑到那里，而滑动本身就说
+ * 明了这两个选项是同一排里的两个位置，不是两个开关。
+ *
+ * 位置是量出来的，不是按等分算的：「费用」和「Token」不一样宽，任何按份数算的写法在第一个中英
+ * 混排的标签上就错了。量在 layout effect 里，赶在这一帧画出来之前——晚一帧的话，第一次渲染就
+ * 能看见那块底从左上角飞过来。
+ */
 export function Segmented<T extends string>({
 	value,
 	onChange,
@@ -48,15 +62,36 @@ export function Segmented<T extends string>({
 	onChange: (value: T) => void;
 	options: { value: T; label: string }[];
 }) {
+	const box = useRef<HTMLDivElement>(null);
+	const [rail, setRail] = useState<{ left: number; width: number } | null>(null);
+
+	useLayoutEffect(() => {
+		// 遍历而不是拼一个属性选择器：值是调用方给的，转义它要 `CSS.escape`，而那是浏览器才有的。
+		const selected = Array.from(box.current?.children ?? []).find((node) => node.getAttribute("data-segment") === value);
+		if (selected instanceof HTMLElement) setRail({ left: selected.offsetLeft, width: selected.offsetWidth });
+	}, [value, options]);
+
 	return (
-		<div className="flex gap-0.5 rounded-lg bg-card p-0.5">
+		<div ref={box} className="relative flex gap-0.5 rounded-lg bg-card p-0.5">
+			{/* 量到之前不画。它一出现就已经在正确的位置上，不需要一段从零滑过来的开场。 */}
+			{rail && (
+				<span
+					aria-hidden
+					data-segment-rail=""
+					className="absolute top-0.5 bottom-0.5 left-0 rounded-md bg-elevated transition-[transform,width] duration-[var(--ly-t-base)] ease-[var(--ly-e-out)]"
+					style={{ width: rail.width, transform: `translateX(${rail.left}px)` }}
+				/>
+			)}
 			{options.map((option) => (
 				<button
 					key={option.value}
 					type="button"
+					data-segment={option.value}
+					aria-pressed={value === option.value}
 					onClick={() => onChange(option.value)}
-					className={`h-[26px] rounded-md px-3 text-label transition-colors ${
-						value === option.value ? "bg-elevated text-ink" : "text-ink-muted hover:text-ink"
+					// `relative` 把字提到那块底上面；没有它，滑过去的底会盖住它正要标出的那个词。
+					className={`relative h-[26px] rounded-md px-3 text-label transition-[color,transform] duration-[var(--ly-t-quick)] active:scale-[0.97] ${
+						value === option.value ? "text-ink" : "text-ink-muted hover:text-ink"
 					}`}
 				>
 					{option.label}

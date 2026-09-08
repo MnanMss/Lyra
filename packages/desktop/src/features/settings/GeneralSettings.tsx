@@ -1,3 +1,4 @@
+import { RetrySettings } from "./RetrySettings.tsx";
 import type { PermissionMode, UiLocale } from "@lyra/core";
 import { FolderOpen, Languages } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -178,22 +179,6 @@ export function GeneralSettings() {
           }
         />
         <Row
-			title={t("general.retry")}
-			detail={t("general.retryDetail")}
-          control={
-            <Segmented
-              value={String(settings.retryAttempts)}
-              onChange={(value) => patch({ retryAttempts: Number(value) })}
-              options={[
-				{ value: "1", label: t("retry.none") },
-				{ value: "2", label: t("retry.count", { count: 2 }) },
-				{ value: "3", label: t("retry.count", { count: 3 }) },
-				{ value: "5", label: t("retry.count", { count: 5 }) },
-              ]}
-            />
-          }
-        />
-        <Row
           title={t("general.autoSummarizeTitle")}
           detail={t("general.autoSummarizeTitleDetail")}
           control={
@@ -223,6 +208,15 @@ export function GeneralSettings() {
           }
         />
       </Card>
+
+      {/*
+       * Its own section, because it is two rules rather than one preference.
+       *
+       * It used to sit between 默认推理强度 and 智能标题总结 as a block of form fields inside a
+       * card of label-and-control rows, which broke that card's rhythm in the middle and left its
+       * heading crowded against the rule above it.
+       */}
+      <RetrySettings settings={settings} />
 
       {/*
        * The version and the update controls are not here.

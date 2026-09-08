@@ -1,8 +1,7 @@
 import { useSide } from "../dock/index.ts";
-import { CARRY_ON_PROMPTS } from "./grouping.ts";
 import { useApp } from "../../store/index.ts";
 import { useConfirmer } from "../../ui/overlay/Confirm.tsx";
-import { hasRetryPoint } from "../../store/derive.ts";
+import { carryOnPrompt, hasRetryPoint } from "../../store/derive.ts";
 
 /**
  * The turn stopped somewhere short of the end, and here is how to pick it up.
@@ -47,8 +46,13 @@ export function ResumeRow() {
 	 * The third is the quiet one and was not covered at all — the model ends its turn cleanly with
 	 * items still on its list. Nothing is wrong in that case, which is exactly why nothing said
 	 * anything, and the plan sat there unfinished with no way back into it.
+	 *
+	 * `carryOnPrompt` answers both questions at once: which sentence to send, and — by answering
+	 * `null` — whether there is anything here to pick up at all. The composer's send button asks it
+	 * the same way, so the two cannot end up disagreeing about whether this turn is finished.
 	 */
-	if (running || (!stopped && unfinished === 0)) return null;
+	const carryOn = carryOnPrompt(stopped, unfinished);
+	if (running || !carryOn) return null;
 
 	/*
 	 * What happened, in the fewest words that are true.
@@ -73,27 +77,6 @@ export function ResumeRow() {
 				: stopped === "interrupt"
 					? "上次执行被中断"
 					: `计划还有 ${unfinished} 项未完成`;
-	/*
-	 * What 继续 says, matched to what actually happened.
-	 *
-	 * 「从中断的地方接着做」 is a lie in the third case: nothing was interrupted, the model simply
-	 * finished a turn with items still on its list. The model reads this message and acts on it, so
-	 * a wrong account of where it stopped is a wrong instruction, not just a wrong word.
-	 */
-	/*
-	 * From the shared list, not written out here.
-	 *
-	 * `grouping.ts` matches these exact strings to tell "carrying on" apart from "asking something
-	 * new" — that is what keeps a task's elapsed time and tokens whole across an interruption.
-	 * A second copy of the sentence is a mismatch waiting for the day somebody improves the wording.
-	 */
-	const carryOn =
-		stopped === "user"
-			? CARRY_ON_PROMPTS[0]
-			: stopped === "error" || stopped === "interrupt"
-				? CARRY_ON_PROMPTS[1]
-				: CARRY_ON_PROMPTS[2];
-
 	return (
 		<div className="ly-enter mb-2.5 flex items-center gap-2 text-detail text-ink-faint">
 			<span>{note}</span>

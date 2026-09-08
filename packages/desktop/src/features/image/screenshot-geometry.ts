@@ -3,8 +3,8 @@
  *
  * Separated from the overlay because all of it is arithmetic with no React in it — which means it
  * can be tested, and the rules that are easy to get subtly wrong (a handle that reports the corner
- * you are not on, a drag that inverts the rectangle, a toolbar that leaves the screen) are the
- * ones worth testing rather than clicking through.
+ * you are not on, a drag that inverts the rectangle, a toolbar that leaves the screen) are the ones
+ * worth testing rather than clicking through.
  */
 
 export interface Rect {
@@ -211,4 +211,32 @@ export function toolbarPosition(
 		Math.max(SCREEN_MARGIN, viewport.width - toolbar.width - SCREEN_MARGIN),
 	);
 	return { x, y, side };
+}
+
+/**
+ * Where a toolbar dragged by hand is allowed to end up.
+ *
+ * The automatic placement above is right nearly always, and wrong in the case it cannot see: the
+ * bar covering the part of the picture that is about to be annotated. So it can be moved, and this
+ * is the only rule that still applies once it has been — it has to stay reachable.
+ *
+ * `bubbleHeight` is the room kept above it, because the properties bubble opens upwards whenever
+ * the bar is not against the top of the screen. Dragged flat against the top edge without it, the
+ * bubble would open off screen and the size and colour of the tool in hand would be unreachable.
+ *
+ * The low bound wins where the two conflict, which happens on a viewport shorter than the bar plus
+ * its margins. Off the bottom is recoverable — the bar is still under the pointer that dragged it;
+ * off the top is not, because there is nothing above the screen to drag it back from.
+ */
+export function clampToolbar(
+	at: Point,
+	toolbar: { width: number; height: number },
+	viewport: { width: number; height: number },
+	bubbleHeight = 0,
+): Point {
+	const clamp = (value: number, low: number, high: number) => Math.max(low, Math.min(value, Math.max(low, high)));
+	return {
+		x: clamp(at.x, SCREEN_MARGIN, viewport.width - toolbar.width - SCREEN_MARGIN),
+		y: clamp(at.y, Math.max(SCREEN_MARGIN, bubbleHeight), viewport.height - toolbar.height - SCREEN_MARGIN),
+	};
 }

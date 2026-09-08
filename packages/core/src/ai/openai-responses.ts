@@ -22,7 +22,7 @@ import type {
 } from "../types.ts";
 import { emptyUsage } from "../types.ts";
 import { computeCost } from "../utils/pricing.ts";
-import { fetchWithRetry, isRetryableError, retryStream, toolCallId } from "./retry.ts";
+import { RetryBudget, fetchWithRetry, isRetryableError, retryStream, toolCallId } from "./retry.ts";
 import { parseToolArguments, readSse } from "../utils/sse.ts";
 import { describeFetchError, joinUrl, truncate } from "./anthropic-messages.ts";
 import { resolveReasoningEffort } from "./thinking-options.ts";
@@ -106,6 +106,7 @@ async function* streamResponses(
 	/** The provider answered with an error of its own, which no amount of retrying will change. */
 	let refused = false;
 
+	const retryBudget = new RetryBudget(options.retryPolicy, options.retryAttempts);
 	try {
 		/*
 		 * The whole exchange, not just the connection.
@@ -131,7 +132,7 @@ async function* streamResponses(
 						signal: options.signal,
 					},
 					{
-						attempts: options.retryAttempts,
+						budget: retryBudget,
 						signal: options.signal,
 						onRetry: options.onRetry,
 					},
@@ -319,7 +320,7 @@ async function* streamResponses(
 				}
 			},
 			{
-				attempts: options.retryAttempts,
+				budget: retryBudget,
 				signal: options.signal,
 				onRetry: options.onRetry,
 				/*

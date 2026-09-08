@@ -14,11 +14,12 @@ import { lyraHome } from "../session/store.ts";
 import type { RuleSet } from "../rules/types.ts";
 import { formatRules } from "../rules/session.ts";
 import { concurrencyNote } from "../runtime/dispatch-guard.ts";
+import { delegationNote } from "../runtime/delegation.ts";
 import { parseGuidelines } from "./overrides.ts";
 import { renderTemplate } from "./template.ts";
 import type { Skill } from "../skills/loader.ts";
 import type { AgentDefinition } from "../tools/task.ts";
-import type { Tool } from "../types.ts";
+import type { ThinkingLevel, Tool } from "../types.ts";
 
 export interface SystemPromptInput {
 	cwd: string;
@@ -72,6 +73,14 @@ export interface SystemPromptInput {
 	resources?: { scheme: string; describe: string; writable: boolean }[];
 	/** How many sub-agents may run at once, and how deep dispatch may nest. */
 	dispatchLimits?: { maxConcurrent: number; maxDepth: number };
+	/**
+	 * 这一轮的推理等级，只用来决定派活该有多积极。
+	 *
+	 * 不是拿来告诉模型「你现在是中档」的——那个它左右不了，说了也只是噪音。它在这里的唯一作用
+	 * 是挑出 `delegationNote` 的那一段：派不派子代理是模型每一轮都在做的决定，而这个决定的
+	 * 成本收益，恰恰随这一轮值多少钱而变。见 `runtime/delegation.ts`。
+	 */
+	thinking?: ThinkingLevel;
 	/**
 	 * A replacement for the identity paragraph, from `.lyra/prompts/identity.md`.
 	 *
@@ -195,7 +204,8 @@ Environment:
 	prompt += formatSkills(input.skills);
 	if (input.rules) prompt += formatRules(input.rules);
 	// Only worth listing when task is actually loaded — otherwise the model cannot dispatch.
-	if (input.tools.some((tool) => tool.name === "task")) prompt += formatSubagents(input.agents ?? [], input.dispatchLimits);
+	if (input.tools.some((tool) => tool.name === "task"))
+		prompt += formatSubagents(input.agents ?? [], input.dispatchLimits, input.thinking);
 
 	if (input.projectInstructions.length > 0) {
 		prompt += "\n\n<project_context>\n\nProject-specific instructions and guidelines:\n\n";
@@ -252,7 +262,11 @@ function formatSkills(skills: Skill[]): string {
  * Without this list the model has no way to know which `subagent_type` values exist, so it
  * falls back to `general` even when the user names a specific agent.
  */
-function formatSubagents(agents: AgentDefinition[], limits?: { maxConcurrent: number; maxDepth: number }): string {
+function formatSubagents(
+	agents: AgentDefinition[],
+	limits?: { maxConcurrent: number; maxDepth: number },
+	thinking?: ThinkingLevel,
+): string {
 	if (agents.length === 0) return "";
 
 	const lines = [
@@ -275,6 +289,16 @@ function formatSubagents(agents: AgentDefinition[], limits?: { maxConcurrent: nu
 
 	lines.push("</available_subagents>");
 
+	/*
+	 * 该有多想派，先于「最多能派几个」。
+	 *
+	 * 顺序是有意的。这里此前只有一句上限，而模型读上限的方式历来是「那就派满」——一个只说了
+	 * 天花板、没说过高度的房间。倾向写在上限前面，读到数字的时候，那个数字已经有了语境。
+	 *
+	 * 跟着推理等级变，理由见 `runtime/delegation.ts`。
+	 */
+	lines.push("", delegationNote(thinking));
+
 	if (limits) {
 		/*
 		 * The limit has to be stated, because a queue is invisible from inside the model.
@@ -282,18 +306,12 @@ function formatSubagents(agents: AgentDefinition[], limits?: { maxConcurrent: nu
 		 * Dispatch eight with a limit of four and half of them sit waiting; from the model's side
 		 * that is indistinguishable from the work being slow, and the natural response to slow is
 		 * to dispatch more.
+		 *
+		 * The number is this turn's, not the setting's — see `delegationConcurrency`. Stating the
+		 * ceiling while the gate enforces something lower is the same invisible queue by another
+		 * route, and a worse one: the model would have been told a number that is not true.
 		 */
 		lines.push("", concurrencyNote(limits.maxConcurrent, limits.maxDepth));
-		/*
-		 * The two preconditions for parallel dispatch, both of which come from watching this go
-		 * wrong rather than from theory.
-		 */
-		lines.push(
-			"",
-			"并发派活之前，两件事必须先做完：",
-			"1. 每个任务都要跳过验证（构建、lint、测试）。跑到一半的验证会让它们互相阻塞——A 的测试跑在 B 改了一半的代码上。最后统一验证一次。",
-			"2. 跨任务的契约（A 实现、B 消费的那个接口）必须在派活之前定好，写进各自的 prompt 里。子代理之间看不见对方，没法协商。",
-		);
 	}
 	return lines.join("\n");
 }

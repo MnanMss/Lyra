@@ -1,5 +1,6 @@
 import { Check, ChevronLeft, ChevronRight, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Markdown } from "../Markdown.tsx";
 import { CodeText } from "./CodeText.tsx";
 import { Section } from "./Section.tsx";
 import { IconButton } from "../../../ui/primitives/IconButton.tsx";
@@ -7,7 +8,7 @@ import { IconButton } from "../../../ui/primitives/IconButton.tsx";
 const PAGE = 4000;
 
 /** The source remains complete and copyable while every rendered text page stays bounded. */
-export function TraceText({ title, text, kind = "text", query = "" }: { title: string; text: string; kind?: "text" | "json" | "shell"; query?: string }) {
+export function TraceText({ title, text, kind = "text", query = "", markdown = false }: { title: string; text: string; kind?: "text" | "json" | "shell"; query?: string; markdown?: boolean }) {
 	const [page, setPage] = useState(0);
 	const [copied, setCopied] = useState(false);
 	const [error, setError] = useState("");
@@ -23,7 +24,7 @@ export function TraceText({ title, text, kind = "text", query = "" }: { title: s
 			{pages > 1 && <><IconButton size="sm" label={`${title}上一页`} icon={<ChevronLeft size={12} />} disabled={current === 0} onClick={() => setPage(current - 1)} /><IconButton size="sm" label={`${title}下一页`} icon={<ChevronRight size={12} />} disabled={current === pages - 1} onClick={() => setPage(current + 1)} /></>}
 			<IconButton size="sm" label={`复制完整${title}`} icon={copied ? <Check size={12} /> : <Copy size={12} />} onClick={() => { void navigator.clipboard.writeText(text).then(() => { setCopied(true); setError(""); }).catch((error: unknown) => setError(String(error))); }} />
 		</div>
-		<CodeText text={text.slice(current * PAGE, (current + 1) * PAGE)} kind={kind} query={query} />
+		{markdown && !query && pages === 1 ? <div className="font-sans"><Markdown text={text} /></div> : <CodeText text={text.slice(current * PAGE, (current + 1) * PAGE)} kind={kind} query={query} />}
 		{error && <span role="alert" className="text-danger">{error}</span>}
 	</Section>;
 }

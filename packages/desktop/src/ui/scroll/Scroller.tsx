@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { scrollFade } from "./fade.ts";
+import type { Direction } from "./follow.ts";
 
 /** How deep the softening reaches. The bottom is the edge content moves through — a list grows
  *  downwards, a transcript streams into it — and a shallow fade there reads as a cut.
@@ -31,6 +32,7 @@ export function Scroller({
 	bottom = "fade",
 	onScroll,
 	onResize,
+	onUserScroll,
 	scrollRef,
 	scrollbar = true,
 }: {
@@ -57,6 +59,16 @@ export function Scroller({
 	onScroll?: (element: HTMLDivElement) => void;
 	/** Called whenever content or viewport dimensions change. */
 	onResize?: (element: HTMLDivElement) => void;
+	/**
+	 * A drag of the thumb below, reported as the gesture it is.
+	 *
+	 * The thumb is a sibling of the viewport and moves it by assigning `scrollTop`, so the drag
+	 * reaches a follower as a scroll event indistinguishable from the browser clamping a shrinking
+	 * transcript — and a follower that may not detach on an anonymous position change (see
+	 * `follow.ts`) would never notice the reader pulling away. This is that gesture said out loud by
+	 * the one component in a position to know.
+	 */
+	onUserScroll?: (direction: Direction) => void;
 	/** Exposed for callers that drive the scroll position themselves, like the transcript. */
 	scrollRef?: React.RefObject<HTMLDivElement | null>;
 	/** Narrow navigation rails use their own targets; an overlay thumb would intercept them. */
@@ -184,7 +196,18 @@ export function Scroller({
 			const travel = el.clientHeight - metrics.thumbHeight;
 			if (travel <= 0) return;
 			const ratio = (event.clientY - state.startY) / travel;
+			/*
+			 * Read back either side of the write, and report the difference rather than the intent.
+			 *
+			 * The browser clamps at both ends, so a drag that has already run out of travel produces
+			 * no movement — and reporting a direction for it would let a thumb held against the
+			 * bottom stop the transcript following. Comparing the actual positions says nothing when
+			 * nothing happened.
+			 */
+			const before = el.scrollTop;
 			el.scrollTop = state.startTop + ratio * (el.scrollHeight - el.clientHeight);
+			const after = el.scrollTop;
+			if (after !== before) onUserScroll?.(after < before ? "up" : "down");
 		};
 
 		const onMove = (event: MouseEvent) => {
@@ -209,7 +232,7 @@ export function Scroller({
 			window.removeEventListener("mouseup", onUp);
 			if (frame) cancelAnimationFrame(frame);
 		};
-	}, [active, metrics.thumbHeight, viewport]);
+	}, [active, metrics.thumbHeight, onUserScroll, viewport]);
 
 	// Both only mean anything once something is actually hidden that way.
 	const hiddenAbove = metrics.overflow && !metrics.atTop;
@@ -314,6 +337,9 @@ export function Scroller({
 							if (!el) return;
 							drag.current = { startY: event.clientY, startTop: el.scrollTop };
 							setActive(true);
+							// A hand on the thumb is a claim on the surface before it has moved at all —
+							// and, if a ride back down is in flight, the thing that calls it off.
+							onUserScroll?.("unknown");
 						}}
 						style={{ top: metrics.thumbTop, height: metrics.thumbHeight }}
 						className={`ly-thumb absolute right-[2px] w-[6px] rounded-full bg-ink-faint ${active ? "ly-thumb-active" : ""}`}

@@ -31,13 +31,46 @@ import { useApp } from "../../store/index.ts";
  * prose per gesture. A memo boundary here is one comparison of two empty objects, and it is where
  * the layout stops being the transcript's business.
  */
+/**
+ * The width below which the question rail stops getting a column of its own.
+ *
+ * Indenting the text 48px to clear the rail costs a tenth of a 520px column and nothing worth
+ * noticing above it — and the right side is padded 16px whatever happens, so the whole difference
+ * lands as the transcript sitting visibly right of centre. Below this the rail goes against the
+ * edge and both sides get 28px.
+ */
+const NARROW_COLUMN = 520;
+
 export const Conversation = memo(function Conversation() {
   const messages = useApp((s) => s.messages);
   const running = useApp((s) => s.running);
   const compactions = useApp((s) => s.compactions);
 	const commandRuns = useApp((s) => s.commandRuns);
 	const compacting = commandRuns.some((command) => command.status === "running");
-  const toolRunCount = useApp((s) => Object.keys(s.toolRuns).length);
+  /*
+   * How many tool calls there are, and how many have stopped running.
+   *
+   * Both halves matter and only the first used to be here. A call settling changes the card —
+   * output replaces the spinner, a duration appears, an error opens — without touching a message
+   * and without changing how many calls exist, so a signature built from the count alone was
+   * identical either side of the one moment a tool card changes size the most.
+   *
+   * Still a count rather than the map: a streamed chunk moves neither number, which is what keeps
+   * the layout effect off the per-token path. Growth inside a running card is left to the resize
+   * observer, which is what it is for.
+   *
+   * Returned as a string so the selector compares by value; an object would be a new identity on
+   * every store change and re-render the transcript for each one.
+   */
+  const toolProgress = useApp((s) => {
+    let total = 0;
+    let settled = 0;
+    for (const run of Object.values(s.toolRuns)) {
+      total += 1;
+      if (run.status !== "running") settled += 1;
+    }
+    return `${total}/${settled}`;
+  });
   const activeSessionId = useApp((s) => s.activeSessionId);
   const loadingSession = useApp((s) => s.loadingSession);
   const allRuns = useMemo(() => runs(messages, compactions, commandRuns), [messages, compactions, commandRuns]);
@@ -53,22 +86,35 @@ export const Conversation = memo(function Conversation() {
    */
   const column = useRef<HTMLDivElement>(null);
   const [roomToFloat, setRoomToFloat] = useState(false);
+  /*
+   * Too narrow to spend 48px on the question rail and leave the column looking centred.
+   *
+   * Asked of this column, not of the window. A 1400px window with the sidebar and a file panel
+   * open leaves the transcript 460px wide, and 48 against 16 is just as lopsided there as it is on
+   * a 380px window — the window is simply not what the reader is looking at. Below this the rail
+   * moves to the very edge and the padding goes symmetric; see `QuestionNav`.
+   */
+  const [narrowColumn, setNarrowColumn] = useState(false);
   useEffect(() => {
     const element = column.current;
     if (!element) return;
     let frame = 0;
+    const read = () => {
+      setRoomToFloat(element.clientWidth >= 320 + 32 + 420);
+      setNarrowColumn(element.clientWidth < NARROW_COLUMN);
+    };
     const measure = () => {
       if (document.documentElement.hasAttribute("data-resizing")) {
         // Debounce / coalesce measurement during resizing drags so we don't trigger layout thrashing
         if (!frame) {
           frame = requestAnimationFrame(() => {
             frame = 0;
-            setRoomToFloat(element.clientWidth >= 320 + 32 + 420);
+            read();
           });
         }
         return;
       }
-      setRoomToFloat(element.clientWidth >= 320 + 32 + 420);
+      read();
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -107,11 +153,10 @@ export const Conversation = memo(function Conversation() {
     /*
      * What "something arrived" means here.
      *
-     * `toolRunCount` is folded in for the same reason it was a dependency before: a card appearing
-     * or completing changes the page without touching a message. It is a count of settled calls
-     * rather than the map itself, so a streamed chunk does not re-run this.
+     * `toolProgress` is folded in because a card appearing *or completing* changes the page without
+     * touching a message — see its selector above for why both numbers are needed.
      */
-    tail: tailSignature(messages, toolRunCount),
+    tail: tailSignature(messages, toolProgress),
   });
   const scrollRef = follow.scrollRef;
 
@@ -190,13 +235,23 @@ export const Conversation = memo(function Conversation() {
       <Scroller
         className="flex-1"
         scrollRef={scrollRef}
-        contentClassName={questions.length > 1 ? "pl-12 pr-4 @min-[600px]:pr-8" : compact ? "px-4" : "px-8"}
+        /*
+         * The rail's room comes out of the column, so in a narrow column it comes out even.
+         *
+         * `pl-12 pr-4` clears the question rail on the left and leaves the right alone, which reads
+         * as centred in a wide column and as visibly off-centre in a narrow one: 48 against 16 is a
+         * twelfth of a 380px pane, and the whole transcript sits to the right of its own box. Below
+         * `NARROW_COLUMN` the rail moves to the very edge and 28px each side clears it evenly.
+         */
+        contentClassName={questions.length > 1 ? (narrowColumn ? "px-7" : "pl-12 pr-4 @min-[600px]:pr-8") : compact ? "px-4" : "px-8"}
         onScroll={follow.onScroll}
         onResize={follow.onResize}
+        onUserScroll={follow.onUserScroll}
       >
         {/* Historical rows must never replay entrance motion when revisited. */}
         <div
-          className="ly-transcript ly-no-enter mx-auto w-full max-w-[var(--ly-content)] py-5"
+          /* `--ly-bottom-inset` keeps 「回到最新」 off the newest message; see `styles/scroll.css`. */
+          className="ly-transcript ly-no-enter mx-auto w-full max-w-[var(--ly-content)] pt-5 pb-[var(--ly-bottom-inset)]"
           aria-busy={loadingSession}
         >
           {/*
@@ -242,6 +297,8 @@ export const Conversation = memo(function Conversation() {
                 index={run.index}
                 upTo={run.upTo}
                 from={run.from}
+                lead={run.lead}
+                newest={run.newest}
                 /* A turn the runtime carried straight on from did not end where it stopped. */
                 continued={isNudge(messages[run.index + 1])}
                 /* Computed with the grouping, so its identity changes only when the transcript
@@ -324,7 +381,7 @@ export const Conversation = memo(function Conversation() {
        * moment it appeared, and a control offering to move you should not itself move the thing
        * it is about.
        */}
-      {questions.length > 1 && <QuestionNav key={activeSessionId} questions={questions} viewport={scrollRef} onSelect={(index) => {
+      {questions.length > 1 && <QuestionNav key={activeSessionId} questions={questions} viewport={scrollRef} edge={narrowColumn} onSelect={(index) => {
         const at = allRuns.findIndex((run) => run.kind === "message" && run.index === index);
         if (at < 0) return;
         detach();

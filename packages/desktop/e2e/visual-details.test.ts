@@ -281,3 +281,34 @@ test("long registry lists scroll inside the dialog and nested confirmation close
 	t.diagnostic(JSON.stringify({box,narrow,layers}));
 	});
 });
+
+/*
+ * 最后一条：它改视口，而这些用例共用一个窗口。
+ *
+ * 窄到 380px 会把布局切进 compact——dock 折成单面板、侧边栏变抽屉——恢复宽度并不会把这些一并还原，
+ * 所以它必须站在队尾，后面不能再有别人。
+ */
+test("a narrow column centres the transcript instead of parking the question rail's room on one side", async (t) => {
+	/*
+	 * 导航条要的那一条，在窄列里得从两边一起出。
+	 *
+	 * 转录区左边垫 48px 给导航让位，右边一直是 16px——在宽窗口里没人看得出来，在 380px 的一列里
+	 * 那是十二分之一的宽度，整段正文明显地偏在自己那格的右边。量的是列不是窗口：开着侧边栏和另一
+	 * 个面板的 1400px 窗口，对话列同样只有四百多像素，一样偏。
+	 */
+	await app.send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 900, deviceScaleFactor: 1, mobile: false });
+	await click('[data-ly-row="qa-long"] > button');
+	await until(`document.querySelectorAll('.ly-question-mark').length > 1`);
+	const column = `(()=>{const view=document.querySelector('.ly-transcript').closest('.ly-scroll-view'),v=view.getBoundingClientRect(),c=document.querySelector('.ly-transcript').getBoundingClientRect(),rail=document.querySelector('.ly-question-nav');
+		return {width:Math.round(v.width),left:Math.round(c.left-v.left),right:Math.round(v.right-c.right),rail:rail?Math.round(rail.getBoundingClientRect().left-v.left):null}})()`;
+	// 两头都在阈值之内：520 是分界本身，拿它去量只会测到分界写在哪一侧。
+	for (const width of [380, 500]) {
+		await app.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+		await frames(30);
+		const box = await app.evaluate<{ width: number; left: number; right: number; rail: number | null }>(column);
+		t.diagnostic(`${width}px → ${JSON.stringify(box)}`);
+		assert.equal(box.left, box.right, `窄列里正文要居中，实际左 ${box.left} 右 ${box.right}（列宽 ${box.width}）`);
+		assert.ok(box.rail !== null && box.rail >= 0 && box.rail < box.left, `导航条要贴着边缘并留在正文左侧：${JSON.stringify(box)}`);
+	}
+	await app.send("Emulation.clearDeviceMetricsOverride");
+});

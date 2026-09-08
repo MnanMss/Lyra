@@ -163,10 +163,26 @@ export function useConfirmer() {
 export function useConfirmGate() {
 	const [pending, setPending] = useState<(ConfirmOptions & { settle: (answer: boolean) => void }) | null>(null);
 
-	// A question left unanswered must not outlive the component, or its `await` never returns.
+	/*
+	 * A question left unanswered must not outlive the component, or its `await` never returns.
+	 *
+	 * Deferred by a microtask, and that is the whole of it. React tears a tree down from the top, so
+	 * this cleanup runs *before* the `Overlay` further down — and the Overlay is what holds an answer
+	 * that has already been given: the confirm button hands its callback over the moment it is
+	 * pressed, and the exit animation is all that stands between then and it running. Settling
+	 * `false` here synchronously reaches past that and files a press of 「删除」 as a cancellation.
+	 * Nothing is deleted, and nothing says why.
+	 *
+	 * Every cleanup in the tree is synchronous, so one microtask is enough to be last. A promise
+	 * already settled ignores the second answer, which is exactly the precedence wanted: an answer
+	 * that was given beats the default for one that was not.
+	 */
 	const live = useRef(pending);
 	live.current = pending;
-	useEffect(() => () => live.current?.settle(false), []);
+	useEffect(() => () => {
+		const unanswered = live.current;
+		if (unanswered) queueMicrotask(() => unanswered.settle(false));
+	}, []);
 
 	const ask = useCallback(
 		(options: Omit<ConfirmOptions, "onConfirm">): Promise<boolean> =>

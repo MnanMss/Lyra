@@ -91,6 +91,7 @@ import { guardWebviews, installPermissionHandlers } from "./window-security.ts";
 import { registerGitIpc } from "./ipc/git.ts";
 import { registerUsageIpc } from "./ipc/usage.ts";
 import { registerRulesIpc } from "./ipc/rules.ts";
+import { registerAgentDefinitionsIpc } from "./ipc/agent-definitions.ts";
 import { registerCapabilitiesIpc } from "./ipc/capabilities.ts";
 import { registerExtensionsIpc } from "./ipc/extensions.ts";
 import { registerLayersIpc } from "./ipc/layers.ts";
@@ -103,6 +104,7 @@ import { Scheduler } from "./scheduler.ts";
 import { createTray, destroyTray, hasTray, refreshMenu, type TrayCommand } from "./tray.ts";
 import { registerScreenshotIpc } from "./ipc/screenshot.ts";
 import { destroyScreenshotOverlay, dismissStrayOverlay, isScreenshotOverlay, registerScreenshotShortcut, unregisterScreenshotShortcut, warmScreenshotOverlay } from "./screenshot.ts";
+import { destroyPinnedShots, isPinnedShot } from "./screenshot-pin.ts";
 import { configureNotify } from "./notify.ts";
 
 /*
@@ -654,7 +656,14 @@ app.on("window-all-closed", () => {
 app.on("browser-window-created", (_event, win) => {
 	win.on("closed", () => {
 		if (process.platform === "darwin" || hasTray()) return;
-		const left = BrowserWindow.getAllWindows().filter((other) => !other.isDestroyed() && !isScreenshotOverlay(other));
+		/*
+		 * Pinned pictures do not count either, and for the same reason the overlay does not.
+		 *
+		 * They are windows with no way back to the app in them — no menu, no dock, nothing but a
+		 * picture and a close button — so a process kept alive by one is a process the user cannot
+		 * reach. Closing the last real window with a screenshot pinned should still quit.
+		 */
+		const left = BrowserWindow.getAllWindows().filter((other) => !other.isDestroyed() && !isScreenshotOverlay(other) && !isPinnedShot(other));
 		if (left.length === 0) app.quit();
 	});
 });
@@ -662,8 +671,9 @@ app.on("browser-window-created", (_event, win) => {
 app.on("before-quit", async () => {
 	unregisterScreenshotShortcut();
 	// The overlay outlives every capture on purpose, so it has to be let go of here or the process
-	// has a window left open and never finishes quitting.
+	// has a window left open and never finishes quitting. Pinned pictures outlive it too.
 	destroyScreenshotOverlay();
+	destroyPinnedShots();
 	destroyTray();
 	scheduler?.stop();
 	for (const dispose of browsers.values()) dispose();
@@ -727,6 +737,7 @@ function registerIpc(): void {
 	registerGitIpc({ insideAProject });
 	registerUsageIpc();
 	registerRulesIpc();
+	registerAgentDefinitionsIpc();
 	registerCapabilitiesIpc();
 	registerExtensionsIpc();
 	registerLayersIpc();

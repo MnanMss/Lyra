@@ -70,6 +70,7 @@ export const PHONE_WRITABLE = [
 	"commitLanguage",
 	"uiLocale",
 	"retryAttempts",
+	"retryPolicy",
 	"editor",
 	"maxConcurrentSubAgents",
 	"modelRoles",

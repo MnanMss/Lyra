@@ -63,7 +63,15 @@ test("Segmented: 每个选项一个按钮，点击送出该选项的值", async 
 	await view.unmount();
 });
 
-test("Segmented: 选中项与其余在类名上可区分，这是它唯一的状态提示", async () => {
+/*
+ * 实底从按钮身上搬到了一块共用的、会滑过去的底上，所以这条跟着改了要检查的东西。
+ *
+ * 原来的写法是「选中那颗按钮的类名里有 bg-elevated」，那是在描述实现：底一旦不再属于某一颗按
+ * 钮，断言就红了，而画面上什么也没变差。要守的其实是它的名字说的那件事——两颗按钮画得不一样，
+ * 且有一块实底落在选中的那颗上。顺带补上 `aria-pressed`：现在类名不再是「唯一的状态提示」，
+ * 读屏也能知道哪个是开着的。
+ */
+test("Segmented: 选中项与其余可区分，且实底落在选中的那颗上", async () => {
 	const options = [
 		{ value: "a", label: "甲" },
 		{ value: "b", label: "乙" },
@@ -72,7 +80,9 @@ test("Segmented: 选中项与其余在类名上可区分，这是它唯一的状
 	const [first, second] = view.all<HTMLButtonElement>("button");
 
 	assert.notEqual(first!.className, second!.className, "选中与未选中必须画得不一样");
-	assert.match(second!.className, /bg-elevated/, "选中项有实底");
+	assert.equal(second!.getAttribute("aria-pressed"), "true");
+	assert.equal(first!.getAttribute("aria-pressed"), "false");
+	assert.match(view.find("[aria-hidden]").className, /bg-elevated/, "实底还在，只是现在它会滑");
 
 	await view.unmount();
 });

@@ -25,7 +25,18 @@ const ScreenshotOverlay = lazy(() =>
 	import("./features/image/ScreenshotOverlay.tsx").then((m) => ({ default: m.ScreenshotOverlay })),
 );
 
+/**
+ * A pinned screenshot, which is a third kind of window this document can be.
+ *
+ * Lazy for the same reason the overlay is: it is one image and a close button, and every other
+ * window in the app would otherwise carry it. Deliberately *not* part of the overlay chunk either
+ * — the two never coexist, and a pinned picture that had to load the whole annotator before it
+ * could appear would be a visible pause at the end of every capture.
+ */
+const PinnedShot = lazy(() => import("./features/image/PinnedShot.tsx").then((m) => ({ default: m.PinnedShot })));
+
 const isOverlay = window.location.hash.startsWith("#/screenshot-overlay");
+const isPinnedShot = window.location.hash.startsWith("#/pinned-shot");
 
 /*
  * The capture overlay is a hole in the screen, and `body` is opaque.
@@ -37,7 +48,7 @@ const isOverlay = window.location.hash.startsWith("#/screenshot-overlay");
  * snapshot is painted onto a canvas that covers everything, so nothing here needs a background at
  * any point.
  */
-if (isOverlay) {
+if (isOverlay || isPinnedShot) {
 	document.documentElement.style.background = "transparent";
 	document.body.style.background = "transparent";
 }
@@ -49,7 +60,7 @@ createRoot(document.getElementById("root")!).render(
 		<ErrorBoundary>
 			{/* No fallback: the boot screen is already painted underneath by the preload, and a
 			    second loading state on top of it would be a flash rather than an answer. */}
-			<Suspense fallback={null}>{isOverlay ? <ScreenshotOverlay /> : <App />}</Suspense>
+			<Suspense fallback={null}>{isOverlay ? <ScreenshotOverlay /> : isPinnedShot ? <PinnedShot /> : <App />}</Suspense>
 		</ErrorBoundary>
 	</StrictMode>,
 );

@@ -201,7 +201,7 @@ test("fullscreen keeps the native browser page and form state, with one viewport
 });
 
 
-test("one navigation row, a compact menu and a one-line empty state at wide and 375px widths", async (t) => {
+test("one navigation row, a compact menu and a icon empty state at wide and 375px widths", async (t) => {
 	await app.evaluate(`window.lyra.browser.state().then(async s=>{for(const tab of s.tabs)await window.lyra.browser.command({type:'close',id:tab.id})})`);
 	await until(`document.querySelector('[data-browser-empty]')`);
 	for (const theme of ["light", "dark"]) for (const width of [1200, 375]) {
@@ -211,18 +211,21 @@ test("one navigation row, a compact menu and a one-line empty state at wide and 
 		await until(`document.querySelector('[role="menuitem"]')`);
 		await app.evaluate(`Promise.all(document.querySelector('[role="menuitem"]').closest('[role="menu"]').getAnimations({subtree:true}).map(a=>a.finished))`);
 		const metrics = await app.evaluate<{toolbarHeight:number;overflow:number;empty:string;tabs:number;menuWidth:number}>(`(()=>{const toolbar=document.querySelector('[data-browser-toolbar]'),menu=document.querySelector('[role="menuitem"]').closest('[role="menu"]');return {toolbarHeight:toolbar.getBoundingClientRect().height,overflow:toolbar.scrollWidth-toolbar.clientWidth,empty:document.querySelector('[data-browser-empty]').textContent,tabs:document.querySelector('[data-browser-panel]').querySelectorAll('[role="tab"]').length,menuWidth:menu.getBoundingClientRect().width}})()`);
-		assert.equal(metrics.toolbarHeight, 40); assert.equal(metrics.overflow, 0); assert.equal(metrics.empty, "输入网址开始浏览"); assert.equal(metrics.tabs, 0); assert.equal(metrics.menuWidth, 224); t.diagnostic(JSON.stringify({theme,width,...metrics}));
+		assert.equal(metrics.toolbarHeight, 40); assert.equal(metrics.overflow, 0); assert.match(metrics.empty, /打开一个网页.*输入网址/); assert.equal(metrics.tabs, 0); assert.equal(metrics.menuWidth, 224); t.diagnostic(JSON.stringify({theme,width,...metrics}));
 		const directory=process.env.LYRA_E2E_ARTIFACTS;
 		if(directory){await mkdir(directory,{recursive:true});const shot=await app.send<{data:string}>("Page.captureScreenshot",{format:"png"});await writeFile(join(directory,`browser-menu-${theme}-${width}.png`),Buffer.from(shot.data,"base64"));}
 		await app.send("Input.dispatchKeyEvent",{type:"keyDown",key:"Escape",code:"Escape",windowsVirtualKeyCode:27});
 		await app.send("Input.dispatchKeyEvent",{type:"keyUp",key:"Escape",code:"Escape",windowsVirtualKeyCode:27});
 		await until(`document.querySelector('[aria-label="浏览器菜单"][aria-expanded="false"]')`);
+		const emptyStyle = await app.evaluate(`(()=>{const empty=document.querySelector('[data-browser-empty]'),toolbar=document.querySelector('[data-browser-toolbar]');return {background:getComputedStyle(empty).backgroundColor,container:getComputedStyle(empty.parentElement).backgroundColor,divider:getComputedStyle(toolbar).borderBottomWidth,icons:empty.querySelectorAll('svg').length};})()`);
+		assert.equal(emptyStyle.background, emptyStyle.container); assert.equal(emptyStyle.divider, "0px"); assert.equal(emptyStyle.icons, 1);
+		await click('[data-browser-empty] button'); assert.equal(await app.evaluate(`document.activeElement.getAttribute('aria-label')`), "浏览器地址");
 		if(directory){const shot=await app.send<{data:string}>("Page.captureScreenshot",{format:"png"});await writeFile(join(directory,`browser-empty-${theme}-${width}.png`),Buffer.from(shot.data,"base64"));}
 	}
 	await app.send("Emulation.clearDeviceMetricsOverride");
 	await menu("新标签页");
 	await until(`document.querySelector('webview')`);
-	assert.equal(await app.evaluate(`document.querySelector('[data-browser-empty]').textContent`), "输入网址开始浏览");
+	assert.match(await app.evaluate<string>(`document.querySelector('[data-browser-empty]').textContent`), /打开一个网页.*输入网址/);
 	await menu("视口尺寸");
 	await until(`document.querySelector('[aria-label="视口宽度"]')`);
 	await app.evaluate(`[...document.querySelectorAll('[role="menuitem"]')].find(e=>e.textContent.startsWith('手机')).setAttribute('data-mobile-preset','')`);

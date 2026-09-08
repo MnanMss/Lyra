@@ -1,15 +1,38 @@
-/**
- * Retrying the request, but never the stream.
- *
- * A turn can spend a minute assembling its context — reading files, running tools, packing a
- * hundred thousand tokens of history — and then lose all of it to one closed socket. That is
- * what `fetch failed (UND_ERR_SOCKET)` is: the far end hung up before answering, which relays
- * and proxies do routinely under load. It says nothing about whether the request was wrong.
- *
- * Only the connection attempt is retried. Once the response body starts arriving the model is
- * already emitting text, and re-sending would either duplicate what was shown or bill for a
- * second generation — so from that point a failure is reported as it happens.
- */
+/** Shared request/stream budget prevents nested retry loops from multiplying the configured limit. */
+import { normalizeRetryPolicy, policyDelay, type RetryPolicy, type RetryPolicySource, type RetryFailure } from "../config/retry-policy.ts";
+
+/** Explicit low-level attempt overrides (e.g. commit titles) retain their bounded lifetime. */
+function resolvePolicy(policy: RetryPolicy | undefined, legacyAttempts: number | undefined): RetryPolicy {
+	const normalized = normalizeRetryPolicy(policy, legacyAttempts);
+	if (policy || legacyAttempts === undefined) return normalized;
+	const retries = Number.isFinite(legacyAttempts) ? Math.max(0, Math.round(legacyAttempts) - 1) : 10;
+	const upstream = { ...normalized.upstream, retries };
+	return { upstream, network: { ...upstream } };
+}
+
+export class RetryBudget {
+	private used = { network: 0, upstream: 0 };
+	private readonly read: () => RetryPolicy | undefined;
+	private readonly legacyAttempts?: number;
+	private cache?: { from: RetryPolicy | undefined; resolved: RetryPolicy };
+	constructor(policy?: RetryPolicySource, legacyAttempts?: number) {
+		this.read = typeof policy === "function" ? policy : () => policy;
+		this.legacyAttempts = legacyAttempts;
+	}
+	/**
+	 * The rules in force right now, not the ones this request started under.
+	 *
+	 * Normalising is not free and this is read on every attempt, so the result is kept until the
+	 * settings object itself is replaced — which is what saving the settings page does.
+	 */
+	get policy(): RetryPolicy {
+		const from = this.read();
+		if (!this.cache || this.cache.from !== from) this.cache = { from, resolved: resolvePolicy(from, this.legacyAttempts) };
+		return this.cache.resolved;
+	}
+	available(kind: RetryFailure): boolean { const { retries } = this.policy[kind]; return retries === null || this.used[kind] < retries; }
+	next(kind: RetryFailure): { attempt: number; delayMs: number } { this.used[kind]++; return { attempt: this.used.network + this.used.upstream, delayMs: policyDelay(this.policy[kind], this.used[kind]) }; }
+}
 
 /** Transport-level failures, none of which mean the request itself was bad. */
 const RETRYABLE_CAUSES = new Set([
@@ -22,6 +45,9 @@ const RETRYABLE_CAUSES = new Set([
 	"ETIMEDOUT",
 	"EPIPE",
 	"EAI_AGAIN",
+	"ENOTFOUND",
+	"ENETUNREACH",
+	"EHOSTUNREACH",
 ]);
 
 /**
@@ -37,6 +63,7 @@ const RETRYABLE_CAUSES = new Set([
 const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504, 522, 524, 529]);
 
 export interface RetryOptions {
+	budget?: RetryBudget;
 	/** Total attempts, including the first. */
 	attempts?: number;
 	signal?: AbortSignal;
@@ -50,6 +77,7 @@ export function isRetryableError(error: unknown): boolean {
 	if (!(error instanceof Error)) return false;
 	const cause = (error as { cause?: { code?: string } }).cause;
 	if (cause?.code && RETRYABLE_CAUSES.has(cause.code)) return true;
+	if (cause?.code && ["ERR_TLS_CERT_ALTNAME_INVALID", "CERT_HAS_EXPIRED", "DEPTH_ZERO_SELF_SIGNED_CERT", "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "ERR_INVALID_URL"].includes(cause.code)) return false;
 	// undici reports a bare "fetch failed" with the cause attached; some runtimes lose the cause.
 	const msg = error.message.toLowerCase();
 	return (
@@ -167,14 +195,14 @@ export async function fetchWithRetry(
 	init: RequestInit,
 	options: RetryOptions = {},
 ): Promise<Response> {
-	const attempts = Math.max(1, options.attempts ?? 3);
+	const attempts = options.budget ? Infinity : Math.max(1, options.attempts ?? 3);
 	let lastError: unknown;
 
 	for (let attempt = 1; attempt <= attempts; attempt++) {
 		if (options.signal?.aborted) break;
 		try {
 			const response = await doFetch(url, init);
-			if (attempt < attempts && isRetryableStatus(response.status)) {
+			if ((options.budget ? options.budget.available("upstream") : attempt < attempts) && isRetryableStatus(response.status)) {
 				/*
 				 * The body is read, off a clone, purely to find out how long to wait.
 				 *
@@ -185,12 +213,15 @@ export async function fetchWithRetry(
 				 * gone long before the outage was. A clone, so the response the caller may still
 				 * return is untouched; failures here fall back to the curve rather than throwing.
 				 */
-				const body = await response
+				const body = options.budget ? undefined : await response
 					.clone()
 					.text()
 					.catch(() => undefined);
-				const delay = retryDelay(attempt, response, body);
-				options.onRetry?.({ attempt, delayMs: delay, reason: `HTTP ${response.status}` });
+				const retry = options.budget?.next("upstream") ?? { attempt, delayMs: retryDelay(attempt, response, body) };
+				const delay = retry.delayMs;
+				// Release each failed response before an unlimited wait can accumulate connections.
+				await response.body?.cancel().catch(() => undefined);
+				options.onRetry?.({ ...retry, reason: `HTTP ${response.status}` });
 				await abortableSleep(delay, options.signal, options.sleep);
 				continue;
 			}
@@ -198,9 +229,10 @@ export async function fetchWithRetry(
 		} catch (error) {
 			lastError = error;
 			// A cancelled turn is not a failed one; stop immediately rather than waiting to retry.
-			if (options.signal?.aborted || !isRetryableError(error) || attempt === attempts) throw error;
-			const delay = retryDelay(attempt);
-			options.onRetry?.({ attempt, delayMs: delay, reason: describeCause(error) });
+			if (options.signal?.aborted || !isRetryableError(error) || (options.budget ? !options.budget.available("network") : attempt === attempts)) throw error;
+			const retry = options.budget?.next("network") ?? { attempt, delayMs: retryDelay(attempt) };
+			const delay = retry.delayMs;
+			options.onRetry?.({ ...retry, reason: describeCause(error) });
 			await abortableSleep(delay, options.signal, options.sleep);
 		}
 	}
@@ -267,6 +299,7 @@ export function toolCallId(given: unknown, outputIndex: number, invented: Map<nu
 export async function* retryStream<T>(
 	attempt: (attemptNumber: number) => AsyncGenerator<T, void>,
 	options: {
+		budget?: RetryBudget;
 		attempts?: number;
 		signal?: AbortSignal;
 		reset: () => void;
@@ -274,18 +307,20 @@ export async function* retryStream<T>(
 		sleep?: (ms: number) => Promise<void>;
 	},
 ): AsyncGenerator<T, void> {
-	const attempts = Math.max(1, options.attempts ?? 3);
+	const attempts = options.budget ? Infinity : Math.max(1, options.attempts ?? 3);
 
 	for (let number = 1; number <= attempts; number++) {
+		if (options.signal?.aborted) throw options.signal.reason ?? new Error("请求已取消");
 		options.reset();
 		try {
 			yield* attempt(number);
 			return;
 		} catch (error) {
-			const last = number === attempts;
+			const last = options.budget ? !options.budget.available("network") : number === attempts;
 			if (last || options.signal?.aborted || !isRetryableError(error)) throw error;
-			const delayMs = retryDelay(number);
-			options.onRetry?.({ attempt: number, delayMs, reason: describeError(error) });
+			const retry = options.budget?.next("network") ?? { attempt: number, delayMs: retryDelay(number) };
+			const delayMs = retry.delayMs;
+			options.onRetry?.({ ...retry, reason: describeError(error) });
 			await abortableSleep(delayMs, options.signal, options.sleep);
 		}
 	}

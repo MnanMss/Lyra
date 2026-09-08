@@ -1,3 +1,4 @@
+export { DEFAULT_RETRY_POLICY, DEFAULT_RETRY_RULE, normalizeRetryPolicy, policyDelay, type RetryPolicy, type RetryPolicySource, type RetryRule, type RetryFailure } from "./config/retry-policy.ts";
 export {
 	APPROVAL,
 	COMPACTION,
@@ -236,6 +237,7 @@ export {
 	STANDARD_5_LEVEL_OPTIONS,
 	GPT_5_6_STANDARD_OPTIONS,
 	GPT_5_6_SOL_OPTIONS,
+	GPT_6_ASTRA_OPTIONS,
 	FAST_3_LEVEL_OPTIONS,
 } from "./ai/thinking-options.ts";
 export { lastPassAt, PASS_INTERVAL_MS, runMemoryPass, shouldRunPass } from "./runtime/memory-pass.ts";
@@ -261,3 +263,5 @@ export { projectMemoryDir } from "./runtime/project-memory.ts";
 export { computeDiff } from "./tools/diff.ts";
 
 export { readFileChange, undoFileChanges, undoFileChangeBatches, type RecordedChange } from "./tools/file-changes.ts";
+export { AgentDefinitionStore } from "./agents/definition-store.ts";
+export type { AgentDraft, AgentDefinitionRecord, AgentDefinitionSave } from "./agents/definition-document.ts";

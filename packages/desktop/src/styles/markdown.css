@@ -325,46 +325,6 @@
   }
 
   /*
-   * A folded section.
-   *
-   * Borrowed motion from the app's own disclosures rather than the browser's `<details>`, which
-   * snaps open with no transition and draws a system triangle we do not use anywhere else.
-   */
-  .prose-dw .ly-details {
-    border: 1px solid var(--color-line-soft);
-    border-radius: 10px;
-    overflow: hidden;
-  }
-
-  .ly-details-summary {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    width: 100%;
-    padding: 7px 11px;
-    text-align: left;
-    color: var(--color-ink-muted);
-    transition: color var(--ly-t-quick) var(--ly-e-soft);
-  }
-
-  .ly-details-summary:hover {
-    color: var(--color-ink);
-  }
-
-  .ly-details-chevron {
-    flex: none;
-    transition: transform var(--ly-t-base) var(--ly-e-out);
-  }
-
-  .ly-details[data-open="true"] .ly-details-chevron {
-    transform: rotate(90deg);
-  }
-
-  .ly-details-body {
-    padding: 2px 11px 11px;
-  }
-
-  /*
    * A key, drawn as one.
    *
    * `<kbd>Cmd</kbd>` is an instruction to press something, and the browser's default — italic

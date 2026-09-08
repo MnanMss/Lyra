@@ -39,9 +39,12 @@ function fixture(id: string) {
 }
 
 function inspector() { return document.querySelector<HTMLElement>(".ly-trace-inspector"); }
-function action(label: string) {
-	const button = document.querySelector<HTMLButtonElement>(`.ly-trace-inspector [aria-label="${label}"]`);
-	assert.ok(button); return button;
+async function action(label: string) {
+	if (label === "返回记录") {
+		const button = document.querySelector('.ly-trace-inspector [aria-label="返回记录"]'); assert.ok(button); await click(button); return;
+	}
+	const menu = document.querySelector('.ly-trace-inspector [aria-label="记录操作"]'); assert.ok(menu); await click(menu);
+	const item = [...document.querySelectorAll('[role="menuitem"]')].find(element => element.textContent === label); assert.ok(item); await click(item);
 }
 
 test("an old focus nonce cannot clear a newer request, including one for the same record", () => {
@@ -78,7 +81,7 @@ test("a trace link waits for its tool call, is consumed once applied, and never 
 		assert.ok(inspector()?.textContent?.includes(target.summary));
 		assert.equal(view.find('[data-trace-entry="focused-tool"]').getAttribute("aria-pressed"), "true");
 		assert.deepEqual(useTraceFocus.getState(), { sessionId: "", correlationId: "", nonce });
-		await click(action("关闭记录详情")); assert.equal(inspector(), null);
+		await action("返回记录"); assert.equal(inspector(), null);
 		await act(async () => useApp.setState({ meta: { ...state.meta, id: "trace-focus-other" } }));
 		await act(async () => state.reads[2].resolve({ cursor: "other:1", reset: true, upserts: [], removals: [] }));
 		await act(async () => useApp.setState({ meta: state.meta }));
@@ -97,21 +100,21 @@ test("viewing a trace file retains the inspector on failure and closes only afte
 	const view = await mount(h(TrajectoryPanel));
 	try {
 		await act(async () => state.reads[0].resolve({ cursor: "export:1", reset: true, upserts: [target], removals: [] }));
-		await click(action("在文件中查看完整记录"));
+		await action("在文件中查看完整记录");
 		assert.equal(state.exports[0].format, "json"); assert.deepEqual(state.exports[0].entry, { id: target.id });
 		await act(async () => state.exports[0].reject(new Error("export failed")));
 		assert.ok(inspector()); assert.match(state.errors[0], /export failed/); assert.equal(state.files.length, 0);
-		await click(action("在文件中查看完整记录"));
+		await action("在文件中查看完整记录");
 		await act(async () => state.exports[1].resolve("/tmp/record.json"));
 		assert.ok(inspector()); assert.equal(state.files[0].path, "/tmp/record.json");
 		await act(async () => state.files[0].reject(new Error("file read failed")));
 		assert.ok(inspector()); assert.match(state.errors[1], /file read failed/); assert.ok(!state.panes.includes("file"));
-		await click(action("在文件中查看完整记录"));
+		await action("在文件中查看完整记录");
 		await act(async () => state.exports[2].resolve("/tmp/record.json"));
 		await act(async () => state.files[1].resolve());
 		assert.equal(state.panes.at(-1), "file"); assert.equal(inspector(), null);
 		await act(async () => showTrace(state.meta.id, correlationId));
-		await click(action("查看完整原始输出"));
+		await action("查看完整原始输出");
 		assert.equal(state.exports[3].format, "output");
 		await act(async () => state.exports[3].resolve("/tmp/trace-output.txt"));
 		assert.ok(inspector());

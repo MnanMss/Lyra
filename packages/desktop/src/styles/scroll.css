@@ -6,6 +6,24 @@
  * ------------------------------------------------------------------------- */
 
 /*
+ * Room at the foot of a transcript for the control that floats over it.
+ *
+ * 「回到最新」 is 32px tall and sits 12px off the bottom of the scroller. Without this it covers
+ * the last 24px of the content — which is the newest message, the one thing being at the bottom
+ * exists to show you — so a transcript scrolled perfectly to its end still looked like it had
+ * something hidden under the button.
+ *
+ * Padding at the end of the scrolled content, rather than arithmetic in `follow.ts`, and that
+ * distinction is load-bearing: `scrollTop` cannot exceed `scrollHeight - clientHeight`, so an
+ * inset subtracted inside the follow rule would make `atBottom` unreachable and pin a transcript
+ * that can never satisfy its own test. As padding it simply makes the page longer, and the bottom
+ * of the page becomes somewhere the newest message can actually be read.
+ */
+:root {
+  --ly-bottom-inset: 44px;
+}
+
+/*
  * Invisible, but still there to be grabbed.
  *
  * It used to take clicks only while its scroller was hovered, back when the resize handle sat on
@@ -63,8 +81,17 @@
   margin-right: 4px;
 }
 
+/*
+ * Just enough to clear the thumb, not a column of its own.
+ *
+ * It was 20px, and the thumb is 8px of it (6 wide, 2 in from the edge) with 4 more already given
+ * by the margin above — so a menu with a scrollbar left a 24px gutter down its right side while
+ * its rows started 9px from the left. Every row read as pushed left, and the bar floated in the
+ * middle of the empty strip rather than at the edge of the list it scrolls. 4px puts the rows'
+ * own padding beside the thumb with a hair's gap, which is where a scrollbar belongs.
+ */
 .ly-menu-scroll:has(.ly-thumb) > .ly-scroll-view {
-  padding-right: 20px;
+  padding-right: 4px;
 }
 
 /* Approval prose must stay outside the scrollbar's widened drag target. */

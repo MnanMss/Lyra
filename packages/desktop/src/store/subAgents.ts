@@ -14,6 +14,7 @@
 
 import { create } from "zustand";
 import type { Message, SubAgentSummary } from "@lyra/core";
+import { freshTokens } from "@lyra/core/tokens";
 import { bridge } from "../services/index.ts";
 
 interface SubAgentState {
@@ -134,8 +135,16 @@ export interface RosterNode {
 	branch: RosterFigures;
 }
 
+/**
+ * Fresh tokens, matching the session card and the usage page — see `freshTokens`.
+ *
+ * A sub-agent is dispatched precisely when the work is too big for the main thread, so it runs the
+ * longest tool loops in the app and re-reads its context the most. Reporting `usage.total` here
+ * made every roster row read as though delegating were ruinously expensive, when most of what it
+ * counted was the same context being read back at a tenth of the rate.
+ */
 export function figuresOf(agent: SubAgentSummary): RosterFigures {
-	return { tokens: agent.usage?.total ?? 0, cost: agent.usage?.cost.total ?? 0 };
+	return { tokens: agent.usage ? freshTokens(agent.usage) : 0, cost: agent.usage?.cost.total ?? 0 };
 }
 
 function addFigures(a: RosterFigures, b: RosterFigures): RosterFigures {

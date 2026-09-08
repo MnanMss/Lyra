@@ -62,6 +62,8 @@ const MAX_RESUMES = 3;
 const RESUME_DELAYS_MS = [5_000, 20_000, 60_000];
 
 export interface ContinuationDeps {
+	/** A configured request budget must not be restarted by the outer turn continuation. */
+	requestRetriesHandled?: boolean;
 	/** Start another turn with the accumulated history. */
 	run(messages: Message[]): Promise<AgentRunResult>;
 	messages(): Message[];
@@ -121,7 +123,7 @@ export async function continueWhileWorkRemains(
 		 * network chose, which is often before the model has written a plan down at all, and
 		 * "there is no list" is not evidence that there is nothing left to do.
 		 */
-		if (result.reason !== "error" || !result.retryable || resumes >= MAX_RESUMES) break;
+		if (deps.requestRetriesHandled || result.reason !== "error" || !result.retryable || resumes >= MAX_RESUMES) break;
 
 		const delay = RESUME_DELAYS_MS[Math.min(resumes, RESUME_DELAYS_MS.length - 1)];
 		resumes += 1;

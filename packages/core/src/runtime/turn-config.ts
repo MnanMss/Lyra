@@ -16,6 +16,7 @@ import type { Settings } from "../config/settings.ts";
 import type { Skill } from "../skills/loader.ts";
 import { ruleHooks } from "../rules/session.ts";
 import { DispatchGate, rootDispatch } from "./dispatch-guard.ts";
+import { delegationConcurrency } from "./delegation.ts";
 import type { StreamRuleMonitor } from "../rules/stream.ts";
 import type { AgentDefinition } from "../tools/task.ts";
 import type {
@@ -88,6 +89,13 @@ export function buildTurnConfig(
 	systemPrompt: string,
 	thinking?: ThinkingLevel,
 ): AgentRunConfig {
+	/*
+	 * 闸门在组装这一轮的时候就定好宽度，而不是等到第一次派活。
+	 *
+	 * 宽度是这一轮的属性。放在 `spawnSubAgent` 里懒算，结果是对的，但「这一轮有多宽」变成了
+	 * 取决于「这一轮有没有派过活」——在没派活的会话里根本不存在，谁想看一眼都看不到。
+	 */
+	const gate = dispatchGate(deps, thinking);
 	return {
 
 			sessionId: deps.sessionId,
@@ -99,6 +107,7 @@ export function buildTurnConfig(
 			messages: turn.messages,
 			thinking: thinking ?? deps.settings.thinking,
 			retryAttempts: deps.settings.retryAttempts,
+				retryPolicy: () => (deps.getSettings?.() ?? deps.settings).retryPolicy,
 			signal: deps.signal,
 			state: deps.state,
 			/*
@@ -130,7 +139,7 @@ export function buildTurnConfig(
 			 * model does not read the queue as slowness and try harder.
 			 */
 			spawnSubAgent: (input) =>
-				dispatchGate(deps).run(() =>
+				gate.run(() =>
 					runSubAgent(
 						{
 							sessionId: deps.sessionId,
@@ -155,7 +164,7 @@ export function buildTurnConfig(
 							 * 闸门传下去，是因为「最多四个」如果每一层各算各的，就成了顶层四个、
 							 * 每个下面再四个。链传下去，是因为深度和自递归都只有在链上才看得出来。
 							 */
-							gate: dispatchGate(deps),
+							gate,
 							dispatch: rootDispatch(),
 						},
 						input,
@@ -206,10 +215,24 @@ export function buildTurnConfig(
  */
 const GATE_KEY = "dispatchGate";
 
-function dispatchGate(deps: TurnConfigDeps): DispatchGate {
+/**
+ * 会话级的闸门，宽度按这一轮的推理等级重算。
+ *
+ * 闸门本身必须活过一轮——它数的是「现在有几个在跑」，每轮换一个就等于每轮从零开始数，上一轮
+ * 派出去还没跑完的那些谁都不算数了。而宽度必须每轮重算：推理等级是可以在对话中途改的，改完
+ * 只影响下一轮的提示词、不影响真正拦人的那道闸门的话，这个设置就只剩半个。见 `delegation.ts`。
+ */
+function dispatchGate(deps: TurnConfigDeps, thinking?: ThinkingLevel): DispatchGate {
+	const width = delegationConcurrency(
+		(deps.getSettings?.() ?? deps.settings).maxConcurrentSubAgents,
+		thinking ?? deps.settings.thinking,
+	);
 	const existing = deps.state.get(GATE_KEY);
-	if (existing instanceof DispatchGate) return existing;
-	const gate = new DispatchGate(deps.settings.maxConcurrentSubAgents);
+	if (existing instanceof DispatchGate) {
+		existing.setLimit(width);
+		return existing;
+	}
+	const gate = new DispatchGate(width);
 	deps.state.set(GATE_KEY, gate);
 	return gate;
 }

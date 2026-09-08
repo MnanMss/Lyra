@@ -23,10 +23,13 @@ import {
 	ArrowUpRight,
 	Delete,
 	Circle,
+	Download,
 	Grid2x2,
+	GripVertical,
 	ListOrdered,
 	Minus,
 	Pencil,
+	Pin,
 	Redo2,
 	Square,
 	Trash2,
@@ -34,7 +37,7 @@ import {
 	Undo2,
 	X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
 	canRedo,
@@ -198,6 +201,24 @@ export interface Annotator {
 	mosaicSourceFor(block: number): HTMLCanvasElement | null;
 	ready: boolean;
 	/**
+	 * How many pictures have decoded into this annotator, and the only honest dependency for
+	 * "redraw, the source has changed".
+	 *
+	 * `ready` cannot say it. It goes false while a new source decodes and true again when it lands,
+	 * so between two captures its *value* is true both times — and when the decode is quick enough to
+	 * finish before React has flushed the `false`, both updates land in one pass, the flag never
+	 * changes and an effect watching it never runs again. `image` cannot say it either: it is a ref,
+	 * which is what stops it being a dependency at all.
+	 *
+	 * The screenshot overlay is where that costs something visible. It paints the frozen desktop from
+	 * this bitmap in an effect keyed on `ready`, and a second capture taken while the first was still
+	 * up decoded in five milliseconds — so the overlay went on showing the *previous* capture's
+	 * picture while cropping out of the current one's, and never sent the `ready` handshake that puts
+	 * the window on screen, which then waited out its 1500ms failsafe. `e2e/screenshot-restart-probe.ts`
+	 * checks the log for the repaint.
+	 */
+	revision: number;
+	/**
 	 * The source's natural width, in state rather than read off the ref.
 	 *
 	 * Every size in here — stroke, type, mosaic block — is derived from it, and deriving them from
@@ -256,6 +277,8 @@ export function useAnnotator(src: string | RawPixels | null, options?: Annotator
 	const [history, setHistory] = useState<History>(emptyHistory);
 	const [selected, setSelected] = useState<number | null>(null);
 	const [ready, setReady] = useState(false);
+	/** See `revision` on `Annotator`: the counter `ready` cannot be. */
+	const [revision, setRevision] = useState(0);
 	const [width, setWidth] = useState(0);
 	const [weight, setWeight] = useState(options?.initialWeight ?? 1);
 
@@ -308,6 +331,14 @@ export function useAnnotator(src: string | RawPixels | null, options?: Annotator
 			}
 			setWidth(decoded.width);
 			setReady(true);
+			/*
+			 * And say that it is a *different* picture, which none of the three above can.
+			 *
+			 * `ready` is true again and was true before; `width` is the same screen; the bitmap lives
+			 * in a ref. A consumer that redraws off any of them redraws once and then never again for
+			 * the life of the page — see `revision` on `Annotator` for what that looked like.
+			 */
+			setRevision((n) => n + 1);
 		};
 
 		/*
@@ -501,6 +532,7 @@ export function useAnnotator(src: string | RawPixels | null, options?: Annotator
 		image,
 		mosaicSourceFor,
 		ready,
+		revision,
 		width,
 		block,
 	};
@@ -1332,10 +1364,87 @@ const COLOUR_NAMES: Record<string, string> = {
 	"#111827": "黑色",
 };
 
+/**
+ * How big the bar is, as one table rather than a size prop threaded through six components.
+ *
+ * `compact` is the bar as it was: 24pt buttons with 14pt icons, which is right inside the image
+ * viewer, where the picture is the thing being looked at and the bar is a strip along the bottom of
+ * a window that already has its own chrome.
+ *
+ * `large` is for the capture overlay, and the reason it exists is that the same 24pt button behaves
+ * differently there. The bar is floating over a frozen desktop with no window around it, at a
+ * position that changes with every selection, and it is aimed at *while the hand is still moving*
+ * from the drag that made the region. Every capture tool on this platform sizes that row at around
+ * 32-36pt for exactly that reason — the report this answers is 「截图控件尺寸实在是太小了」, next to
+ * a screenshot of WeChat's, which is 36.
+ *
+ * The numbers are kept together because they are not independent: `TOOL_STEP` and `TOOL_INSET` are
+ * how far along the row a tool's centre sits, and the properties bubble is anchored with them. A
+ * button that grew without them would leave the bubble pointing at the wrong tool.
+ */
+interface ToolbarMetrics {
+	/** The bar itself: gap between controls, padding, corner. */
+	bar: string;
+	/** A tool button. */
+	button: string;
+	/** Icon size in points, for every control on the row. */
+	icon: number;
+	/** The divider between groups. */
+	divider: string;
+	/** The two buttons that end the job. */
+	action: string;
+	confirm: string;
+	/** Distance between two tool-button centres, and where the first one's centre is. */
+	step: number;
+	inset: number;
+	/** The properties bubble: its box, its weight buttons, and how big a colour swatch is. */
+	bubble: string;
+	weight: string;
+	swatch: string;
+	bubbleDivider: string;
+}
+
+const METRICS: Record<"compact" | "large", ToolbarMetrics> = {
+	compact: {
+		bar: "gap-0.5 rounded-xl px-1.5 py-1",
+		button: "h-6 w-6 rounded-md",
+		icon: 14,
+		divider: "mx-1.5 h-4",
+		action: "h-6 px-2",
+		confirm: "h-6 px-2.5 text-detail",
+		step: 26,
+		inset: 18,
+		bubble: "gap-1 rounded-lg px-2 py-1",
+		weight: "h-5 px-1.5 text-caption",
+		swatch: "h-[14px] w-[14px]",
+		bubbleDivider: "mx-0.5 h-3.5",
+	},
+	large: {
+		bar: "gap-1 rounded-2xl px-2 py-1.5",
+		button: "h-9 w-9 rounded-lg",
+		icon: 18,
+		divider: "mx-1.5 h-5",
+		action: "h-9 px-2.5",
+		confirm: "h-9 px-3.5 text-label",
+		// 36pt button + 4pt gap, and 8pt of padding before the first button's own half-width.
+		step: 40,
+		inset: 26,
+		bubble: "gap-1.5 rounded-xl px-2.5 py-1.5",
+		weight: "h-7 px-2.5 text-detail",
+		swatch: "h-[18px] w-[18px]",
+		bubbleDivider: "mx-1 h-4",
+	},
+};
+
 export function AnnotateToolbar({
 	annotator,
 	onCancel,
 	onSave,
+	onPin,
+	onDownload,
+	onGrab,
+	grabbing = false,
+	size = "compact",
 	canReplace,
 	saveLabel,
 	cancelLabel = "退出标注",
@@ -1347,6 +1456,33 @@ export function AnnotateToolbar({
 	annotator: Annotator;
 	onCancel: () => void;
 	onSave: () => void;
+	/**
+	 * Leave the picture on the desktop, above everything, instead of delivering it.
+	 *
+	 * Present only where it means something — the capture overlay — because pinning a region of a
+	 * picture that is already open in a window is a copy of a thing you are looking at.
+	 */
+	onPin?: () => void;
+	/** Write the picture to the download directory. Same reasoning as `onPin`. */
+	onDownload?: () => void;
+	/**
+	 * Take the press that begins dragging the bar somewhere else.
+	 *
+	 * The handle is rendered here because it has to look like part of the row, and the dragging
+	 * itself is not: only the caller knows what the bar is floating over and where it is allowed to
+	 * go. Absent, there is no handle at all — the bar in the image viewer is pinned to the bottom of
+	 * a window and has nowhere to be dragged to.
+	 */
+	onGrab?: (event: React.PointerEvent) => void;
+	/** Whether a drag is in progress, so the handle can say so with its cursor. */
+	grabbing?: boolean;
+	/**
+	 * How big the controls are. `large` is the capture overlay; see `METRICS`.
+	 *
+	 * Defaulted rather than required so the image viewer, which is the other caller and wants the
+	 * bar it already had, does not have to say so.
+	 */
+	size?: "compact" | "large";
 	/**
 	 * Which way the tool's own settings bubble opens, in terms of this bar.
 	 *
@@ -1373,6 +1509,7 @@ export function AnnotateToolbar({
 	className?: string;
 	style?: React.CSSProperties;
 }) {
+	const metrics = METRICS[size];
 	const [shown, setShown] = useState(false);
 	useEffect(() => {
 		// One frame late, so the transition has a start state to move away from.
@@ -1417,10 +1554,27 @@ export function AnnotateToolbar({
 			 * against whatever is behind it through its own background rather than by pushing things
 			 * out of the way.
 			 */
-			className={
+			/*
+			 * The caller says where the bar is; `metrics` says how big it is.
+			 *
+			 * Appended rather than left to the caller, because those two decisions belong to different
+			 * people and used to be one string. The overlay's own class list carried `gap-0.5 px-1.5
+			 * py-1` copied from the default — so a size change here would have had no effect there at
+			 * all, and the two would have drifted the first time either was touched. What a caller
+			 * passes now is position, background and shadow; spacing is not its business.
+			 */
+			/*
+			 * And every control on it, while it is being dragged.
+			 *
+			 * The bar follows the pointer, so the pointer spends the whole drag *on the bar* — over
+			 * buttons, each of which has a cursor of its own. Without the descendant rule the closed
+			 * hand appears for one frame on the grip and is replaced by an arrow for the rest of the
+			 * gesture, which reads as the drag having been dropped.
+			 */
+			className={`${
 				className ??
-				"pointer-events-auto fixed bottom-6 left-1/2 z-[120] flex relative items-center gap-0.5 rounded-xl border border-white/12 bg-[#1c1c1e]/92 px-1.5 py-1 shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-xl transition-[opacity,transform] duration-[var(--ly-t-base)] ease-out"
-			}
+				"pointer-events-auto fixed bottom-6 left-1/2 z-[120] flex relative items-center border border-white/12 bg-[#1c1c1e]/92 shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-xl transition-[opacity,transform] duration-[var(--ly-t-base)] ease-out"
+			} ${metrics.bar} ${grabbing ? "cursor-grabbing [&_*]:cursor-grabbing" : ""}`}
 			style={{
 				opacity: shown ? 1 : 0,
 				transform: className ? undefined : `translateX(-50%) translateY(${shown ? 0 : 10}px)`,
@@ -1447,21 +1601,45 @@ export function AnnotateToolbar({
 			 * at the tool it belongs to, the row is just the tools, and what is on screen is only
 			 * what the current tool actually has.
 			 */}
-			<ToolProperties annotator={annotator} index={TOOLS.findIndex(([id]) => id === annotator.tool)} side={propertiesSide} />
+			<ToolProperties annotator={annotator} index={TOOLS.findIndex(([id]) => id === annotator.tool)} side={propertiesSide} metrics={metrics} />
 
-			{TOOLS.map(([id, Icon, label]) => (
-				<ToolButton key={id} label={label} active={annotator.tool === id} onClick={() => annotator.setTool(id)}>
-					<Icon size={14} strokeWidth={1.9} />
+			{/*
+			 * The grip, before anything that does something.
+			 *
+			 * At the head of the row because that is where a bar is picked up in every other program
+			 * that has one, and because everything after it is a button: a handle in the middle would
+			 * be a gap in a row of controls, which reads as a mistake rather than an affordance.
+			 *
+			 * `onPointerDown` and nothing else. Where the bar may go is the caller's question — it is
+			 * floating over a captured screen and has to stay on it — so this only says the drag has
+			 * begun and hands over the event.
+			 */}
+			{onGrab && (
+				<span
+					data-toolbar-grip
+					aria-hidden="true"
+					onPointerDown={onGrab}
+					className={`-ml-0.5 flex shrink-0 items-center self-stretch rounded-md px-0.5 text-white/35 transition-colors duration-[var(--ly-t-quick)] hover:bg-white/10 hover:text-white/70 ${
+						grabbing ? "cursor-grabbing bg-white/10 text-white/70" : "cursor-grab"
+					}`}
+				>
+					<GripVertical size={metrics.icon} strokeWidth={1.9} />
+				</span>
+			)}
+
+			{TOOLS.map(([id, Icon, label], at) => (
+				<ToolButton key={id} metrics={metrics} toolIndex={at} label={label} active={annotator.tool === id} onClick={() => annotator.setTool(id)}>
+					<Icon size={metrics.icon} strokeWidth={1.9} />
 				</ToolButton>
 			))}
 
-			<Divider />
+			<Divider metrics={metrics} />
 
-			<ToolButton label="撤销 ⌘Z" disabled={!annotator.canUndo} onClick={annotator.undo}>
-				<Undo2 size={14} strokeWidth={1.9} />
+			<ToolButton metrics={metrics} label="撤销 ⌘Z" disabled={!annotator.canUndo} onClick={annotator.undo}>
+				<Undo2 size={metrics.icon} strokeWidth={1.9} />
 			</ToolButton>
-			<ToolButton label="重做 ⇧⌘Z" disabled={!annotator.canRedo} onClick={annotator.redo}>
-				<Redo2 size={14} strokeWidth={1.9} />
+			<ToolButton metrics={metrics} label="重做 ⇧⌘Z" disabled={!annotator.canRedo} onClick={annotator.redo}>
+				<Redo2 size={metrics.icon} strokeWidth={1.9} />
 			</ToolButton>
 			{/*
 			 * Deleting the selected mark, where the selected mark is not.
@@ -1472,16 +1650,36 @@ export function AnnotateToolbar({
 			 */}
 			{annotator.selected !== null && (
 				<span className="flex animate-[ly-tool-in_var(--ly-t-base)_ease-out]">
-					<ToolButton label="删除选中 ⌫" onClick={annotator.removeSelected}>
-						<Delete size={14} strokeWidth={1.9} />
+					<ToolButton metrics={metrics} label="删除选中 ⌫" onClick={annotator.removeSelected}>
+						<Delete size={metrics.icon} strokeWidth={1.9} />
 					</ToolButton>
 				</span>
 			)}
-			<ToolButton label="清空" disabled={!annotator.dirty} onClick={annotator.clear}>
-				<Trash2 size={14} strokeWidth={1.9} />
+			<ToolButton metrics={metrics} label="清空" disabled={!annotator.dirty} onClick={annotator.clear}>
+				<Trash2 size={metrics.icon} strokeWidth={1.9} />
 			</ToolButton>
 
-			<Divider />
+			{/*
+			 * The two ways out that are not "give it to Lyra", in their own group.
+			 *
+			 * Both end the capture and neither delivers it to the app, which is what makes them a
+			 * group of their own between the drawing tools and the confirm button: 置顶 leaves the
+			 * picture on the desktop to look at, 下载 leaves it in a folder to keep. They only appear
+			 * where they mean something — the image viewer's copy of this bar has neither.
+			 */}
+			{(onPin || onDownload) && <Divider metrics={metrics} />}
+			{onPin && (
+				<ToolButton metrics={metrics} label="置顶在桌面" onClick={onPin}>
+					<Pin size={metrics.icon} strokeWidth={1.9} />
+				</ToolButton>
+			)}
+			{onDownload && (
+				<ToolButton metrics={metrics} label="下载截图" onClick={onDownload}>
+					<Download size={metrics.icon} strokeWidth={1.9} />
+				</ToolButton>
+			)}
+
+			<Divider metrics={metrics} />
 
 			<button
 				type="button"
@@ -1489,9 +1687,9 @@ export function AnnotateToolbar({
 				data-ly-tip-side="top"
 				aria-label={cancelLabel}
 				onClick={onCancel}
-				className="flex h-6 items-center rounded-md px-2 text-white/65 transition-colors duration-[var(--ly-t-quick)] hover:text-white"
+				className={`flex cursor-pointer items-center rounded-md text-white/65 transition-colors duration-[var(--ly-t-quick)] hover:text-white ${metrics.action}`}
 			>
-				<X size={13} strokeWidth={2} />
+				<X size={metrics.icon - 1} strokeWidth={2} />
 			</button>
 			<button
 				type="button"
@@ -1502,7 +1700,7 @@ export function AnnotateToolbar({
 				// `whitespace-nowrap` because the label is four characters and the button is sized by
 				// its padding: without it "保存副本" wrapped to two lines and took the whole bar's
 				// height with it.
-				className="flex h-6 items-center whitespace-nowrap rounded-md bg-white px-2.5 text-detail font-medium text-[#1c1c1e] transition-opacity duration-[var(--ly-t-quick)] hover:opacity-90 disabled:opacity-35"
+				className={`flex cursor-pointer items-center whitespace-nowrap rounded-md bg-white font-medium text-[#1c1c1e] transition-opacity duration-[var(--ly-t-quick)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35 ${metrics.confirm}`}
 			>
 				{saveLabel ?? (canReplace ? "保存" : "保存副本")}
 			</button>
@@ -1511,11 +1709,9 @@ export function AnnotateToolbar({
 }
 
 /** `mx-1.5` rather than `mx-1`: the swatch next to a divider carries a ring that needs the room. */
-const Divider = () => <span className="mx-1.5 h-4 w-px shrink-0 bg-white/15" />;
-
-/** Roughly how far along the row a tool button's centre sits: 24pt wide, 2pt apart, 6pt of padding. */
-const TOOL_STEP = 26;
-const TOOL_INSET = 18;
+const Divider = ({ metrics }: { metrics: ToolbarMetrics }) => (
+	<span className={`w-px shrink-0 bg-white/15 ${metrics.divider}`} />
+);
 
 /**
  * The properties of the tool currently in hand, in a bubble that points at it.
@@ -1529,10 +1725,42 @@ const TOOL_INSET = 18;
  * Anchored to the tool's own button rather than centred, so which tool is being configured is
  * answered by where the bubble is, and clamped so it cannot hang off either end of the bar.
  */
-function ToolProperties({ annotator, index, side }: { annotator: Annotator; index: number; side: "above" | "below" }) {
+function ToolProperties({
+	annotator,
+	index,
+	side,
+	metrics,
+}: {
+	annotator: Annotator;
+	index: number;
+	side: "above" | "below";
+	metrics: ToolbarMetrics;
+}) {
 	const isText = annotator.tool === "text";
 	// The mosaic is the one tool with no colour of its own — it takes the picture's.
 	const hasColour = annotator.tool !== "mosaic";
+
+	/*
+	 * Where the tool this belongs to actually is, measured rather than calculated.
+	 *
+	 * It used to be `index * 26 + 18` — the button's width plus its gap, plus the bar's padding —
+	 * and that arithmetic is a copy of the layout kept in a second place. It was already one size
+	 * behind: a bar with a drag handle in front of the tools shifts every button along by the width
+	 * of the handle, so the tail pointed at the tool before the one in hand, on the overlay's bar
+	 * and nowhere else. Every future control added to the head of the row would do the same.
+	 *
+	 * The formula is kept as the value for the first frame, because `useLayoutEffect` runs after
+	 * this render and a bubble that appeared at 0 and jumped would be worse than one that is a few
+	 * points out for one frame.
+	 */
+	const box = useRef<HTMLDivElement | null>(null);
+	const [anchor, setAnchor] = useState(Math.max(0, index) * metrics.step + metrics.inset);
+	useLayoutEffect(() => {
+		const bar = box.current?.offsetParent as HTMLElement | null;
+		const button = bar?.querySelector<HTMLElement>(`[data-tool-index="${index}"]`);
+		if (!button) return;
+		setAnchor(button.offsetLeft + button.offsetWidth / 2);
+	}, [index, metrics, annotator.selected]);
 
 	return (
 		<div
@@ -1545,10 +1773,11 @@ function ToolProperties({ annotator, index, side }: { annotator: Annotator; inde
 			 * placed, so it is passed in: `below` means the toolbar is below the selection and the
 			 * bubble goes further down, `above` means it is above and the bubble goes further up.
 			 */
-			className={`absolute left-0 flex animate-[ly-tool-in_var(--ly-t-base)_ease-out] items-center gap-1 rounded-lg border border-white/12 bg-[#1c1c1e]/95 px-2 py-1 shadow-[0_6px_20px_rgba(0,0,0,0.4)] backdrop-blur-xl ${
+			ref={box}
+			className={`absolute left-0 flex cursor-default animate-[ly-tool-in_var(--ly-t-base)_ease-out] items-center border border-white/12 bg-[#1c1c1e]/95 shadow-[0_6px_20px_rgba(0,0,0,0.4)] backdrop-blur-xl ${metrics.bubble} ${
 				side === "below" ? "top-full mt-2" : "bottom-full mb-2"
 			}`}
-			style={{ left: Math.max(0, index) * TOOL_STEP + TOOL_INSET, transform: "translateX(-50%)" }}
+			style={{ left: anchor, transform: "translateX(-50%)" }}
 		>
 			{WEIGHT_LEVELS.map(([value, label]) => (
 				<button
@@ -1557,7 +1786,7 @@ function ToolProperties({ annotator, index, side }: { annotator: Annotator; inde
 					onClick={() => annotator.setWeight(value)}
 					aria-label={`${SIZE_LABEL[annotator.tool] ?? "粗细"} ${label}`}
 					aria-pressed={annotator.weight === value}
-					className={`flex h-5 items-center rounded px-1.5 text-caption transition-colors ${
+					className={`flex cursor-pointer items-center rounded transition-colors ${metrics.weight} ${
 						annotator.weight === value ? "bg-white/20 text-white" : "text-white/55 hover:bg-white/10 hover:text-white"
 					}`}
 				>
@@ -1565,7 +1794,7 @@ function ToolProperties({ annotator, index, side }: { annotator: Annotator; inde
 				</button>
 			))}
 
-			{hasColour && <span className="mx-0.5 h-3.5 w-px shrink-0 bg-white/15" />}
+			{hasColour && <span className={`w-px shrink-0 bg-white/15 ${metrics.bubbleDivider}`} />}
 
 			{hasColour &&
 				COLOURS.map((value) => (
@@ -1576,7 +1805,7 @@ function ToolProperties({ annotator, index, side }: { annotator: Annotator; inde
 						aria-pressed={annotator.colour === value}
 						onClick={() => annotator.setColour(value)}
 						style={{ background: value }}
-						className={`h-[14px] w-[14px] shrink-0 rounded-full transition-transform duration-[var(--ly-t-quick)] ${
+						className={`shrink-0 cursor-pointer rounded-full transition-transform duration-[var(--ly-t-quick)] ${metrics.swatch} ${
 							annotator.colour === value
 								? "scale-110 ring-2 ring-white/85 ring-offset-2 ring-offset-[#1c1c1e]"
 								: "opacity-80 hover:scale-110 hover:opacity-100"
@@ -1585,7 +1814,7 @@ function ToolProperties({ annotator, index, side }: { annotator: Annotator; inde
 				))}
 
 			{/* A caption can sit on a plate; nothing else can, so nothing else offers it. */}
-			{isText && <span className="mx-0.5 h-3.5 w-px shrink-0 bg-white/15" />}
+			{isText && <span className={`w-px shrink-0 bg-white/15 ${metrics.bubbleDivider}`} />}
 			{isText &&
 				BACKDROPS.map(([value, label]) => (
 					<button
@@ -1595,7 +1824,7 @@ function ToolProperties({ annotator, index, side }: { annotator: Annotator; inde
 						aria-pressed={annotator.backdrop === value}
 						onClick={() => annotator.setBackdrop(value)}
 						style={value ? { background: value } : undefined}
-						className={`h-[14px] w-[14px] shrink-0 rounded-[4px] transition-transform duration-[var(--ly-t-quick)] ${
+						className={`shrink-0 cursor-pointer rounded-[4px] transition-transform duration-[var(--ly-t-quick)] ${metrics.swatch} ${
 							value ? "" : "ly-checker-xs"
 						} ${
 							annotator.backdrop === value
@@ -1632,18 +1861,24 @@ function ToolButton({
 	active,
 	disabled,
 	onClick,
+	metrics,
+	toolIndex,
 	children,
 }: {
 	label: string;
 	active?: boolean;
 	disabled?: boolean;
 	onClick: () => void;
+	metrics: ToolbarMetrics;
+	/** Which drawing tool this is, so the properties bubble can find it and point at it. */
+	toolIndex?: number;
 	children: React.ReactNode;
 }) {
 	return (
 		<button
 			type="button"
 			data-ly-tip={label}
+			data-tool-index={toolIndex}
 			// Above: the bar sits at the bottom of the window, so a bubble below it would be off screen
 			// and get flipped anyway. Saying so directly avoids the flip.
 			data-ly-tip-side="top"
@@ -1651,7 +1886,7 @@ function ToolButton({
 			aria-pressed={active}
 			disabled={disabled}
 			onClick={onClick}
-			className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors duration-[var(--ly-t-quick)] disabled:opacity-30 ${
+			className={`flex cursor-pointer items-center justify-center transition-colors duration-[var(--ly-t-quick)] disabled:cursor-not-allowed disabled:opacity-30 ${metrics.button} ${
 				active ? "bg-white text-[#1c1c1e]" : "text-white/65 hover:bg-white/12 hover:text-white"
 			}`}
 		>

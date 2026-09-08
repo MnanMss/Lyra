@@ -134,7 +134,7 @@ export function SideComposer({
 		onSend(content);
 	}
 
-	// Stated, not offered. The side chat runs on whatever the main session runs on.
+	// Inheritance stays a policy; the trigger names the model used by the next request.
 	const model = findModel(settings, meta?.modelId ?? settings?.defaultModelId ?? null);
 	const modelName = model?.name ?? null;
 
@@ -226,7 +226,7 @@ export function SideComposer({
 								e.target.value = "";
 							}}
 						/>
-						<ModelSelect ariaLabel="侧边聊天模型" value={modelId ?? ""} inheritLabel="跟随主会话" inheritDetail={modelName ?? "未配置模型"}
+						<ModelSelect ariaLabel="侧边聊天模型" value={modelId ?? ""} inheritedModelId={model?.id} inheritedSource="随主会话" inheritLabel="跟随主会话" inheritDetail={modelName ?? "未配置模型"}
 							disabled={disabled || loading} onChange={(value) => { void useSide.getState().setModel(value || null); }} />
 					</>
 				}

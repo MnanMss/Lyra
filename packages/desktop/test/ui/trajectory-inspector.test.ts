@@ -35,20 +35,20 @@ test("inspector focus starts before its actions and explicit close restores the 
 		const actions = [...title.querySelectorAll<HTMLButtonElement>("button")];
 		assert.ok(actions.length >= 2 && actions.every(button => button.tabIndex === 0));
 		actions[0].focus(); assert.ok(document.activeElement === actions[0]);
-		const close = title.querySelector('[aria-label="关闭记录详情"]'); assert.ok(close); await click(close);
+		const close = title.querySelector('[aria-label="返回记录"]'); assert.ok(close); await click(close);
 		assert.equal(document.querySelector(".ly-trace-inspector"), null);
 		assert.ok(document.activeElement === state.opener);
 	} finally { await view.unmount(); state.remove(); }
 });
 
-test("switching keyed entries hands focus to the new header and keeps the original return target", async () => {
+test("switching entries retains the header, active tab and original return target", async () => {
 	const state = fixture();
-	const view = await mount(h(TraceInspector, { ...state.props, key: first.id, entry: first }));
+	const view = await mount(h(TraceInspector, { ...state.props, entry: first }));
 	try {
 		const original = header();
-		await view.rerender(h(TraceInspector, { ...state.props, key: second.id, entry: second }));
-		assert.ok(header() !== original && document.activeElement === header());
-		assert.ok(header().textContent?.includes(second.summary));
+		await view.rerender(h(TraceInspector, { ...state.props, entry: second }));
+		assert.ok(header() === original && document.activeElement === header());
+		assert.ok(view.text().includes(second.summary));
 		await view.rerender(null);
 		assert.ok(document.activeElement === state.opener);
 	} finally { await view.unmount(); state.remove(); }

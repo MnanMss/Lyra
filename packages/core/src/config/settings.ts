@@ -1,3 +1,4 @@
+import { DEFAULT_RETRY_POLICY, normalizeRetryPolicy, type RetryPolicy } from "./retry-policy.ts";
 import { withCatalogDefaults } from "../model-catalog.ts";
 import { normalizeSubAgentProfiles, type SubAgentProfile } from "./sub-agent-profiles.ts";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -205,6 +206,15 @@ export interface ScreenshotSettings {
 	shortcut?: string;
 	/** Directory where screenshots are saved. If empty, saves to ~/Desktop or scratch directory. */
 	saveLocation?: string;
+	/**
+	 * Where the capture toolbar's download button writes to.
+	 *
+	 * Separate from `saveLocation`, which is the automatic copy every finished capture leaves behind
+	 * — most people want that off. This is the deliberate one: the button says 下载 and the file has
+	 * to appear somewhere the user can find without being told, so an empty value means the desktop
+	 * rather than nothing at all.
+	 */
+	downloadLocation?: string;
 	/** Whether to show the screenshot button in the composer input area (default false). */
 	showInComposer?: boolean;
 	/** Whether to automatically copy the screenshot image to clipboard after capture. */
@@ -219,6 +229,7 @@ export const DEFAULT_SCREENSHOT_SETTINGS: ScreenshotSettings = {
 	enabled: true,
 	shortcut: "Alt+A",
 	saveLocation: "",
+	downloadLocation: "",
 	showInComposer: false,
 	copyToClipboard: true,
 	insertIntoComposer: false,
@@ -291,18 +302,9 @@ export interface Settings {
 	favoriteModelIds?: string[];
 	permissionMode: PermissionMode;
 	thinking: ThinkingLevel;
-	/**
-	 * Attempts per model request, including the first.
-	 *
-	 * Only the connection is retried — a stream already delivering text never is. Worth raising
-	 * on a flaky relay, worth setting to 1 when you would rather see failures immediately.
-	 *
-	 * Five by default rather than three. A relay that has run out of credentials for a model
-	 * answers 503 with a reset time just under a minute, and the waits are spaced to sit that out
-	 * (see `ai/retry`) — at three attempts the budget ran out well before the outage did, and a
-	 * turn that had already spent a minute reading files died for a wait it could have survived.
-	 */
+	/** Legacy total attempts, retained when reading older settings. Prefer retryPolicy. */
 	retryAttempts: number;
+	retryPolicy?: RetryPolicy;
 	/** Last level chosen above "off", restored when fast mode is switched back off. */
 	lastThinking?: ThinkingLevel;
 	/**
@@ -370,6 +372,10 @@ export interface Settings {
 	 * and running eight at once is what is not — each carries its own context and its own model
 	 * calls. The number reaches the prompt too: a queue is invisible from the inside, and a model
 	 * that reads the wait as slowness responds by dispatching more.
+	 *
+	 * 这是天花板，不是每一轮实际的宽度：推理等级会在它底下再收一道（中档减半，低档只放一个），
+	 * 因为「派一个子代理划不划算」本来就取决于这一轮值多少钱。只收不放——把等级拉满也不会越过
+	 * 这里写的数字。见 `runtime/delegation.ts`。
 	 */
 	maxConcurrentSubAgents: number;
 	/**
@@ -536,7 +542,8 @@ export const DEFAULT_SETTINGS: Settings = {
 	permissionMode: "auto",
 	thinking: "medium",
 	commitLanguage: "zh",
-	retryAttempts: 5,
+	retryAttempts: 11,
+	retryPolicy: DEFAULT_RETRY_POLICY,
 	appearance: DEFAULT_APPEARANCE,
 	formatting: DEFAULT_FORMATTING,
 	hooks: [],
@@ -682,6 +689,7 @@ export function normalizeSettings(parsed: Partial<Settings>): Settings {
 			...DEFAULT_SETTINGS,
 			...parsed,
 			uiLocale: normalizeUiLocale(parsed.uiLocale),
+			retryPolicy: normalizeRetryPolicy(parsed.retryPolicy, parsed.retryAttempts),
 			sync: { ...DEFAULT_SETTINGS.sync, ...parsed.sync },
 			editor: { ...DEFAULT_SETTINGS.editor, ...parsed.editor },
 			screenshot: { ...DEFAULT_SCREENSHOT_SETTINGS, ...parsed.screenshot },

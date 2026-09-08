@@ -39,6 +39,25 @@ xattr -dr com.apple.quarantine /Applications/Lyra.app
 提示里如果写的是「已损坏」而不是「无法验证开发者」，那是 0.6.0 及更早的包 —— 那些包根本没签名，
 Gatekeeper 认定 bundle 被破坏，除了废纸篓没有别的选项。升级到之后的版本即可。
 
+### macOS 升级后截图变黑或失败
+
+截图走的是系统的「屏幕录制」权限。发布包是 ad-hoc 签名的，每次构建签出来的都不是同一个签名，
+所以升级之后 macOS 有时认不出这还是同一个应用：授权明明还挂在「系统设置 → 隐私与安全性 →
+屏幕录制」的列表里，截出来却是纯黑，或者直接报失败。
+
+把这个应用的授权记录清掉，让它重新问一次：
+
+```bash
+tccutil reset ScreenCapture dev.lyra.app
+```
+
+跑完要**完全退出** Lyra（⌘Q，关窗口不算）再打开，下一次截图才会弹出新的授权请求。如果还是不弹，
+到「系统设置 → 隐私与安全性 → 屏幕录制」里把 Lyra 的开关关掉再打开，必要时用列表下方的减号
+先移除条目。
+
+`dev.lyra.app` 是 Lyra 的 bundle id，别省 —— 不带它的 `tccutil reset ScreenCapture` 会清掉
+**所有**应用的屏幕录制授权，你的会议软件和录屏工具都得重新授权一遍。
+
 ### Windows 首次打开
 
 Windows 安装包同样没有代码签名。第一次运行会撞上 SmartScreen 的蓝色弹窗「Windows 已保护你的电脑」，

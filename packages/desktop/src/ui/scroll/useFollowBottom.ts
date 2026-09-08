@@ -33,15 +33,6 @@ import { motionReduced } from "../motion/reduced.ts";
 /** How long the ride back down takes. The curve matches `--ly-e-out`, like everything else here. */
 const GLIDE_MS = 420;
 
-/**
- * 一次输入之后，多久之内到达的滚动还算是它引起的。
- *
- * 拖滚动条的时候 `pointermove` 一直在发，这个数只需要盖住两次移动之间的空档；甩惯性则是 `wheel`
- * 起的头，第一下就已经改了状态，后面跟不跟得上都无所谓。300ms 是宽裕的余量，同时短到浏览器自己
- * 挪的那一下——它总是紧跟着内容变化，而不是紧跟着一个手势——落在窗口之外。
- */
-const INPUT_GRACE_MS = 300;
-
 export interface FollowBottom {
 	/** Hand to `Scroller`'s `scrollRef`. */
 	scrollRef: React.RefObject<HTMLDivElement | null>;
@@ -74,6 +65,16 @@ export interface FollowBottom {
 	onScroll(el: HTMLDivElement): void;
 	/** Hand to `Scroller`'s `onResize`. */
 	onResize(el: HTMLDivElement): void;
+	/**
+	 * Hand to `Scroller`'s `onUserScroll`: the one gesture the viewport cannot hear for itself.
+	 *
+	 * The overlay scrollbar is drawn beside the viewport rather than inside it and moves the surface
+	 * by assignment, so dragging the thumb produces no wheel, no touch and no key — only a scroll
+	 * event, which by the rule in `follow.ts` may not detach anything. `Scroller` is the one place
+	 * that knows a drag is a drag, so it says so, instead of leaving it to be inferred from the
+	 * position afterwards along with everything else that moves a transcript.
+	 */
+	onUserScroll(direction: Direction): void;
 }
 
 export function useFollowBottom({
@@ -140,21 +141,12 @@ export function useFollowBottom({
 	const clearWritten = useRef(0);
 
 	/**
-	 * 最近一次确实来自人的动作，以及手指/鼠标是不是还按着。
+	 * 手指上一次的位置，给 touchmove 定方向用。
 	 *
-	 * 这两个存在，是因为「滚动位置变了」和「读者想看别处」根本不是一回事——而下面 `onScroll` 里
-	 * 靠位置差推方向的那段，曾经把两者当成一回事。
-	 *
-	 * 浏览器的滚动锚定就是这么被误伤的：文稿区特意留着锚定（上面的思考块展开时，你正在读的那行
-	 * 不该跟着跑），而锚定做这件事的手段就是改 `scrollTop`。于是上方一块内容收起来——收一个工具
-	 * 组、合一个思考块、流式渲染时重排一次——浏览器把 scrollTop 往回挪，`onScroll` 读到位置变小，
-	 * 判定「用户往上滚了」，跟随就此断掉。量过：上方从 600px 缩到 200px，scrollTop 从 1200 变
-	 * 800，一个 scroll 事件，方向朝上。人什么都没做。
-	 *
-	 * 所以位置差只在最近确实有输入时才作数。没有输入的位置变化是浏览器自己挪的，它不说明任何意图。
+	 * 触摸和滚轮不一样：`wheel` 自带 `deltaY`，`touchmove` 只给坐标，方向得自己算。手指往上抹，
+	 * 内容跟着往上走，露出来的是更下面的东西——所以 clientY 变小是 "down"。
 	 */
-	const lastInput = useRef(0);
-	const dragging = useRef(false);
+	const touchY = useRef(0);
 
 	const read = (el: HTMLDivElement): Reading => ({
 		scrollTop: el.scrollTop,
@@ -210,83 +202,78 @@ export function useFollowBottom({
 		[publish],
 	);
 
+	/*
+	 * Three listeners, and every one of them hears a gesture with a name.
+	 *
+	 * What is *not* here is the point. There used to be `pointerdown` on the host and
+	 * `pointermove`/`pointerup`/`pointercancel` on the window, feeding a "the reader has a hand on
+	 * something" flag that let `onScroll` read a position change as a gesture. None of those is a
+	 * scroll. `pointerup` on the window fires for a click on the sidebar, a button in a panel, the
+	 * composer — the whole application — and each one opened a 300ms window in which the next reflow
+	 * of a streaming turn ended the follow. `pointerdown` on the host was no better: it sits above
+	 * the viewport, so expanding a tool card or selecting a line of text inside the transcript went
+	 * through it too. And the flag had no way back if its `pointerup` was swallowed by a native
+	 * context menu or lost to a window blur, at which point the surface detached on the next reflow
+	 * and stayed that way.
+	 *
+	 * Dragging the thumb is the one real gesture they existed to catch, and `Scroller` now reports
+	 * it through `onUserScroll`. So they are gone rather than narrowed.
+	 */
 	useEffect(() => {
 		const el = scrollRef.current;
 		if (!el) return;
 
-		const mark = () => {
-			cancelAnimationFrame(glide.current);
-			lastInput.current = performance.now();
-		};
+		/** Whether a gesture landed on this surface rather than on one nested inside it. */
+		const mine = (event: Event) =>
+			!(event.target instanceof Element) || event.target.closest(".ly-scroll-view") === el;
 
 		const onWheel = (event: WheelEvent) => {
 			if (event.deltaY === 0) return;
 			// A tool result or code block can scroll independently inside the transcript.
-			if (event.target instanceof Element && event.target.closest(".ly-scroll-view") !== el) return;
-			mark();
+			if (!mine(event)) return;
 			intend(event.deltaY < 0 ? "up" : "down");
 		};
 		// A finger down is a claim on the surface before it has moved at all.
-		const onTouch = () => {
-			mark();
+		const onTouchStart = (event: TouchEvent) => {
+			if (!mine(event)) return;
+			touchY.current = event.touches[0]?.clientY ?? 0;
 			intend("unknown");
 		};
-
-		/*
-		 * 按下就算在操作，抬起才算结束。
-		 *
-		 * 拖滚动条只会以 scroll 事件的形式到达——没有 wheel，也没有 touch。按住的这段时间里每一次
-		 * 位置变化都是这只手造成的，所以不看时间窗，直接认。
-		 *
-		 * 抬起听的是 window：滑块拖到容器外面松手是常事，只听容器会把标记永远留在按下的状态。
-		 */
-		const onDown = () => {
-			dragging.current = true;
-			mark();
+		const onTouchMove = (event: TouchEvent) => {
+			if (!mine(event)) return;
+			const y = event.touches[0]?.clientY;
+			if (y === undefined) return;
+			const moved = y - touchY.current;
+			touchY.current = y;
+			// A finger held still is not a direction; anything else is, however small.
+			if (moved === 0) return;
+			intend(moved > 0 ? "up" : "down");
 		};
+		/*
+		 * Keys arrive here by bubbling, not by focus.
+		 *
+		 * The viewport carries no `tabIndex` and never holds focus itself — but it is an ancestor of
+		 * everything in the transcript, so `PageUp` pressed while a tool card's expander has focus
+		 * passes through, and that is a scroll like any other. Fields are excluded because in one
+		 * the same keys move a caret instead.
+		 */
 		const onKey = (event: KeyboardEvent) => {
 			if (event.target instanceof Element && event.target.closest("textarea, input, [contenteditable=true]")) return;
 			if (!["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) return;
-			mark();
 			intend(["ArrowUp", "PageUp", "Home"].includes(event.key) || (event.key === " " && event.shiftKey) ? "up" : "down");
 		};
-		const onUp = () => {
-			dragging.current = false;
-			mark();
-		};
-		const onMove = (event: PointerEvent) => {
-			if (event.buttons !== 0) mark();
-		};
 
-		/*
-		 * Keys are not listened for here, and that is not an oversight.
-		 *
-		 * The viewport carries no `tabIndex`, so it never holds focus and never receives a key
-		 * event; a listener would be dead code that reads as coverage. Making `End` and `PageUp`
-		 * work means making the transcript focusable first, which is a separate change with its own
-		 * consequences for the tab order.
-		 */
-		// Passive: neither is prevented, and saying so keeps the wheel off the main thread's
+		// Passive: none of them is prevented, and saying so keeps the wheel off the main thread's
 		// critical path.
 		el.addEventListener("wheel", onWheel, { passive: true });
-		el.addEventListener("touchstart", onTouch, { passive: true });
-		el.addEventListener("touchmove", mark, { passive: true });
-		// The overlay thumb is a sibling of the viewport, so its gesture belongs to the host.
-		const host = el.parentElement;
-		host?.addEventListener("pointerdown", onDown, { passive: true });
+		el.addEventListener("touchstart", onTouchStart, { passive: true });
+		el.addEventListener("touchmove", onTouchMove, { passive: true });
 		el.addEventListener("keydown", onKey);
-		window.addEventListener("pointermove", onMove, { passive: true });
-		window.addEventListener("pointerup", onUp, { passive: true });
-		window.addEventListener("pointercancel", onUp, { passive: true });
 		return () => {
 			el.removeEventListener("wheel", onWheel);
-			el.removeEventListener("touchstart", onTouch);
-			el.removeEventListener("touchmove", mark);
-			host?.removeEventListener("pointerdown", onDown);
+			el.removeEventListener("touchstart", onTouchStart);
+			el.removeEventListener("touchmove", onTouchMove);
 			el.removeEventListener("keydown", onKey);
-			window.removeEventListener("pointermove", onMove);
-			window.removeEventListener("pointerup", onUp);
-			window.removeEventListener("pointercancel", onUp);
 		};
 	}, [intend]);
 
@@ -298,7 +285,6 @@ export function useFollowBottom({
 		(el: HTMLDivElement) => {
 			if (!ready || restoredSurface.current !== surfaceId) return;
 			const reading = read(el);
-			const previous = lastTop.current;
 			lastTop.current = reading.scrollTop;
 
 			if (isDegenerate(reading)) return;
@@ -311,28 +297,16 @@ export function useFollowBottom({
 			}
 
 			/*
-			 * A backstop for the gestures the listeners above cannot name.
+			 * Everything else that moved the surface, treated as one thing — because here it is one
+			 * thing.
 			 *
-			 * Dragging the scrollbar thumb and a trackpad's inertia both arrive only as scroll
-			 * events. The direction is recoverable from the movement, and that is enough: upwards
-			 * detaches, downwards re-attaches on arrival. The wheel listener is still worth having
-			 * because it fires earlier — this is correctness, that is timing.
-			 *
-			 * Skipped while gliding: every frame of the ride writes `scrollTop`, and only some of
-			 * those writes are still holding `written` by the time their event lands.
+			 * The tail of a fling, the browser clamping a transcript that just lost its oldest run,
+			 * anchoring holding a line still while a thinking block folds open above it: by the time
+			 * they reach this handler they are a position and nothing else. `arrived` is the only
+			 * honest claim to make from that, and it can only put the surface back on the end, never
+			 * take it off. Gestures are heard where they happen, in `intend`.
 			 */
-			/*
-			 * 只有确实有人在操作时，位置差才说明方向。
-			 *
-			 * 没有这个前提，浏览器的滚动锚定就会冒充读者：它挪一次 scrollTop，这里读成「往上滚」，
-			 * 跟随立刻断掉——而收起一个工具组就足以触发。见上面 `lastInput` 那段。
-			 */
-			const byHand = dragging.current || performance.now() - lastInput.current < INPUT_GRACE_MS;
-			if (state.current !== "returning" && reading.scrollTop !== previous && byHand) {
-				const direction: Direction = reading.scrollTop < previous ? "up" : "down";
-				state.current = nextState(state.current, { kind: "user-scroll", direction }, reading);
-			}
-
+			state.current = nextState(state.current, { kind: "arrived" }, reading);
 			publish(reading);
 		},
 		[publish, ready, surfaceId],
@@ -465,8 +439,7 @@ export function useFollowBottom({
 		cancelAnimationFrame(glide.current);
 		cancelAnimationFrame(clearWritten.current);
 		written.current = null;
-		dragging.current = false;
-		lastInput.current = -Infinity;
+		touchY.current = 0;
 		restoredSurface.current = undefined;
 		selectedSurface.current = surfaceId;
 		current.current = makeMarker(count, tail);
@@ -563,5 +536,5 @@ export function useFollowBottom({
 		};
 		glide.current = requestAnimationFrame(step);
 	}, [detach, publish, write]);
-	return { scrollRef, tailRef, away, unread, returnToBottom, onScroll, onResize, detach, scrollTo };
+	return { scrollRef, tailRef, away, unread, returnToBottom, onScroll, onResize, onUserScroll: intend, detach, scrollTo };
 }

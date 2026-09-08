@@ -1,5 +1,6 @@
 /** Pure definitions behind the usage dashboard. */
 
+import { freshTokens } from "@lyra/core/tokens";
 import type { UsageBucket, UsageDay, UsageScan } from "../../../electron/usage-scan.ts";
 
 export type Range = 7 | 30 | 90 | 0;
@@ -87,8 +88,15 @@ export function withinRange<T extends { day: string }>(rows: T[], from: string |
 	return from === null ? rows : rows.filter((row) => row.day >= from);
 }
 
+/**
+ * Fresh tokens — see `freshTokens` in core, and the session card that reports the same figure.
+ *
+ * The page still breaks out `cacheRead` on its own, which is where that number belongs: as one of
+ * the four bars, next to what it saved. Folding it into the headline total instead made 「已处理
+ * Token」 a number about caching rather than about work.
+ */
 function tokensFor(bucket: UsageBucket): number {
-	return bucket.input + bucket.output + bucket.cacheRead + bucket.cacheWrite;
+	return freshTokens(bucket);
 }
 
 export function totalsFor(buckets: UsageBucket[], days: UsageDay[]): Totals {

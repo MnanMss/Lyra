@@ -8,6 +8,7 @@
  */
 
 import type { AgentEvent } from "@lyra/core";
+import { freshTokens } from "@lyra/core/tokens";
 import { nextActivity } from "@lyra/core/activity";
 import { recordReadEvent } from "./read-events.ts";
 import { cachedEvent } from "./cached-event.ts";
@@ -130,7 +131,7 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
        * One accumulator now, here, for every session rather than only the one on screen. The
        * mirroring below is what carries it to the line.
        */
-      if (meter) next = { ...meter, tokens: meter.tokens + event.message.usage.total };
+      if (meter) next = { ...meter, tokens: meter.tokens + freshTokens(event.message.usage) };
     } else if (event.type === "retry" && event.resume) {
       /*
        * A turn being picked back up after the connection died, which arrives *after* `agent_end`

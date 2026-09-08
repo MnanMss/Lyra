@@ -1,3 +1,4 @@
+import { normalizeRetryPolicy } from "@lyra/core";
 import { normalizeSubAgentProfiles } from "@lyra/core/model-roles";
 import { withCatalogDefaults } from "@lyra/core/model-catalog";
 /**
@@ -78,6 +79,7 @@ export function onSettingsChanged(listener: Listener): () => void {
 export async function applySettings(next: Settings): Promise<Settings> {
 	next = {
 		...next,
+		retryPolicy: normalizeRetryPolicy(next.retryPolicy, next.retryAttempts),
 		subAgentProfiles: normalizeSubAgentProfiles(next.subAgentProfiles),
 		providers: next.providers.map((provider) => ({ ...provider, models: provider.models.map((model) => withCatalogDefaults(provider, model)) })),
 	};

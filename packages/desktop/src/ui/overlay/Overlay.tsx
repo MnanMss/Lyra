@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useId, useLayoutEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { portal } from "./portal.ts";
 
 export const OverlayDepth = createContext(0);
@@ -26,6 +26,24 @@ export function Overlay({ children, onClose, align = "center", width = 460, labe
 		dismissed.current = true;
 		completion.current = after ?? (() => callback.current());
 		setLeaving(true);
+	}, []);
+	/*
+	 * An answer already given is not withdrawn by an unmount.
+	 *
+	 * The completion runs on `animationend`, which is a frame that only arrives while this is still
+	 * on screen — so anything that takes the dialog away mid-exit silently cancels what was just
+	 * confirmed. That is not hypothetical: a confirmation raised from inside a menu is rendered by
+	 * the menu, the menu closes itself 120ms after the press lands outside it, and the exit here
+	 * runs for 130. Ten milliseconds decided whether 「确认切换」 changed the model, and the answer
+	 * was no.
+	 *
+	 * Fixing the menu is worth doing on its own — see `data-ly-overlay` in `Popover` — but a promise
+	 * that depends on nobody unmounting the promiser is the wrong shape regardless of who does it.
+	 */
+	useEffect(() => () => {
+		const complete = completion.current;
+		completion.current = null;
+		complete?.();
 	}, []);
 	useLayoutEffect(() => {
 		const previous = returnFocus ?? document.activeElement;
@@ -55,7 +73,13 @@ export function Overlay({ children, onClose, align = "center", width = 460, labe
 		return () => { window.removeEventListener("keydown", onKey); if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true }); };
 	}, [dismiss, id, label, returnFocus]);
 	return portal(<OverlayDepth.Provider value={depth}>
-		<div className={`fixed inset-0 flex justify-center p-4 sm:p-8 ${align === "center" ? "items-center" : "items-end pb-[120px]"} ${leaving ? "ly-scrim-out" : "ly-scrim-in"}`}
+		{/*
+		 * On the scrim, not just the card: how deep this modal sits, for anything below deciding
+		 * whether a press landed outside itself. A menu that raised this dialog must not read a
+		 * click on it — or on the scrim it put over everything — as a click elsewhere. See the
+		 * press-outside test in `Popover`.
+		 */}
+		<div data-ly-overlay={depth} className={`fixed inset-0 flex justify-center p-4 sm:p-8 ${align === "center" ? "items-center" : "items-end pb-[120px]"} ${leaving ? "ly-scrim-out" : "ly-scrim-in"}`}
 			style={{ zIndex: 60 + depth * 20 }} onMouseDown={(event) => { if (event.target === event.currentTarget) dismiss(); }}>
 			<div ref={card} data-ly-modal role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}
 				style={{ width, maxWidth: "100%" }}

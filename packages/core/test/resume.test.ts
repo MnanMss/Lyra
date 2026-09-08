@@ -356,3 +356,10 @@ test("a turn the user stopped is not something to resume", async () => {
 	assert.equal(run.reason, "aborted");
 	assert.equal(run.retryable, undefined);
 });
+
+test("a configured request budget cannot be restarted by outer continuation", async () => {
+	const { seen, full } = deps([result({ reason: "done" })], { requestRetriesHandled: true });
+	const final = await continueWhileWorkRemains(dropped, full);
+	assert.equal(final, dropped);
+	assert.equal(seen.runs, 0); assert.deepEqual(seen.waited, []);
+});

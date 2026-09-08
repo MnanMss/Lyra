@@ -47,6 +47,13 @@ export interface Method extends Reach {
  * written.
  */
 export const METHODS = {
+	agentDefinitions: {
+		list: { channel: "agentdefs:list", remote: false, why: "Desktop definition editor reads local configuration." },
+		read: { channel: "agentdefs:read", remote: false, why: "Desktop definition editor reads local configuration." },
+		save: { channel: "agentdefs:save", remote: false, why: "Local agent definitions require the desktop editor." },
+		remove: { channel: "agentdefs:remove", remote: false, why: "Local agent definitions require the desktop editor." },
+		restore: { channel: "agentdefs:restore", remote: false, why: "Local agent definitions require the desktop editor." },
+	},
 	delivery: {
 		get: { channel: "delivery:get", remote: false, why: "本机文件差异和实现记录" },
 		undo: { channel: "delivery:undo", remote: false, why: "恢复本轮文件，要求本机审阅" },
@@ -210,7 +217,20 @@ export const METHODS = {
 		start: { channel: "screenshot:start", remote: false, why: "读取整个屏幕" },
 		finish: { channel: "screenshot:finish", remote: false, why: "读取整个屏幕" },
 		cancel: { channel: "screenshot:cancel", remote: false, why: "读取整个屏幕" },
+		download: { channel: "screenshot:download", remote: false, why: "读取整个屏幕" },
+		pin: { channel: "screenshot:pin", remote: false, why: "读取整个屏幕" },
+		pinnedCount: { channel: "screenshot:pinnedCount", remote: false, why: "读取整个屏幕" },
 		pickDirectory: { channel: "screenshot:pickDirectory", remote: false, why: "读取整个屏幕" },
+	},
+	/*
+	 * 置顶在桌面的那张图片，自己的窗口在问自己的事。
+	 *
+	 * 单独一组而不是挂在 screenshot 下面：用到它的时候截图早就结束了，剩下的只是一个显示图片的
+	 * 小窗口。它拉取而不是被推送——组件是按需加载的，窗口 did-finish-load 时监听还没注册，推过去
+	 * 的消息会无声地掉在地上，窗口就空着。
+	 */
+	pinnedShot: {
+		request: { channel: "pin:request", remote: false, why: "置顶窗口是桌面端独有的窗口" },
 	},
 	index: {
 		stats: { channel: "index:stats", remote: false, why: "在整个项目上建索引，耗时且只对本机有意义" },

@@ -18,8 +18,9 @@ export function SectionTitle({ children }: { children: React.ReactNode }) {
 	);
 }
 
-export function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-	return <div className={`overflow-hidden rounded-[12px] border border-line bg-card/40 ${className}`}>{children}</div>;
+/** Rest props are forwarded so a card can carry a `data-` hook for tests to measure it by. */
+export function Card({ children, className = "", ...rest }: React.ComponentProps<"div">) {
+	return <div {...rest} className={`overflow-hidden rounded-[12px] border border-line bg-card/40 ${className}`}>{children}</div>;
 }
 
 /** One labelled row inside a card, with the control right-aligned. */

@@ -21,7 +21,7 @@
 import type { AgentEvent } from "../agent/events.ts";
 import { runAgent, type AgentRunConfig } from "../agent/loop.ts";
 import { compactWith } from "./compaction.ts";
-import type { streamAssistant } from "../ai/index.ts";
+import { streamAssistant } from "../ai/index.ts";
 import { textTokens, toolTokens } from "./context.ts";
 import { dispatchTaskTool, controlMainTool } from "./sidechat-controls.ts";
 import { mainChatSnapshot, readMainChatTool } from "./sidechat-history.ts";
@@ -248,12 +248,13 @@ export class SideChat {
 				messages: reading,
 				thinking: options.thinking ?? this.main.meta.thinking ?? this.settings.thinking,
 				retryAttempts: this.settings.retryAttempts,
+				retryPolicy: () => this.settings.retryPolicy,
 				signal: controller.signal,
 				maxTurns: 24,
 				streamFn: this.streamFn,
 				compact: async (messages, model) => {
 					const summarizer = resolveModelRef(this.settings, "@compact", { provider: resolved.provider, model });
-					const compacted = await compactWith(messages, model, resolved.provider, this.summaryStream, textTokens(systemPrompt) + toolTokens(tools), undefined, summarizer);
+					const compacted = await compactWith(messages, model, resolved.provider, (provider, summaryModel, context, streamOptions) => (this.summaryStream ?? streamAssistant)(provider, summaryModel, context, { ...streamOptions, retryPolicy: () => this.settings.retryPolicy, signal: controller.signal }), textTokens(systemPrompt) + toolTokens(tools), undefined, summarizer);
 					reading = [...(compacted?.messages ?? messages)];
 					return compacted;
 				},

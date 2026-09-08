@@ -17,6 +17,7 @@ import { readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { lyraHome, type ProviderConfig } from "@lyra/core";
+import { freshTokens } from "@lyra/core/tokens";
 import { readUsageCache, USAGE_CACHE_VERSION, type UsageFileEntry, type UsageFiles } from "./usage-cache.ts";
 import { priceUsage, usagePricingKey, type TokenUsage } from "./usage-pricing.ts";
 import type { UsageBucket, UsageDay, UsageScan } from "./usage-types.ts";
@@ -125,7 +126,10 @@ async function readLog(path: string, entry: UsageFileEntry, size: number, provid
 				cacheWrite: numberAt(usage, "cacheWrite"),
 			};
 			const priced = priceUsage(tokens, usage, providers, provider, model);
-			const tokenTotal = tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite;
+			// Fresh tokens, matching what the page reports as its total — these figures are shown as
+			// percentages *of* that total, and counting cache reads in one but not the other would
+			// put 「未计价」 over 100%.
+			const tokenTotal = freshTokens(tokens);
 			bucket.input += tokens.input;
 			bucket.output += tokens.output;
 			bucket.cacheRead += tokens.cacheRead;

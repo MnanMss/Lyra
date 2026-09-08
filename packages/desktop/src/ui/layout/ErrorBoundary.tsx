@@ -16,6 +16,7 @@
  */
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Disclosure } from "./Disclosure.tsx";
 
 interface State {
 	error: Error | null;
@@ -59,14 +60,13 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
 					</pre>
 
 					{componentStack && (
-						<details className="mt-2">
-							<summary className="cursor-pointer text-detail text-ink-faint transition-colors hover:text-ink">
-								组件栈
-							</summary>
-							<pre className="mt-1.5 max-h-[220px] overflow-auto rounded-[10px] border border-line bg-card/40 px-3 py-2.5 font-mono text-caption leading-relaxed whitespace-pre-wrap text-ink-muted select-text">
-								{componentStack.trim()}
-							</pre>
-						</details>
+						<div className="mt-2">
+							<Disclosure variant="compact" title="组件栈">
+								<pre className="mt-1 max-h-[220px] overflow-auto rounded-[10px] border border-line bg-card/40 px-3 py-2.5 font-mono text-caption leading-relaxed whitespace-pre-wrap text-ink-muted select-text">
+									{componentStack.trim()}
+								</pre>
+							</Disclosure>
+						</div>
 					)}
 
 					<div className="mt-5 flex items-center gap-2">

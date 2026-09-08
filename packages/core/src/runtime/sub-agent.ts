@@ -17,7 +17,7 @@ import { join } from "node:path";
 import type { AgentEvent } from "../agent/events.ts";
 import type { AgentRunConfig } from "../agent/loop.ts";
 import { runTurn } from "../agent/runner.ts";
-import type { streamAssistant } from "../ai/index.ts";
+import { streamAssistant } from "../ai/index.ts";
 import type { Settings } from "../config/settings.ts";
 import { resolveModelRef } from "../config/model-roles.ts";
 import { withEnvironment } from "../prompt/environment.ts";
@@ -29,6 +29,7 @@ import { CODE_INTEL_KEY, CodeIntelManager } from "../lsp/manager.ts";
 import { resolveSubAgentModel } from "../config/model-roles.ts";
 import { compactWith } from "./compaction.ts";
 import { childDispatch, DEFAULT_MAX_DEPTH, DISPATCH_KEY, DispatchGate, rootDispatch, type DispatchContext } from "./dispatch-guard.ts";
+import { delegationConcurrency } from "./delegation.ts";
 import { textTokens, toolTokens } from "./context.ts";
 import { makeAfterToolCall, makeBeforeToolCall } from "./hooks.ts";
 import { writePreview } from "./previews.ts";
@@ -218,6 +219,14 @@ export async function runSubAgent(
 		 * 写着（「你是一个只读的代码审查者」），用项目的身份段盖掉它，等于把派它出去的理由抹掉。
 		 */
 		guidelinesOverride: await readPromptOverride(options.cwd, "guidelines"),
+		/*
+		 * 它自己的等级，不是派它出来的那个会话的。
+		 *
+		 * 这个值只用来决定「它该有多想再往下派」（见 `delegation.ts`），而一个编排者被配成
+		 * `@fast:low` 就是有人明说过这一层不值得慢慢想——那正是它也不该在下面铺开摊子的时候。
+		 * 用父会话的等级，等于把父亲那一次「值得」的决定，乘上它派出去的份数。
+		 */
+		thinking: chosen.thinking,
 		platform: platform(),
 		modelName: runModel.name,
 		isGitRepo: await pathExists(join(options.cwd, ".git")),
@@ -252,6 +261,7 @@ export async function runSubAgent(
 				 */
 				thinking: chosen.thinking,
 				retryAttempts: options.settings.retryAttempts,
+				retryPolicy: () => (options.getSettings?.() ?? options.settings).retryPolicy,
 				signal: controller.signal,
 				state: subState,
 				/*
@@ -282,7 +292,18 @@ export async function runSubAgent(
 										`要放开，请在它的定义里把 \`${wanted}\` 加进 spawns。`,
 								);
 							}
-							return (options.gate ?? new DispatchGate(options.settings.maxConcurrentSubAgents)).run(() =>
+							/*
+							 * `nested` 而不是 `run`：这一层要先把自己的位置让出来。
+							 *
+							 * 它现在不在跑，它在等这个孩子。占着位置等同一道闸门里的位置，就是一个死锁——
+							 * 闸门收到 1 的时候必然发生，收到 4 的时候四路各派一个也一样。见 `DispatchGate.nested`。
+							 *
+							 * 兜底的那道闸门也要按等级收窄。正常路径下 `options.gate` 一定在（整棵派生树
+							 * 共用一道），走到 `??` 右边的是没有会话的宿主——CLI、测试。那里同样是这一层的
+							 * 等级在决定划不划算，用天花板开一道全宽的闸门，等于在唯一没人看着的地方把这个
+							 * 设置关掉。
+							 */
+							return (options.gate ?? new DispatchGate(delegationConcurrency(options.settings.maxConcurrentSubAgents, chosen.thinking))).nested(() =>
 								runSubAgent({ ...options, dispatch: here }, nested, runProvider, runModel, subAgentPrompt),
 							);
 						}
@@ -341,7 +362,7 @@ export async function runSubAgent(
 						messages,
 						model,
 						runProvider,
-						options.summaryStream,
+						(provider, summaryModel, context, streamOptions) => (options.summaryStream ?? streamAssistant)(provider, summaryModel, context, { ...streamOptions, retryPolicy: () => (options.getSettings?.() ?? options.settings).retryPolicy, signal: controller.signal }),
 						textTokens(subAgentPrompt) + toolTokens(allowed),
 						undefined,
 						summarizer,

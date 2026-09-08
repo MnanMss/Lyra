@@ -34,6 +34,7 @@ import { fileKind, KIND_LABEL, type FileKind } from "./attachments/file-kind.ts"
 import { FileKindIcon } from "./attachments/FileKindIcon.tsx";
 import { relativeTo } from "../../lib/paths.ts";
 import { useApp } from "../../store/index.ts";
+import { carryOnPrompt } from "../../store/derive.ts";
 import { sessionThinking } from "../../lib/thinking.ts";
 import { bridge } from "../../services/index.ts";
 import { useI18n } from "../../i18n/index.ts";
@@ -58,6 +59,9 @@ export function Composer() {
 	const meta = useApp((s) => s.meta);
 	const messages = useApp((s) => s.messages);
 	const running = useApp((s) => s.running);
+	const stopped = useApp((s) => s.stopped);
+	// A count, not the list: a selector that builds an array hands back a new one on every store tick.
+	const unfinished = useApp((s) => s.todos.filter((todo) => todo.status !== "completed").length);
 	const activeSessionId = useApp((s) => s.activeSessionId);
 	// "底部面板" in Settings → 常规. Saved but read by nothing until now.
 	const showBottomPanel = useApp((s) => s.settings?.editor.showBottomPanel) ?? true;
@@ -81,7 +85,32 @@ export function Composer() {
 	sessionRefsRef.current = sessionRefs;
 	const [attachments, setAttachments] = useState<Attachment[]>(() => (savedDraft?.attachments as Attachment[]) ?? []);
 
-	// Keep a ref of current text and attachments so we can sync them to store on unmount or key change.
+	/*
+	 * 这一轮留下的活，和「继续」该发的那句话——没有就是 `null`。
+	 *
+	 * 条件里原本有个 `!stopped`，意思正好反了：只有模型自己干净收尾时才认继续，而按下暂停、
+	 * 应用被关掉、请求失败——真的把活留在半路的那几种——恰恰全被它挡掉，按钮退回成发送箭头。
+	 * 转录下面那行已经在说「已暂停 · 继续」，右下角却还是一支向上的箭头，同一件事两种说法。
+	 */
+	const carryOn = carryOnPrompt(stopped, unfinished);
+	/*
+	 * 「继续」只在真有活没干完时出现，而那正是 `carryOn` 的问题。
+	 *
+	 * 这里曾经还有一条 `|| lastMessage.stopReason === "stop"`，理由是「上一轮好好地结束了、你
+	 * 也什么都没输入，那就问一句还有没有下文」。听起来无害，实际有三处不对：
+	 *
+	 * 一是 `stop` 是模型最普通的收尾方式，于是每一轮正常对话结束后按钮都成了三角，而向上的
+	 * 箭头——发新消息，输入框最主要的用途——反倒退成了打过字之后才出现的例外。
+	 *
+	 * 二是转录下面那行只问 `carryOn`（见 `ResumeRow`），所以一轮干净结束时它不出现，右下角却
+	 * 画着继续。`ResumeRow` 的注释明说两个入口用同一个判断、不会各说各话，这条分支就是让它
+	 * 们各说各话的东西。
+	 *
+	 * 三是模型收尾时十有八九是在反问——「请问你想查哪座城市？」——这时候按下去发出去的是
+	 * 「继续推进当前任务」，而没有任务在推进，它在等一个地名。一次白跑的往返。
+	 */
+	const continueReady = Boolean(activeSessionId) && !running && !text.trim() && !attachments.length && !sessionRefs.length
+		&& carryOn !== null;
 	const textRef = useRef(text);
 	textRef.current = text;
 	const attachmentsRef = useRef(attachments);
@@ -219,7 +248,17 @@ export function Composer() {
 
 	async function submitOnce(release: () => void) {
 		const trimmed = text.trim();
-		if (!trimmed && attachments.length === 0 && sessionRefs.length === 0) return;
+		if (!trimmed && attachments.length === 0 && sessionRefs.length === 0) {
+			if (!continueReady || !carryOn) return;
+			/*
+			 * `carryOn` 那三句会被 `grouping.ts` 按原文认出来，配上 `carryOn: true`，这一轮的耗时
+			 * 和 token 才不会从零重算——否则一个被暂停过一次的任务，报的是它后半段的用时，和一个
+			 * 谁也没跑过的 tokens/s。转录下面那行「继续」走的就是这条路；两个入口按下去必须是同
+			 * 一件事，不然按哪个还有讲究。
+			 */
+			await send([{ type: "text", text: carryOn }], { synthetic: true, carryOn: true });
+			return;
+		}
 
 		/*
 		 * A command becomes the prompt it stands for, here, before anything is sent.
@@ -777,7 +816,10 @@ export function Composer() {
 							{running && (text.trim() || attachments.length > 0) && <ComposerSend running={false} onSend={() => void submit()} onStop={() => void abort()} />}
 							<ComposerSend
 								running={running}
-								disabled={!text.trim() && attachments.length === 0 && sessionRefs.length === 0}
+								continueReady={continueReady}
+								// 说的和转录下面那行「继续」一样，因为按下去是同一件事。
+								tip={continueReady ? "接着做完没做完的部分" : undefined}
+								disabled={!continueReady && !text.trim() && attachments.length === 0 && sessionRefs.length === 0}
 								onSend={() => void submit()}
 								onStop={() => void abort()}
 							/>

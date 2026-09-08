@@ -510,6 +510,30 @@ test("maximising a pane covers the dock, and Escape gives it back", async () => 
 	assert.ok(near(boxes.tasks.width, dock.width), "it takes the whole dock across");
 	assert.ok(near(boxes.tasks.height, dock.height), "and down");
 
+	/*
+	 * 占满整个 dock，也就接管了窗口左上角，那里是系统画按钮的地方。
+	 *
+	 * 让位的规则本来就有，但它问的是「树里哪个面板在 (0,0)」——而全屏不动树，只换画法。于是全屏
+	 * 一个原本不在左上角的面板（右边的浏览器、下边的终端），角落交给了一个没预留过位置的面板：
+	 * 它的标题、终端的标签条、连同旁边那个唯一能唤回侧边栏的按钮，全画在了三个系统按钮底下。
+	 * 只在侧边栏关着时才轮得到面板管这件事，所以这里先把它关掉。
+	 */
+	const covered = await app.evaluate<{ reserved: number; from: number | null; label: string }>(`(async()=>{
+		const toggle=()=>[...document.querySelectorAll('button')].find(e=>/侧边栏|边栏/.test(e.getAttribute('aria-label')||''));
+		const wait=()=>new Promise(r=>setTimeout(r,350));
+		const dockLeft=()=>document.querySelector('[data-dock-panes]').getBoundingClientRect().left;
+		const wasOpen=dockLeft()>100;
+		if(wasOpen){toggle().click();await wait()}
+		const bar=toggle().getBoundingClientRect();
+		const header=document.querySelector('[data-dock-header="tasks"]');
+		const first=[...header.querySelectorAll('[data-dock-heading] *')].map(e=>e.getBoundingClientRect()).filter(r=>r.width>0&&r.height>0).sort((a,b)=>a.left-b.left)[0];
+		const out={reserved:Math.round(bar.right),from:first?Math.round(first.left):null,label:header.textContent.trim().slice(0,12)};
+		// 量完就还回去：后面几条断言比的是侧边栏开着时量的宽度。
+		if(wasOpen){toggle().click();await wait()}
+		return out})()`);
+	assert.ok(covered.from !== null, `全屏的面板要有个标题可量：${JSON.stringify(covered)}`);
+	assert.ok(covered.from >= covered.reserved, `全屏后标题不能压在系统按钮下：${JSON.stringify(covered)}`);
+
 	await app.evaluate(`(async () => {
 		window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
 		await new Promise((r) => setTimeout(r, 350));

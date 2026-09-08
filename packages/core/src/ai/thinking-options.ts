@@ -52,6 +52,33 @@ export const GPT_5_6_SOL_OPTIONS: ThinkingOption[] = [
 ];
 
 /**
+ * GPT-6-astra: low, medium, high, xhigh, max, ultra — and `low` is where it starts.
+ *
+ * Two things separate this from the GPT-5.6-sol set it otherwise resembles.
+ *
+ * There is no `minimal`. The vendor's own picker offers six levels and that is not one of them, and
+ * a level in the menu that the endpoint has never heard of is the failure this file exists to
+ * prevent — the same one `gemini` + `minimal` was.
+ *
+ * And the default is `low`, not `medium`. That is the vendor's choice, not a preference: on this
+ * family `low` is already where `medium` used to sit, and the levels above it are priced and paced
+ * accordingly — the last two are the ones its own menu warns 「consume usage limits faster」 about.
+ * Inheriting `medium` from every other set would quietly start everyone one notch up.
+ *
+ * Until this existed the family fell through to `STANDARD_3_LEVEL_OPTIONS`, so a model with six
+ * levels was offered four, three of them real and `xhigh`/`max`/`ultra` unreachable.
+ */
+export const GPT_6_ASTRA_OPTIONS: ThinkingOption[] = [
+	{ id: "off", label: "关闭", detail: "不推理，直接作答。最快。" },
+	{ id: "low", label: "低", detail: "轻量推理，响应快。这一档是它的默认。", isDefault: true },
+	{ id: "medium", label: "中", detail: "速度与推理深度之间的平衡。" },
+	{ id: "high", label: "高", detail: "复杂问题需要的推理深度。" },
+	{ id: "xhigh", label: "超高", detail: "更深一层的推演，用于难题。" },
+	{ id: "max", label: "最高", detail: "质量比速度重要时用，用量消耗更快。" },
+	{ id: "ultra", label: "极致", detail: "多智能体协同的重活，用量消耗最快。" },
+];
+
+/**
  * GPT-4.1 / fast reasoning 3-level set (off, low, high).
  */
 export const FAST_3_LEVEL_OPTIONS: ThinkingOption[] = [
@@ -91,6 +118,19 @@ export function resolveModelThinkingOptions(model?: ModelConfig | null): Thinkin
 	 */
 	if (id.includes("gemini") || id.includes("gemma")) {
 		return STANDARD_3_LEVEL_OPTIONS;
+	}
+
+	/*
+	 * GPT-6-astra, ahead of the `gpt-` + `ultra` rule below.
+	 *
+	 * Named variants rather than a bare `gpt-6`: `astra` covers the family that shipped — `-pro`,
+	 * `-fast`, and the `openai/`, `openai.`, `azure/` prefixes relays put in front of it — while a
+	 * later `gpt-6-<something else>` keeps falling through to the conservative set rather than being
+	 * handed six levels on the strength of sharing a version number. Claiming a capability for a
+	 * model nobody has seen yet is how `minimal` reached Gemini.
+	 */
+	if (id.includes("gpt-6-astra") || id.includes("gpt6-astra")) {
+		return GPT_6_ASTRA_OPTIONS;
 	}
 
 	/*

@@ -28,6 +28,7 @@ export function ScreenshotSettings() {
 		enabled: true,
 		shortcut: "Alt+A",
 		saveLocation: "",
+		downloadLocation: "",
 		showInComposer: false,
 		copyToClipboard: true,
 		insertIntoComposer: false,
@@ -44,11 +45,10 @@ export function ScreenshotSettings() {
 		});
 	};
 
-	const pickDirectory = async () => {
+	/** The same picker for both destinations — which one it fills in is the caller's business. */
+	const pickDirectory = async (into: "saveLocation" | "downloadLocation") => {
 		const dir = await bridge.screenshot.pickDirectory();
-		if (dir) {
-			patch({ saveLocation: dir });
-		}
+		if (dir) patch({ [into]: dir });
 	};
 
 	return (
@@ -118,8 +118,36 @@ export function ScreenshotSettings() {
 									清除
 								</GhostButton>
 							)}
-							<GhostButton icon={<FolderOpen size={14} />} onClick={() => void pickDirectory()}>
+							<GhostButton icon={<FolderOpen size={14} />} onClick={() => void pickDirectory("saveLocation")}>
 								{config.saveLocation?.trim() ? "更改目录" : "选择保存目录"}
+							</GhostButton>
+						</div>
+					}
+				/>
+				{/*
+				 * Where 下载 puts things, which is a different question from the one above.
+				 *
+				 * 「截图保存位置」 is the automatic copy every finished capture leaves behind, and most
+				 * people leave it empty on purpose. This is the toolbar's download button, where the
+				 * file *is* the errand — so empty means the desktop rather than nothing, and the row
+				 * says so instead of leaving the user to press it and go looking.
+				 */}
+				<Row
+					title="下载截图保存到"
+					detail={
+						config.downloadLocation?.trim()
+							? `截图工具栏的「下载」按钮会存到: ${config.downloadLocation}`
+							: "截图工具栏的「下载」按钮会存到系统桌面"
+					}
+					control={
+						<div className="flex items-center gap-2">
+							{config.downloadLocation?.trim() && (
+								<GhostButton onClick={() => patch({ downloadLocation: "" })}>
+									恢复默认
+								</GhostButton>
+							)}
+							<GhostButton icon={<FolderOpen size={14} />} onClick={() => void pickDirectory("downloadLocation")}>
+								{config.downloadLocation?.trim() ? "更改目录" : "选择下载目录"}
 							</GhostButton>
 						</div>
 					}
