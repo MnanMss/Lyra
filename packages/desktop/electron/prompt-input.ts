@@ -19,8 +19,8 @@ export function promptContent(value: unknown): UserContent[] {
 	});
 }
 
-function presentation(value: Record<string, unknown>): Pick<InitialPrompt, "displayText" | "skillRef" | "sessionRefs"> {
-	const result: Pick<InitialPrompt, "displayText" | "skillRef" | "sessionRefs"> = {};
+function presentation(value: Record<string, unknown>): Pick<InitialPrompt, "displayText" | "skillRef" | "sessionRefs" | "fileRefs"> {
+	const result: Pick<InitialPrompt, "displayText" | "skillRef" | "sessionRefs" | "fileRefs"> = {};
 	if (value.displayText !== undefined) {
 		if (typeof value.displayText !== "string") throw new Error("displayText must be a string");
 		result.displayText = value.displayText;
@@ -37,6 +37,15 @@ function presentation(value: Record<string, unknown>): Pick<InitialPrompt, "disp
 		result.sessionRefs = value.sessionRefs.map((ref: unknown) => {
 			if (!object(ref) || typeof ref.id !== "string" || !ref.id.trim() || typeof ref.title !== "string") throw new Error("Invalid session reference");
 			return { id: ref.id, title: ref.title };
+		});
+	}
+	if (value.fileRefs !== undefined) {
+		if (!Array.isArray(value.fileRefs)) throw new Error("fileRefs must be an array");
+		result.fileRefs = value.fileRefs.map((ref: unknown) => {
+			if (!object(ref) || typeof ref.name !== "string" || !ref.name.trim() || typeof ref.path !== "string" || !ref.path.trim()) {
+				throw new Error("Invalid file reference");
+			}
+			return { name: ref.name, path: ref.path };
 		});
 	}
 	return result;

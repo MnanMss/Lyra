@@ -15,11 +15,14 @@ import { useApp } from "../../store/index.ts";
 import { openViewer } from "../image/index.ts";
 import { ComposerSend, ComposerShell } from "../composer/index.ts";
 import { ModelSelect } from "../models/index.ts";
+import { bridge } from "../../services/index.ts";
+import { relativeTo } from "../../lib/paths.ts";
 
 interface SideAttachment {
 	id: string;
 	name: string;
 	mimeType: string;
+	path?: string;
 	data?: string;
 	text?: string;
 	isText: boolean;
@@ -66,6 +69,13 @@ export function SideComposer({
 		if (!fileList || fileList.length === 0) return;
 		const next: SideAttachment[] = [];
 		for (const file of Array.from(fileList)) {
+			let filePath: string | undefined;
+			try {
+				filePath = bridge.files.pathForDrop(file) || undefined;
+			} catch {
+				// Fall back when pathForDrop unavailable
+			}
+
 			if (file.type.startsWith("image/")) {
 				const buffer = await file.arrayBuffer();
 				const base64 = bytesToBase64(new Uint8Array(buffer));
@@ -75,20 +85,16 @@ export function SideComposer({
 					mimeType: file.type,
 					data: base64,
 					isText: false,
+					path: filePath,
 				});
 			} else {
-				try {
-					const content = await file.text();
-					next.push({
-						id: `${Date.now()}-${Math.random()}`,
-						name: file.name,
-						mimeType: file.type || "text/plain",
-						text: content,
-						isText: true,
-					});
-				} catch {
-					useApp.getState().notify(`无法读取文件 ${file.name} 的内容`, "warn");
-				}
+				next.push({
+					id: `${Date.now()}-${Math.random()}`,
+					name: file.name,
+					mimeType: file.type || "text/plain",
+					isText: true,
+					path: filePath,
+				});
 			}
 		}
 		if (next.length > 0) {
@@ -101,12 +107,17 @@ export function SideComposer({
 		if ((!trimmed && attachments.length === 0) || running || disabled) return;
 
 		let finalMessage = trimmed;
-		const textFiles = attachments.filter((a) => a.isText && a.text);
-		if (textFiles.length > 0) {
-			const attachedTexts = textFiles.map((f) => `### 附件文件: ${f.name}\n\`\`\`\n${f.text}\n\`\`\``);
+		const nonImages = attachments.filter((a) => !(!a.isText && a.data));
+		if (nonImages.length > 0) {
+			const cwd = useApp.getState().workspace?.path ?? useApp.getState().scratchCwd ?? "";
+			const filePrompts = nonImages.map((f) => {
+				const display = cwd && f.path ? relativeTo(cwd, f.path) : f.name;
+				const pathNote = f.path && f.path !== display ? ` (路径: ${JSON.stringify(f.path)})` : "";
+				return `- 文件引用 ${JSON.stringify(display)}${pathNote}：不要假设其内容，请在需要时使用 \`read\` 工具查看该文件。`;
+			});
 			finalMessage = finalMessage
-				? `${finalMessage}\n\n${attachedTexts.join("\n\n")}`
-				: attachedTexts.join("\n\n");
+				? `${finalMessage}\n\n[文件引用提示]\n${filePrompts.join("\n")}`
+				: `[文件引用提示]\n${filePrompts.join("\n")}`;
 		}
 
 		const images = attachments
@@ -148,12 +159,15 @@ export function SideComposer({
 							{attachments.map((attachment) => (
 								<div key={attachment.id} className="relative group/att">
 									{attachment.isText ? (
-										<div className="flex h-14 w-28 flex-col justify-between rounded-lg border border-line bg-card p-2 text-left shadow-xs">
+										<div
+											className="flex h-14 w-28 flex-col justify-between rounded-lg border border-line bg-card p-2 text-left shadow-xs"
+											data-ly-tip={attachment.path ? `${attachment.name}\n${attachment.path}` : attachment.name}
+										>
 											<div className="flex items-center gap-1 text-ink-muted">
 												<FileText size={13} className="shrink-0" />
 												<span className="truncate text-[11px] font-medium text-ink">{attachment.name}</span>
 											</div>
-											<span className="text-[9.5px] text-ink-faint">文件附件</span>
+											<span className="text-[9.5px] text-ink-faint">文件引用</span>
 										</div>
 									) : (
 										<button

@@ -181,3 +181,44 @@ test("outline never claims a line the file does not have", () => {
 		assert.ok(a >= 1 && b <= lines.length, `range ${a}-${b} escapes a ${lines.length}-line file`);
 	}
 });
+test("reading a path escaping workspace requests approval and succeeds on grant", async () => {
+	const externalDir = await mkdtemp(join(tmpdir(), "lyra-ext-"));
+	const externalFile = join(externalDir, "external.txt");
+	await writeFile(externalFile, "EXTERNAL_AUTHORIZED_CONTENT\n", "utf8");
+
+	const workspaceDir = await mkdtemp(join(tmpdir(), "lyra-ws-"));
+	let requestedKind: string | undefined;
+	let requestedSubject: string | undefined;
+	const ctx: ToolContext = {
+		cwd: workspaceDir,
+		sessionId: "t-external",
+		state: new Map(),
+		requestApproval: async (req) => {
+			requestedKind = req.kind;
+			requestedSubject = req.subject;
+			return "once";
+		},
+	};
+
+	const result = await readTool.execute({ path: externalFile }, ctx);
+	assert.equal(requestedKind, "read");
+	assert.equal(requestedSubject, externalFile);
+	assert.match(textOf(result), /EXTERNAL_AUTHORIZED_CONTENT/);
+});
+
+test("reading a path escaping workspace fails when user rejects approval", async () => {
+	const externalDir = await mkdtemp(join(tmpdir(), "lyra-ext-"));
+	const externalFile = join(externalDir, "external.txt");
+	await writeFile(externalFile, "SECRET_EXT_CONTENT\n", "utf8");
+
+	const workspaceDir = await mkdtemp(join(tmpdir(), "lyra-ws-"));
+	const ctx: ToolContext = {
+		cwd: workspaceDir,
+		sessionId: "t-external-reject",
+		state: new Map(),
+		requestApproval: async () => "reject",
+	};
+
+	const result = await readTool.execute({ path: externalFile }, ctx);
+	assert.match(textOf(result), /用户拒绝了访问工作区外文件/);
+});

@@ -1,5 +1,7 @@
 import type { Stats } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
+import { home } from "../platform.ts";
 import { errorResult } from "../agent/tool-run.ts";
 import type { Tool, ToolContext, ToolResult } from "../types.ts";
 import { snapshotTag } from "./hunk.ts";
@@ -145,7 +147,24 @@ export const readTool: Tool<ReadArgs> = {
 		try {
 			absolute = resolveWorkspacePath(ctx.cwd, path);
 		} catch (error) {
-			return errorResult(error instanceof Error ? error.message : String(error));
+			// When escaping workspace root, check if approval can be requested to access external path.
+			const expanded = path.startsWith("~/") ? path.replace("~", home()) : path;
+			const target = isAbsolute(expanded) ? resolve(expanded) : resolve(ctx.cwd, expanded);
+			if (ctx.requestApproval) {
+				const decision = await ctx.requestApproval({
+					kind: "read",
+					title: `读取工作区外文件`,
+					detail: target,
+					subject: target,
+					reason: `模型请求查看位于工作区外部的文件，需要获得授权。`,
+				});
+				if (decision === "reject" || (typeof decision === "object" && "answer" in decision && decision.answer === "reject")) {
+					return errorResult(`用户拒绝了访问工作区外文件：${path}`);
+				}
+				absolute = target;
+			} else {
+				return errorResult(error instanceof Error ? error.message : String(error));
+			}
 		}
 
 		let info: Stats;

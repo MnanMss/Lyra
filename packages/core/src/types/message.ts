@@ -183,6 +183,11 @@ export interface UserMessage {
 		id: string;
 		title: string;
 	}>;
+	/** Files referenced in this prompt, displayed as capsules. */
+	fileRefs?: Array<{
+		name: string;
+		path: string;
+	}>;
 }
 
 export interface AssistantMessage {

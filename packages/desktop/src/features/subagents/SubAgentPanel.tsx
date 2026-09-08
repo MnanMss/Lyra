@@ -35,11 +35,13 @@ import { SubAgentRoster } from "./SubAgentRoster.tsx";
 import { StructuredOutput } from "./StructuredOutput.tsx";
 import { SubAgentTranscript } from "./SubAgentMessageRow.tsx";
 import { bridge } from "../../services/index.ts";
+import { relativeTo } from "../../lib/paths.ts";
 
 interface SubAgentAttachment {
 	id: string;
 	name: string;
 	mimeType: string;
+	path?: string;
 	data?: string;
 	text?: string;
 	isText: boolean;
@@ -311,6 +313,13 @@ function Steer({ agent, sessionId }: { agent: SubAgentSummary; sessionId: string
 		if (!fileList || fileList.length === 0) return;
 		const next: SubAgentAttachment[] = [];
 		for (const file of Array.from(fileList)) {
+			let filePath: string | undefined;
+			try {
+				filePath = bridge.files.pathForDrop(file) || undefined;
+			} catch {
+				// Fall back when pathForDrop unavailable
+			}
+
 			if (file.type.startsWith("image/")) {
 				const buffer = await file.arrayBuffer();
 				const base64 = bytesToBase64(new Uint8Array(buffer));
@@ -320,21 +329,16 @@ function Steer({ agent, sessionId }: { agent: SubAgentSummary; sessionId: string
 					mimeType: file.type,
 					data: base64,
 					isText: false,
+					path: filePath,
 				});
 			} else {
-				// Non-image attachments (text, markdown, code, config, logs, etc.)
-				try {
-					const content = await file.text();
-					next.push({
-						id: `${Date.now()}-${Math.random()}`,
-						name: file.name,
-						mimeType: file.type || "text/plain",
-						text: content,
-						isText: true,
-					});
-				} catch {
-					useApp.getState().notify(`无法读取文件 ${file.name} 的内容`, "warn");
-				}
+				next.push({
+					id: `${Date.now()}-${Math.random()}`,
+					name: file.name,
+					mimeType: file.type || "text/plain",
+					isText: true,
+					path: filePath,
+				});
 			}
 		}
 		if (next.length > 0) {
@@ -347,14 +351,17 @@ function Steer({ agent, sessionId }: { agent: SubAgentSummary; sessionId: string
 		if ((!trimmed && attachments.length === 0) || sending) return;
 
 		let finalMessage = trimmed;
-		if (attachments.length > 0) {
-			const textFiles = attachments.filter((a) => a.isText && a.text);
-			const attachedTexts = textFiles.map((f) => `### 附件文件: ${f.name}\n\`\`\`\n${f.text}\n\`\`\``);
-			if (attachedTexts.length > 0) {
-				finalMessage = finalMessage
-					? `${finalMessage}\n\n${attachedTexts.join("\n\n")}`
-					: attachedTexts.join("\n\n");
-			}
+		const nonImages = attachments.filter((a) => !(!a.isText && a.data));
+		if (nonImages.length > 0) {
+			const cwd = useApp.getState().workspace?.path ?? useApp.getState().scratchCwd ?? "";
+			const filePrompts = nonImages.map((f) => {
+				const display = cwd && f.path ? relativeTo(cwd, f.path) : f.name;
+				const pathNote = f.path && f.path !== display ? ` (路径: ${JSON.stringify(f.path)})` : "";
+				return `- 文件引用 ${JSON.stringify(display)}${pathNote}：不要假设其内容，请在需要时使用 \`read\` 工具查看该文件。`;
+			});
+			finalMessage = finalMessage
+				? `${finalMessage}\n\n[文件引用提示]\n${filePrompts.join("\n")}`
+				: `[文件引用提示]\n${filePrompts.join("\n")}`;
 		}
 
 		if (!finalMessage) return;
@@ -385,12 +392,15 @@ function Steer({ agent, sessionId }: { agent: SubAgentSummary; sessionId: string
 							{attachments.map((attachment) => (
 								<div key={attachment.id} className="relative group/att">
 									{attachment.isText ? (
-										<div className="flex h-14 w-28 flex-col justify-between rounded-lg border border-line bg-card p-2 text-left shadow-xs">
+										<div
+											className="flex h-14 w-28 flex-col justify-between rounded-lg border border-line bg-card p-2 text-left shadow-xs"
+											data-ly-tip={attachment.path ? `${attachment.name}\n${attachment.path}` : attachment.name}
+										>
 											<div className="flex items-center gap-1 text-ink-muted">
 												<FileText size={13} className="shrink-0" />
 												<span className="truncate text-[11px] font-medium text-ink">{attachment.name}</span>
 											</div>
-											<span className="text-[9.5px] text-ink-faint">文件附件</span>
+											<span className="text-[9.5px] text-ink-faint">文件引用</span>
 										</div>
 									) : (
 										<button

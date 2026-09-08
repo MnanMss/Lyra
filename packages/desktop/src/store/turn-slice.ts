@@ -19,7 +19,7 @@ export function turnSlice(set: Set, get: Get) {
 	const creating = new Map<number, ReturnType<typeof bridge.sessions.create>>();
 	const prompting = new Map<string, symbol>();
 	return {
-	async send(content: UserContent[], options: { synthetic?: boolean; carryOn?: boolean; deliver?: "steer" | "followUp"; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }> } = {}) {
+	async send(content: UserContent[], options: { synthetic?: boolean; carryOn?: boolean; deliver?: "steer" | "followUp"; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }>; fileRefs?: Array<{ name: string; path: string }> } = {}) {
 		const { workspace, settings, scratchCwd, selectionEpoch: epoch } = get();
 		let sessionId = get().activeSessionId;
 		const cwd = workspace?.path ?? scratchCwd;
@@ -39,6 +39,7 @@ export function turnSlice(set: Set, get: Get) {
 			...(options.displayText !== undefined ? { displayText: options.displayText } : {}),
 			...(options.skillRef ? { skillRef: options.skillRef } : {}),
 			...(options.sessionRefs?.length ? { sessionRefs: options.sessionRefs } : {}),
+			...(options.fileRefs?.length ? { fileRefs: options.fileRefs } : {}),
 		};
 		const carriedMeter = sessionId ? (get().carried[sessionId] ?? loadCarried(sessionId)) : null;
 		const meter = relight(options.carryOn && sessionId ? carriedMeter : null, Date.now());
@@ -60,6 +61,7 @@ export function turnSlice(set: Set, get: Get) {
 				displayText: options.displayText,
 				skillRef: options.skillRef,
 				sessionRefs: options.sessionRefs,
+				fileRefs: options.fileRefs,
 			});
 			creating.set(epoch, creation);
 			try {

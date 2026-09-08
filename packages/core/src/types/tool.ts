@@ -118,7 +118,7 @@ export interface ToolContext {
 }
 
 export interface ApprovalRequest {
-	kind: "bash" | "write" | "edit" | "mcp" | "network" | "interactive";
+	kind: "bash" | "write" | "edit" | "read" | "mcp" | "network" | "interactive";
 	title: string;
 	detail: string;
 	/**

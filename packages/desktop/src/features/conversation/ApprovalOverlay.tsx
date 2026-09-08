@@ -7,7 +7,7 @@ import { PermissionChoices } from "./PermissionChoices.tsx";
 import { approvalReason } from "./approval-content.ts";
 
 const KIND_LABEL: Record<string, string> = {
-	bash: "执行命令", write: "写入文件", edit: "修改文件", mcp: "调用 MCP 工具", network: "访问网络",
+	bash: "执行命令", write: "写入文件", edit: "修改文件", read: "读取外部文件", mcp: "调用 MCP 工具", network: "访问网络",
 };
 
 /** Keep the transcript readable while a decision blocks only the composer. */

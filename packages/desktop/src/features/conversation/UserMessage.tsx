@@ -2,7 +2,7 @@ import type {
   UserContent,
   UserMessage as UserMessageType,
 } from "@lyra/core";
-import { MessageSquarePlus, Pencil, Boxes, MessagesSquare } from "lucide-react";
+import { MessageSquarePlus, Pencil, Boxes, MessagesSquare, FileText } from "lucide-react";
 import { openFromEvent } from "../image/index.ts";
 import { useState } from "react";
 import { MessageActions } from "./MessageActions.tsx";
@@ -40,7 +40,7 @@ export function UserMessage({
     .join("\n");
 
   const skillRef = message.skillRef;
-  const hasCapsules = Boolean(skillRef || message.sessionRefs?.length);
+  const hasCapsules = Boolean(skillRef || message.sessionRefs?.length || message.fileRefs?.length);
   const text = message.displayText ?? rawText;
   const images = message.content.filter((block) => block.type === "image");
 
@@ -186,6 +186,32 @@ export function UserMessage({
               >
                 <MessagesSquare size={12} strokeWidth={1.8} className="text-ink-faint" />
                 <span className="max-w-[180px] truncate">{sRef.title}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Render interactive File reference capsules if present */}
+        {message.fileRefs && message.fileRefs.length > 0 && (
+          <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+            {message.fileRefs.map((fRef) => (
+              <button
+                key={fRef.path}
+                type="button"
+                data-ly-tip={fRef.path ? `${fRef.name}\n${fRef.path}` : fRef.name}
+                onClick={() => {
+                  void useOpenFile.getState().open({
+                    path: fRef.path,
+                    name: fRef.name,
+                    isDirectory: false,
+                    size: 0,
+                  });
+                  useDock.getState().open("file", { kind: "conversation", side: "right", share: 0.45 });
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-line-soft bg-card-hover/80 px-2 py-0.5 text-caption font-medium text-ink-muted transition-colors hover:bg-card-hover hover:text-ink active:scale-[0.98]"
+              >
+                <FileText size={12} strokeWidth={1.8} className="text-ink-faint" />
+                <span className="max-w-[180px] truncate">{fRef.name}</span>
               </button>
             ))}
           </div>

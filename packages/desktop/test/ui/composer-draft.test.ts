@@ -33,4 +33,53 @@ for (const switched of [false, true]) {
 			} else assert.equal(view.all('[aria-label^="移除会话引用："]').length, 2);
 		} finally { await view.unmount(); useApp.setState(previous, true); }
 	});
+
+test("text attachment does not inline contents into prompt, but issues a file reference hint", async () => {
+	const previous = useApp.getState();
+	let sentContent: any[] = [];
+	useApp.setState({
+		activeSessionId: "test-ref",
+		meta: null,
+		workspace: { name: "test-proj", path: "/work/project", isGitRepo: true, branch: "main" },
+		scratchCwd: null,
+		settings: null,
+		messages: [],
+		running: false,
+		drafts: {
+			"test-ref": {
+				text: "分析这个文件",
+				attachments: [
+					{
+						id: "att-1",
+						name: "file.ts",
+						mimeType: "text/typescript",
+						isText: true,
+						path: "/work/project/src/file.ts",
+						text: "SECRET_FILE_CONTENT_THAT_MUST_NEVER_BE_INLINED",
+					},
+				],
+				sessionRefs: [],
+			},
+		},
+		send: async (content, options) => {
+			sentContent = content;
+			assert.equal(options?.displayText, "分析这个文件", "气泡展示文本必须是纯净的用户输入，绝不能露馅系统提示词");
+			assert.deepEqual(options?.fileRefs, [{ name: "file.ts", path: "/work/project/src/file.ts" }], "必须正确传递 fileRefs 元数据");
+			return true;
+		},
+	});
+	Object.defineProperty(window, "lyra", { configurable: true, value: { commands: { list: async () => ({ commands: [], skills: [], agents: [] }) }, workspace: { foreignConfigs: async () => ({ seen: true, lines: [] }) } } });
+	const view = await mount(h(I18nProvider, { locale: "zh-CN", children: h(LayoutProvider, { children: h(Composer) }) }));
+	try {
+		await click(view.find('[aria-label="发送"]'));
+		const textBlock = sentContent.find((c) => c.type === "text")?.text ?? "";
+		assert.ok(!textBlock.includes("SECRET_FILE_CONTENT_THAT_MUST_NEVER_BE_INLINED"), "文件正文绝对不应内联进 prompt");
+		assert.ok(textBlock.includes("[文件引用提示]"), "应当生成文件引用提示");
+		assert.ok(textBlock.includes("src/file.ts"), "应当生成相对或规范路径引用");
+		assert.ok(textBlock.includes("read"), "应当指导模型使用 read 工具");
+	} finally {
+		await view.unmount();
+		useApp.setState(previous, true);
+	}
+});
 }

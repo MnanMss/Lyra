@@ -184,8 +184,8 @@ export interface AppState {
    * - `new:scratch` for blank session without a project (Chat / 不在项目中工作)
    * - `<sessionId>` for drafts typed in an existing session
    */
-  drafts: Record<string, { text: string; attachments: { id: string; name: string; mimeType: string; data?: string; text?: string; isText?: boolean }[]; sessionRefs?: Array<{ id: string; title: string }> }>;
-  setDraft(key: string, draft: { text: string; attachments?: { id: string; name: string; mimeType: string; data?: string; text?: string; isText?: boolean }[]; sessionRefs?: Array<{ id: string; title: string }> } | null): void;
+  drafts: Record<string, { text: string; attachments: { id: string; name: string; mimeType: string; path?: string; data?: string; text?: string; isText?: boolean }[]; sessionRefs?: Array<{ id: string; title: string }> }>;
+  setDraft(key: string, draft: { text: string; attachments?: { id: string; name: string; mimeType: string; path?: string; data?: string; text?: string; isText?: boolean }[]; sessionRefs?: Array<{ id: string; title: string }> } | null): void;
 
   activeSessionId: string | null;
   selectionEpoch: number;
@@ -385,7 +385,7 @@ export interface AppState {
    * `carryOn` says this send continues a turn that stopped rather than starting a new one, so its
    * clock and token count are picked up from where the pause left them. See `turn-meter.ts`.
    */
-	send(content: UserContent[], options?: { synthetic?: boolean; carryOn?: boolean; deliver?: "steer" | "followUp"; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }> }): Promise<boolean>;
+	send(content: UserContent[], options?: { synthetic?: boolean; carryOn?: boolean; deliver?: "steer" | "followUp"; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }>; fileRefs?: Array<{ name: string; path: string }> }): Promise<boolean>;
   /** Replace a message and re-run from there; everything after it is discarded. */
   editMessage(index: number, content: UserContent[]): Promise<void>;
   /** Re-send the user message that produced the reply at `index`. */

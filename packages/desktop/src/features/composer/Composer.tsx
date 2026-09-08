@@ -30,8 +30,9 @@ import { PermissionPicker } from "../modals/index.ts";
 import { ProjectPicker } from "../modals/index.ts";
 import { useLayout } from "../../app/layout.tsx";
 import { findModel } from "../models/index.ts";
-import { fileKind, isReadableAsText, KIND_LABEL, looksBinary, type FileKind } from "./attachments/file-kind.ts";
+import { fileKind, KIND_LABEL, type FileKind } from "./attachments/file-kind.ts";
 import { FileKindIcon } from "./attachments/FileKindIcon.tsx";
+import { relativeTo } from "../../lib/paths.ts";
 import { useApp } from "../../store/index.ts";
 import { sessionThinking } from "../../lib/thinking.ts";
 import { bridge } from "../../services/index.ts";
@@ -41,6 +42,7 @@ interface Attachment {
 	id: string;
 	name: string;
 	mimeType: string;
+	path?: string;
 	/** What it is, for the icon and for whether its bytes may enter the prompt. */
 	kind?: FileKind;
 	data?: string;
@@ -335,11 +337,24 @@ export function Composer() {
 			}
 			outgoing = `${outgoing}\n\n[上下文引用提示]\n${sessionPrompts.join("\n")}`;
 		}
+		const fileRefs: Array<{ name: string; path: string }> = [];
 		if (attachments.length > 0) {
-			const textFiles = attachments.filter((a) => a.isText && a.text);
-			if (textFiles.length > 0) {
-				const attachedTexts = textFiles.map((f) => `### 附件文件: ${f.name}\n\`\`\`\n${f.text}\n\`\`\``);
-				outgoing = outgoing ? `${outgoing}\n\n${attachedTexts.join("\n\n")}` : attachedTexts.join("\n\n");
+			const nonImages = attachments.filter((a) => !(!a.isText && a.data));
+			if (nonImages.length > 0) {
+				const cwd = workspace?.path ?? scratchCwd ?? "";
+				const filePrompts = nonImages.map((f) => {
+					const targetPath = f.path ?? f.name;
+					const display = cwd && f.path ? relativeTo(cwd, f.path) : f.name;
+					const pathNote = f.path && f.path !== display ? ` (路径: ${JSON.stringify(f.path)})` : "";
+					fileRefs.push({ name: f.name, path: targetPath });
+					return `- 文件引用 ${JSON.stringify(display)}${pathNote}：不要假设其内容，请在需要时使用 \`read\` 工具查看该文件。`;
+				});
+				if (userDisplayText === undefined) {
+					userDisplayText = outgoing;
+				}
+				outgoing = outgoing
+					? `${outgoing}\n\n[文件引用提示]\n${filePrompts.join("\n")}`
+					: `[文件引用提示]\n${filePrompts.join("\n")}`;
 			}
 		}
 
@@ -361,6 +376,7 @@ export function Composer() {
 			...(userDisplayText !== undefined ? { displayText: userDisplayText } : {}),
 			...(triggeredSkill ? { skillRef: triggeredSkill } : {}),
 			...(referencedSessions.length > 0 ? { sessionRefs: referencedSessions } : {}),
+			...(fileRefs.length > 0 ? { fileRefs } : {}),
 		});
 		if (!accepted) {
 			// A transport rejection must preserve the original files and command text for retry.
@@ -394,59 +410,41 @@ export function Composer() {
 	async function addFiles(files: FileList | null) {
 		if (!files) return;
 		const next: Attachment[] = [];
-		const refused: string[] = [];
 
 		for (const file of Array.from(files).slice(0, 8)) {
 			const id = `${file.name}-${Date.now()}-${Math.random()}`;
 			const kind = fileKind(file.name, file.type);
+			let filePath: string | undefined;
+			try {
+				filePath = bridge.files.pathForDrop(file) || undefined;
+			} catch {
+				// Fallback when pathForDrop unavailable
+			}
 
 			if (kind === "image") {
 				const buffer = await file.arrayBuffer();
-				next.push({ id, name: file.name, mimeType: file.type, data: bytesToBase64(new Uint8Array(buffer)), isText: false, kind });
-				continue;
-			}
-
-			if (!isReadableAsText(kind)) {
-				// Known not to be text: attached, but its bytes stay out of the prompt.
-				next.push({ id, name: file.name, mimeType: file.type || "application/octet-stream", isText: false, kind });
-				refused.push(`${file.name}（${KIND_LABEL[kind]}）`);
-				continue;
-			}
-
-			try {
-				const buffer = new Uint8Array(await file.arrayBuffer());
-				if (looksBinary(buffer)) {
-					// Named like text, and is not. Same treatment as the known kinds above.
-					next.push({ id, name: file.name, mimeType: file.type || "application/octet-stream", isText: false, kind: "binary" });
-					refused.push(`${file.name}（二进制文件）`);
-					continue;
-				}
 				next.push({
 					id,
 					name: file.name,
-					mimeType: file.type || "text/plain",
-					text: new TextDecoder().decode(buffer),
-					isText: true,
+					mimeType: file.type,
+					data: bytesToBase64(new Uint8Array(buffer)),
+					isText: false,
 					kind,
+					path: filePath,
 				});
-			} catch {
-				useApp.getState().notify(`无法读取文件 ${file.name} 的内容`, "warn");
+				continue;
 			}
+
+			next.push({
+				id,
+				name: file.name,
+				mimeType: file.type || "text/plain",
+				isText: true,
+				kind,
+				path: filePath,
+			});
 		}
 
-		/*
-		 * Said once, and said plainly.
-		 *
-		 * The file is still attached — the name and type reach the model, which is often all the
-		 * question needs. What must not happen silently is the contents being dropped: someone who
-		 * expects the agent to have read their document should find out here rather than from an
-		 * answer that quietly ignored it.
-		 */
-		if (refused.length > 0) {
-			useApp
-				.getState()
-				.notify(`${refused.join("、")} 的内容无法作为文本读取，只附上了文件名`, "warn");
-		}
 		if (next.length > 0) setAttachments((prev) => [...prev, ...next]);
 	}
 
@@ -575,12 +573,15 @@ export function Composer() {
 										 * Attaching one produced a broken image where the file should have been.
 										 */}
 										{attachment.isText ? (
-											<div className="flex h-[68px] w-[110px] flex-col justify-between rounded-lg border border-line bg-card p-2.5 text-left shadow-xs">
+											<div
+												className="flex h-[68px] w-[110px] flex-col justify-between rounded-lg border border-line bg-card p-2.5 text-left shadow-xs"
+												data-ly-tip={attachment.path ? `${attachment.name}\n${attachment.path}` : attachment.name}
+											>
 												<div className="flex items-center gap-1.5 text-ink-muted">
 													<FileKindIcon kind={attachment.kind ?? "text"} size={15} />
 													<span className="truncate text-xs font-medium text-ink">{attachment.name}</span>
 												</div>
-												<span className="text-[10px] text-ink-faint">{t("composer.textAttachment")}</span>
+												<span className="text-[10px] text-ink-faint">文件引用</span>
 											</div>
 										) : !attachment.data ? (
 											/* Attached by name and type: its bytes are not something a prompt can carry.
