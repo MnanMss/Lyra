@@ -1,5 +1,6 @@
 import { DEFAULT_RETRY_POLICY, normalizeRetryPolicy, type RetryPolicy } from "./retry-policy.ts";
 import { withCatalogDefaults } from "../model-catalog.ts";
+import { normalizeDelegationPolicy, type DelegationPolicy } from "../runtime/delegation.ts";
 import { normalizeSubAgentProfiles, type SubAgentProfile } from "./sub-agent-profiles.ts";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -92,6 +93,17 @@ export interface AppearanceSettings {
 	 * existed keeps the 640 it has always rendered at.
 	 */
 	contentWidth?: number;
+	/**
+	 * 空输入框有多少行高。
+	 *
+	 * 输入框一直是从一行开始、随着打字往下长，这对「跑一下测试」是对的，对写一段带步骤和约束的
+	 * 需求就不是——开头那几行永远挤在一条缝里，写到第四行才看得见自己在写什么。多高算合适跟人
+	 * 写多长的东西有关，所以交给用户定。
+	 *
+	 * 只是下限：超过这个高度照旧继续长，到窗口三分之一处停下来改为滚动。可选，老配置文件保持
+	 * 它一直以来的一行。
+	 */
+	composerLines?: number;
 	pointerCursor: boolean;
 	reduceMotion: "system" | "on" | "off";
 	/** Whether diffs are shown by colour or by leading +/- markers. */
@@ -129,6 +141,8 @@ export const DEFAULT_APPEARANCE: AppearanceSettings = {
 	contrast: 60,
 	// What the app has always rendered at; see `contentWidth`.
 	contentWidth: 640,
+	// 一行，也是这个输入框一直以来的样子；见 `composerLines`。
+	composerLines: 1,
 	pointerCursor: false,
 	reduceMotion: "system",
 	diffMarkers: "color",
@@ -379,6 +393,17 @@ export interface Settings {
 	 */
 	maxConcurrentSubAgents: number;
 	/**
+	 * 派活的积极程度：跟着推理等级走，还是钉死一档。
+	 *
+	 * 默认 `auto`，也就是这个字段出现之前唯一的行为——等级越高越爱派。存在的理由是那个推断只是
+	 * 一个很好的猜测：把等级开满的人可能只是想让模型自己多想一会儿，并不想要一棵子代理树，而在
+	 * 此之前他没有任何地方可以说出这件事。
+	 *
+	 * `off` 挡的是模型自作主张，不是这个功能本身——用户在消息里 `@` 点名的那次照派。见
+	 * `runtime/delegation.ts` 里的 `mentionedAgents`。
+	 */
+	subAgentDelegation?: DelegationPolicy;
+	/**
 	 * Which model answers to `@compact`, `@fast`, `@deep` and `@review`.
 	 *
 	 * Lets a sub-agent definition name what it needs rather than a specific model — the definition
@@ -555,6 +580,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	rerouteShellCommands: true,
 	autoSummarizeTitle: true,
 	maxConcurrentSubAgents: 4,
+	subAgentDelegation: "auto",
 	modelRoles: {},
 	/*
 	 * `memoryExtraction` is deliberately absent rather than `undefined`.
@@ -710,6 +736,7 @@ export function normalizeSettings(parsed: Partial<Settings>): Settings {
 				typeof parsed.maxConcurrentSubAgents === "number" && parsed.maxConcurrentSubAgents >= 1
 					? Math.min(16, Math.floor(parsed.maxConcurrentSubAgents))
 					: 4,
+			subAgentDelegation: normalizeDelegationPolicy(parsed.subAgentDelegation),
 			/*
 			 * Spread rather than assigned, so "never asked" is an absent key rather than a present
 			 * one holding `undefined`.
