@@ -87,6 +87,22 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
   }
 
   /*
+   * 排在输入框上的那几条，这一轮干净收尾之后轮到下一条。
+   *
+   * 在这里而不是在下面的 `agent_end` 分支里，理由和上面那段活动状态一样：那个分支只处理屏幕上的
+   * 那个对话，而人排完队走开、去看另一个对话，正是排队最常见的用法。
+   *
+   * 推到微任务里，是因为这一轮的收尾还没写完——下面那个分支才会把 `running` 落成 false，而出队要
+   * 在那之后才算数。同步调它，发出去的消息会被紧随其后的收尾覆盖成「没在跑」。
+   *
+   * 只认 done。中断、报错、卡住都不接着发：按下停止之后继续把排着的灌进去，而屏幕上刚说完「已停
+   * 止」，是这个功能最不该做的事。那几条仍旧留在条上，发不发由人决定。
+   */
+  if (event.type === "agent_end" && event.reason === "done") {
+    queueMicrotask(() => void get().flushQueue(sessionId));
+  }
+
+  /*
    * The same, for the turn meter: every conversation's clock, not just the one on screen.
    *
    * It lives here rather than in the branches below because those return early for anything that
@@ -157,12 +173,26 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
        *
        * `done`, `max_turns` and `stalled` clear it instead. A turn that reached its own end is over;
        * anything carried past it would be added to whatever ran next, under a total nobody could
-       * account for.
+       * account for — unless what runs next was already spoken, which is the case below.
        */
       const stoppedShort = event.reason === "aborted" || event.reason === "error";
+      /*
+       * And the other kind of unfinished: what is still waiting on the queue.
+       *
+       * Those were spoken while this turn was running — a requirement added, an instruction
+       * sharpened — so they are the back half of the same piece of work, held back only because
+       * delivery waits for the turn to finish (see `queue-slice`). The turn reached its own end;
+       * the work did not. Clearing the meter here makes the one that goes out next start counting
+       * from zero, while the person asking has been waiting on one thing the whole time.
+       *
+       * Being on the queue is the test, not what the message says: the only way onto it is to
+       * speak while the session is busy — an idle composer sends straight out, see `Composer`.
+       * What collects this is the send that takes the entry off the queue, in `queue-slice`.
+       */
+      const awaited = (get().queued[sessionId]?.length ?? 0) > 0;
       // The map is the only account of this turn — the line's pair is mirrored from it — so what is
       // frozen here is exactly the elapsed time and the count the reader was looking at.
-      carriedNext = stoppedShort ? freeze(meter, Date.now()) : null;
+      carriedNext = stoppedShort || awaited ? freeze(meter, Date.now()) : null;
     }
 
     if (next !== meter) {
@@ -311,7 +341,10 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
       // from the messages that arrive next.
 			set({ messages: get().messages.slice(0, event.messageCount),
 				commandRuns: get().commandRuns.filter((run) => run.at <= event.messageCount),
-				compactions: get().compactions.filter((run) => run.at <= event.messageCount) });
+				compactions: get().compactions.filter((run) => run.at <= event.messageCount),
+				// 抖动记录也按位置活着（见 `lib/hiccup.ts` 的 `at`），所以被丢掉的那一截里发生过的
+				// 事情跟着一起走——留下来的话它会滑到转录末尾，说给一段已经不存在的工作。
+				hiccups: get().hiccups.filter((one) => one.at <= event.messageCount) });
       break;
 
     case "title": {
@@ -362,8 +395,9 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
           reason: event.reason,
           resume: event.resume === true,
         },
-        // 同一次中断折进同一条记录，次数往上加；见 `hiccup.ts`。
-        hiccups: foldRetry(get().hiccups, event, Date.now()),
+        // 同一次中断折进同一条记录，次数往上加；见 `hiccup.ts`。位置是转录此刻的末尾——断线
+        // 发生在这儿，记录也该留在这儿，而不是一路跟到这一轮的最下面。
+        hiccups: foldRetry(get().hiccups, event, Date.now(), get().messages.length),
         /*
          * A resume arrives after `agent_end`, which has already stood the window down.
          *
@@ -385,7 +419,7 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
      * 必须立刻消失，而记录要留下。两件事，两个字段，同一个事件喂。
      */
     case "retry_settled":
-      set({ hiccups: settleHiccups(get().hiccups, event), retrying: null });
+      set({ hiccups: settleHiccups(get().hiccups, event, get().messages.length), retrying: null });
       break;
 
 		case "command_status":

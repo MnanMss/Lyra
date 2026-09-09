@@ -19,9 +19,9 @@ export function turnSlice(set: Set, get: Get) {
 	const creating = new Map<number, ReturnType<typeof bridge.sessions.create>>();
 	const prompting = new Map<string, symbol>();
 	return {
-	async send(content: UserContent[], options: { synthetic?: boolean; carryOn?: boolean; deliver?: "steer" | "followUp"; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }>; fileRefs?: Array<{ name: string; path: string }> } = {}) {
+	async send(content: UserContent[], options: { synthetic?: boolean; carryOn?: boolean; deliver?: "steer" | "followUp"; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }>; fileRefs?: Array<{ name: string; path: string }>; sessionId?: string } = {}) {
 		const { workspace, settings, scratchCwd, selectionEpoch: epoch } = get();
-		let sessionId = get().activeSessionId;
+		let sessionId = options.sessionId ?? get().activeSessionId;
 		const cwd = workspace?.path ?? scratchCwd;
 		if (!sessionId && !cwd) { await get().pickWorkspace(); return false; }
 		// A second submission in the same draft shares its identity, never its title as a key.
@@ -30,7 +30,14 @@ export function turnSlice(set: Set, get: Get) {
 			try { sessionId = (await inFlight).meta.id; }
 			catch { return false; }
 		}
-		const ownsSelection = () => get().selectionEpoch === epoch;
+		/*
+		 * 这次提交还归不归屏幕上这个对话。
+		 *
+		 * 两件事一起问。选择没被切走——新建会话那一段等待里，人可能已经开了另一个对话；以及这条
+		 * 消息发的就是屏幕上这个——队列出队时是指名会话的（见 `queue-slice`），而那一刻人常常已经
+		 * 在看别的对话了，乐观地把消息画进转录会画进别人的转录。
+		 */
+		const ownsSelection = () => get().selectionEpoch === epoch && (!options.sessionId || options.sessionId === get().activeSessionId);
 		const pending: Message = {
 			role: "user",
 			content,
@@ -41,8 +48,25 @@ export function turnSlice(set: Set, get: Get) {
 			...(options.sessionRefs?.length ? { sessionRefs: options.sessionRefs } : {}),
 			...(options.fileRefs?.length ? { fileRefs: options.fileRefs } : {}),
 		};
+		/*
+		 * 这一轮的表：接着走，还是从零起。
+		 *
+		 * 三种接法，一种起法。会话正跑着的时候说的话——插进去的那句，或者排着的那条被人自己送了
+		 * 出去——用的就是台上那块表。话是在这件事进行当中说出口的，它是同一件事的一部分：把需求
+		 * 堆上去、把要求改一改，都不是另起一件。从前每一次发送都重新点一块表，于是屏幕上那行字
+		 * 报的是「补这一句之后过了多久」，而人问的是「我这件事等了多久」。
+		 *
+		 * 「继续」接的是冻在 `carried` 里的那份，跨过中间那段停顿。排着的话轮到自己出队时接的也
+		 * 是它——`agent_end` 看见队上还有话就替它留着，见 `apply-event`。
+		 *
+		 * 只有一种情况从零开始：会话闲着的时候有人开口。那才是新的一件事。
+		 *
+		 * `activity` 一起问，是因为 `turns` 里的表只有 `agent_end` 会收走：那一条要是没送到，
+		 * 留下来的表会让下一次发送继承一个几小时前的起点，报出一个没人跑过的时长。
+		 */
+		const running = sessionId && get().activity[sessionId] === "running" ? get().turns[sessionId] : undefined;
 		const carriedMeter = sessionId ? (get().carried[sessionId] ?? loadCarried(sessionId)) : null;
-		const meter = relight(options.carryOn && sessionId ? carriedMeter : null, Date.now());
+		const meter = running ?? relight(options.carryOn && sessionId ? carriedMeter : null, Date.now());
 		if (sessionId) saveCarried(sessionId, null);
 		if (ownsSelection()) set({
 			messages: [...get().messages, pending], pendingUserMessage: { sessionId: sessionId ?? null, message: pending },
