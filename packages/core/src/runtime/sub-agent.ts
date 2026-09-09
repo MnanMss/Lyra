@@ -404,7 +404,8 @@ export async function runSubAgent(
 						summarizer,
 					);
 				},
-				maxTurns: 60,
+				// Default safety ceiling: up to 240 turns (4 epochs of 60 turns each)
+				maxTurns: 240,
 			},
 			async (event) => {
 				if (event.type === "tool_start" || event.type === "request" || event.type === "retry" || event.type === "agent_end" || event.type === "turn_start" || event.type === "compacted") {
@@ -472,17 +473,38 @@ export async function runSubAgent(
 	const answer = yielded ? renderYield(yielded) : prose;
 
 	/*
-	 * Aborted is not failed.
-	 *
-	 * A sub-agent stopped on purpose has done exactly what was asked of it, and recording that as a
-	 * failure would put an error in the parent's transcript for a button the user pressed.
+	 * Aborted is not failed, but stalled or turn-exhaustion without output IS failed.
 	 */
+	const isStalled = result.reason === "stalled";
+	const isMaxTurns = result.reason === "max_turns";
+	const failedNoOutput = (isStalled || isMaxTurns) && !answer && !yielded?.value;
+	const terminalStatus = controller.signal.aborted
+		? "aborted"
+		: failedNoOutput
+			? "failed"
+			: "done";
+	const failureError = failedNoOutput
+		? (result.error ?? (isStalled ? "子 Agent 因陷入循环未取得进展而停止" : "子 Agent 达到最大轮次安全上限且未产生有效输出"))
+		: undefined;
+
 	registry?.finish(
 		id,
 		controller.signal.aborted
 			? { status: "aborted" }
-			: { status: "done", answer, output: yielded?.value, warnings: yielded?.warnings },
+			: failedNoOutput
+				? { status: "failed", error: failureError }
+				: { status: "done", answer, output: yielded?.value, warnings: yielded?.warnings },
 	);
-	await options.emit({ type: "subagent_done", id, steps, answer, status: controller.signal.aborted ? "aborted" : "done" });
+	await options.emit({
+		type: "subagent_done",
+		id,
+		steps,
+		answer,
+		status: terminalStatus,
+		error: failureError,
+	});
+	if (failedNoOutput) {
+		throw new Error(failureError);
+	}
 	return { text: answer, output: yielded?.value, warnings: yielded?.warnings };
 }

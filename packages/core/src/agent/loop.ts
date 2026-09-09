@@ -8,6 +8,7 @@ import type { RetryPolicySource } from "../config/retry-policy.ts";
  */
 
 import { RepetitionWatch } from "./repetition.ts";
+import { EpochWatch } from "./epoch-watch.ts";
 import type { RuleMatch } from "../rules/stream.ts";
 import { extractPaths } from "../rules/stream.ts";
 import { failTruncatedCalls, runTools } from "./tool-run.ts";
@@ -166,6 +167,7 @@ export async function runAgent(config: AgentRunConfig, emit: AgentEventSink): Pr
 	let nudges = 0;
 	/** Watches for a turn that has stopped learning anything; see `repetition.ts`. */
 	const repetition = new RepetitionWatch();
+	const epochWatch = new EpochWatch();
 	/**
 	 * When the last request went out, for judging whether the provider's prefix cache is still warm.
 	 *
@@ -541,6 +543,26 @@ export async function runAgent(config: AgentRunConfig, emit: AgentEventSink): Pr
 			produced.push(notice);
 			await emit({ type: "message_start", message: notice });
 			await emit({ type: "message_end", message: notice });
+		}
+
+		epochWatch.observeTurn(toolCalls, toolResults);
+		if (epochWatch.isCheckpoint(turn)) {
+			const report = epochWatch.evaluateCheckpoint(turn);
+			if (report.stalled) {
+				return finish("stalled", `任务在连续的 60 轮检查周期内持续失败或未取得有效进展`);
+			}
+			if (report.warning) {
+				const warningMsg: Message = {
+					role: "user",
+					content: [{ type: "text", text: report.warning }],
+					timestamp: Date.now(),
+					synthetic: true,
+				};
+				messages.push(warningMsg);
+				produced.push(warningMsg);
+				await emit({ type: "message_start", message: warningMsg });
+				await emit({ type: "message_end", message: warningMsg });
+			}
 		}
 	}
 

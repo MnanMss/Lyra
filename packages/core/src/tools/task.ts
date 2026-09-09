@@ -111,14 +111,20 @@ export const taskTool: Tool<TaskArgs> = {
 			 * would put it in the parent's context twice — once as prose, once as JSON — which is
 			 * the cost delegation exists to avoid.
 			 */
+			const textResult = typeof answer === "string" ? answer : answer?.text;
+			const outputResult = typeof answer === "object" && answer !== null ? answer.output : undefined;
+			const warningsResult = typeof answer === "object" && answer !== null ? answer.warnings : undefined;
+			if (!textResult && !outputResult) {
+				return errorResult("子 Agent 未产生任何输出结果。");
+			}
 			return {
-				content: [{ type: "text", text: answer.text || "(the sub-agent returned no output)" }],
+				content: [{ type: "text", text: textResult }],
 				details: {
 					kind: "task",
 					description: args.description,
 					agentType: requested,
-					output: answer.output,
-					warnings: answer.warnings?.length ? answer.warnings : undefined,
+					output: outputResult,
+					warnings: warningsResult?.length ? warningsResult : undefined,
 				},
 			};
 		} catch (error) {
