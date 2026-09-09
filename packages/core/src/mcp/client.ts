@@ -10,7 +10,13 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { ListRootsRequestSchema, type Root } from "@modelcontextprotocol/sdk/types.js";
 import type { JsonSchema, Tool, ToolResult, UserContent } from "../types.ts";
+
+export interface McpRoot {
+	uri: string;
+	name?: string;
+}
 
 /**
  * Where a server's configuration came from.
@@ -77,7 +83,14 @@ const CONNECT_TIMEOUT_MS = 30_000;
 export class McpManager {
 	private connections = new Map<string, McpConnection>();
 	private failures = new Map<string, string>();
+	private configuredRoots: McpRoot[] = [];
 
+	setRoots(roots: McpRoot[]): void {
+		this.configuredRoots = roots;
+		for (const connection of this.connections.values()) {
+			void connection.client.sendRootsListChanged().catch(() => {});
+		}
+	}
 	async connectAll(servers: McpServerConfig[]): Promise<McpServerStatus[]> {
 		await this.closeAll();
 		const results = await Promise.all(
@@ -106,7 +119,13 @@ export class McpManager {
 	}
 
 	async connect(server: McpServerConfig): Promise<McpConnection> {
-		const client = new Client({ name: "lyra", version: "0.1.0" }, { capabilities: {} });
+		const client = new Client(
+			{ name: "lyra", version: "0.1.0" },
+			{ capabilities: { roots: { listChanged: true } } },
+		);
+		client.setRequestHandler(ListRootsRequestSchema, async () => ({
+			roots: this.configuredRoots as Root[],
+		}));
 		const transport =
 			server.transport === "stdio"
 				? new StdioClientTransport({

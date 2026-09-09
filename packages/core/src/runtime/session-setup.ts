@@ -13,6 +13,8 @@
 
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { pathToFileURL } from "node:url";
+import { scratchHome } from "./previews.ts";
 import { createRegistry, type CapabilityRegistry } from "../capability/index.ts";
 import { pluginProvider } from "../capability/providers/plugins.ts";
 import type { Settings } from "../config/settings.ts";
@@ -265,6 +267,11 @@ export async function loadCapabilities(
 	 * could not see the user's. Installing an MCP bundle now writes into settings, so this is one
 	 * list, and what is on the page is what the session connects to.
 	 */
+	const roots = [
+		{ uri: pathToFileURL(cwd).href, name: "workspace" },
+		{ uri: pathToFileURL(scratchHome(lyraHome())).href, name: "scratch" },
+	];
+	mcp.setRoots(roots);
 	const mcpStatuses = await mcp.connectAll(settings.mcpServers);
 	const tools = [...builtinTools(), ...extraTools, ...mcp.allTools()];
 
