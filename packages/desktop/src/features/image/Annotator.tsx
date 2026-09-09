@@ -18,6 +18,8 @@
  * picture it is being used to annotate would be unusable at 400%.
  */
 
+import type { MessageKey } from "../../i18n/messages/index.ts";
+import { translate } from "../../i18n/translate.ts";
 import { Textarea } from "../../ui/inputs/NativeField.tsx";
 import {
 	ArrowUpRight,
@@ -25,7 +27,6 @@ import {
 	Circle,
 	Download,
 	Grid2x2,
-	GripVertical,
 	ListOrdered,
 	Minus,
 	Pencil,
@@ -83,7 +84,8 @@ const COLOURS = ["#ef4444", "#3b82f6", "#22c55e", "#eab308", "#111827"];
  * fit in — which is exactly how it broke: the floor was a guess in character counts, the
  * placeholder is four characters, and the guess was 1.6.
  */
-const PLACEHOLDER = "输入文字";
+/** The caption box's ghost text. A key: this module is loaded long before the language settles. */
+const PLACEHOLDER: MessageKey = "annotate.textPlaceholder";
 
 /** Where a piece of text is being typed, in natural pixels, before it becomes a shape. */
 interface Typing {
@@ -142,11 +144,11 @@ interface Dragging {
 const SELECT_ON_DRAW = new Set<Tool>(["rect", "ellipse", "line", "arrow", "step"]);
 
 /** What can sit behind a caption. Transparent first, because most captions want nothing. */
-const BACKDROPS: [string | undefined, string][] = [
-	[undefined, "透明"],
-	["#ffffffe6", "白色"],
-	["#111827e6", "黑色"],
-	["#fde68ae6", "浅黄"],
+const BACKDROPS: [string | undefined, MessageKey][] = [
+	[undefined, "annotate.transparent"],
+	["#ffffffe6", "annotate.white"],
+	["#111827e6", "annotate.black"],
+	["#fde68ae6", "annotate.paleYellow"],
 ];
 
 /**
@@ -242,6 +244,13 @@ export interface Annotator {
 	 */
 	revision: number;
 	/**
+	 * 这张图和所有从它派生出来的 canvas 用的色彩空间。
+	 *
+	 * 传下去而不是各处自己猜：裁剪出来的那张、马赛克取样的那张、放大镜里的那张，都得跟主画布同一
+	 * 个空间，否则 `drawImage` 会在它们之间做转换——一次转换就是一次色偏，而且只偏彩色不偏灰。
+	 */
+	colorSpace: PredefinedColorSpace;
+	/**
 	 * The source's natural width, in state rather than read off the ref.
 	 *
 	 * Every size in here — stroke, type, mosaic block — is derived from it, and deriving them from
@@ -258,10 +267,10 @@ export interface Annotator {
 // ---------------------------------------------------------------------------
 
 /** Multipliers for mark and text weight, used in Annotator and ScreenshotOverlay. */
-export const WEIGHT_LEVELS: [number, string, number][] = [
-	[0.6, "细", 4],
-	[1, "中", 6],
-	[1.8, "粗", 9],
+export const WEIGHT_LEVELS: [number, MessageKey, number][] = [
+	[0.6, "annotate.thin", 4],
+	[1, "annotate.medium", 6],
+	[1.8, "annotate.thick", 9],
 ];
 
 export interface AnnotatorOptions {
@@ -277,6 +286,14 @@ export interface AnnotatorOptions {
 	 * identical too, and the marks drawn on the first one would still be there on the second.
 	 */
 	session?: number | string;
+	/**
+	 * 这张图的数值属于哪个色彩空间。
+	 *
+	 * 只有截图会说这件事，因为只有它拿到的是显示器帧缓冲的原始数值——一台 Display P3 的机器上，
+	 * 屏幕上的纯红在那串数里是 234,51,35。默认按 sRGB 读，那是每一张解码出来的图片的答案（PNG
+	 * 自带 profile，浏览器已经替我们转好了），也是没有色彩管理时的安全答案。
+	 */
+	colorSpace?: PredefinedColorSpace;
 }
 
 /**
@@ -309,6 +326,7 @@ export function useAnnotator(src: string | RawPixels | null, options?: Annotator
 
 	// Load once; every repaint draws this same decoded bitmap rather than re-decoding the data URL.
 	const session = options?.session;
+	const colorSpace = options?.colorSpace ?? "srgb";
 	useEffect(() => {
 		setReady(false);
 		setHistory(emptyHistory());
@@ -375,7 +393,15 @@ export function useAnnotator(src: string | RawPixels | null, options?: Annotator
 		 */
 		if (typeof src !== "string") {
 			let live = true;
-			const data = new ImageData(new Uint8ClampedArray(src.pixels), src.width, src.height);
+			/*
+			 * 按它本来的色彩空间读这串数，而不是一律当 sRGB。
+			 *
+			 * 抓屏拿回来的是显示器帧缓冲里的原始数值：一台 Display P3 的机器上，屏幕上的纯红在这串
+			 * 数里是 234,51,35。不说清楚这一点，浏览器就按 sRGB 理解它，再替我们转一次去显示——那个
+			 * 红被扩了一道，截出来比屏幕上更艳，而灰阶分毫不差（中性轴在两个空间里重合）。这正是
+			 * 「截图有色差」被报上来的样子，`e2e/capture-colour-probe.mjs` 把它量成了数。
+			 */
+			const data = new ImageData(new Uint8ClampedArray(src.pixels), src.width, src.height, { colorSpace });
 			void createImageBitmap(data).then(
 				(bitmap) => {
 					if (live) accept({ source: bitmap, width: bitmap.width, height: bitmap.height });
@@ -396,7 +422,7 @@ export function useAnnotator(src: string | RawPixels | null, options?: Annotator
 		};
 		// `session` carries no data — it is here so a second capture of an unchanged screen, whose
 		// pixels are byte-for-byte the ones before, still clears the marks. See `AnnotatorOptions`.
-	}, [src, session]);
+	}, [src, session, colorSpace]);
 
 	/** The grain a mosaic drawn *now* would use. Marks already on the picture carry their own. */
 	const block = width > 0 ? mosaicBlock(width, weight) : 0;
@@ -427,11 +453,13 @@ export function useAnnotator(src: string | RawPixels | null, options?: Annotator
 			const small = document.createElement("canvas");
 			small.width = Math.max(1, Math.ceil(img.width / key));
 			small.height = Math.max(1, Math.ceil(img.height / key));
-			small.getContext("2d")?.drawImage(img.source, 0, 0, small.width, small.height);
+			// 跟主画布同一个色彩空间：`drawImage` 会在两个空间之间做转换，转过去再转回来，马赛克块
+			// 的颜色就跟它盖住的那片不是一回事了。
+			small.getContext("2d", { colorSpace })?.drawImage(img.source, 0, 0, small.width, small.height);
 			sources.current.set(key, small);
 			return small;
 		},
-		[image],
+		[image, colorSpace],
 	);
 
 	const shapes = current(history);
@@ -565,6 +593,7 @@ export function useAnnotator(src: string | RawPixels | null, options?: Annotator
 		mosaicSourceFor,
 		ready,
 		revision,
+		colorSpace,
 		width,
 		block,
 	};
@@ -609,7 +638,7 @@ export function AnnotateCanvas({
 	className?: string;
 	style?: React.CSSProperties;
 }) {
-	const { canvas, image, mosaicSourceFor, ready, width, tool, colour, backdrop, weight, shapes, setHistory, selected, setSelected } =
+	const { canvas, image, mosaicSourceFor, ready, width, tool, colour, backdrop, weight, shapes, setHistory, selected, setSelected, colorSpace } =
 		annotator;
 	const [drawing, setDrawing] = useState<Shape | null>(null);
 	const [typing, setTyping] = useState<Typing | null>(null);
@@ -692,7 +721,13 @@ export function AnnotateCanvas({
 		const el = canvas.current;
 		const img = image.current;
 		if (!el || !img || !ready) return;
-		const ctx = el.getContext("2d");
+		/*
+		 * 画布的色彩空间跟图片的一致，否则 `drawImage` 会替我们转一道。
+		 *
+		 * 第一次 `getContext` 决定了这块画布的色彩空间，之后再传别的参数没有用——所以这里传的必须
+		 * 跟别处一致。截图那条路上它是显示器的空间，别处（看图、编辑本地文件）是 sRGB。
+		 */
+		const ctx = el.getContext("2d", { colorSpace });
 		if (!ctx) return;
 
 		ctx.clearRect(0, 0, el.width, el.height);
@@ -709,7 +744,7 @@ export function AnnotateCanvas({
 			block: annotator.block,
 			brush: mosaicBrush(width) * weight,
 		});
-	}, [live, ready, width, stroke, weight, canvas, image, mosaicSourceFor, annotator.block]);
+	}, [live, ready, width, stroke, weight, canvas, image, mosaicSourceFor, annotator.block, colorSpace]);
 
 	/**
 	 * The column that just fits this text, in image pixels.
@@ -720,7 +755,14 @@ export function AnnotateCanvas({
 	 */
 	const fitWidth = useCallback(
 		(text: string): number => {
-			const ctx = canvas.current?.getContext("2d");
+			/*
+			 * 这里只量字，跟颜色无关——参数还是要跟别处一模一样。
+			 *
+			 * 一块画布的色彩空间由**第一次** `getContext` 定下，之后再传什么都会被忽略。如果用户先
+			 * 点了文字工具、这一句先跑，画布就被定成了 sRGB，上面那处再传 display-p3 也无济于事：
+			 * 整张截图从此偏色，而触发条件是「先打字还是先画别的」这种没人会联想到的顺序。
+			 */
+			const ctx = canvas.current?.getContext("2d", { colorSpace });
 			const pad = typeSize * PAD * 2;
 			if (!ctx) return typeSize * 8;
 			ctx.font = fontOf(typeSize);
@@ -743,10 +785,10 @@ export function AnnotateCanvas({
 			 * say, an empty box is wide enough to show it on one line.
 			 */
 			const caret = Math.max(2, typeSize * 0.08);
-			const floor = ctx.measureText(PLACEHOLDER).width + pad + caret;
+			const floor = ctx.measureText(translate(PLACEHOLDER)).width + pad + caret;
 			return Math.min(Math.max(longest + pad + caret, floor), Math.max(width * 0.9, floor));
 		},
-		[canvas, typeSize, width],
+		[canvas, typeSize, width, colorSpace],
 	);
 
 	/** Whether the field has been focused for the caption currently open in it. */
@@ -1319,7 +1361,7 @@ export function AnnotateCanvas({
 							 */
 							if (event.key === "Escape") setTyping(null);
 						}}
-						placeholder={PLACEHOLDER}
+						placeholder={translate(PLACEHOLDER)}
 						rows={1}
 						spellCheck={false}
 						className="relative block w-full resize-none overflow-hidden border-0 bg-transparent outline-none placeholder:text-current placeholder:opacity-40"
@@ -1355,8 +1397,8 @@ export function AnnotateCanvas({
 					<span className="pointer-events-none absolute inset-0 rounded-md border border-sky-400/70 border-dashed" />
 					<button
 						type="button"
-						aria-label="调整文字宽度"
-						data-ly-tip="拖动调整宽度"
+						aria-label={translate("annotate.textWidth")}
+						data-ly-tip={translate("annotate.dragWidth")}
 						data-ly-tip-side="top"
 						onPointerDown={(event) => {
 							event.preventDefault();
@@ -1387,15 +1429,15 @@ export function AnnotateCanvas({
 // The toolbar
 // ---------------------------------------------------------------------------
 
-const TOOLS: [Tool, typeof Pencil, string][] = [
-	["pen", Pencil, "画笔"],
-	["arrow", ArrowUpRight, "箭头"],
-	["line", Minus, "直线"],
-	["rect", Square, "矩形"],
-	["ellipse", Circle, "圆形"],
-	["step", ListOrdered, "步骤标号"],
-	["text", Type, "文字"],
-	["mosaic", Grid2x2, "马赛克"],
+const TOOLS: [Tool, typeof Pencil, MessageKey][] = [
+	["pen", Pencil, "annotate.pen"],
+	["arrow", ArrowUpRight, "annotate.arrow"],
+	["line", Minus, "annotate.line"],
+	["rect", Square, "annotate.rectangle"],
+	["ellipse", Circle, "annotate.ellipse"],
+	["step", ListOrdered, "annotate.step"],
+	["text", Type, "annotate.text"],
+	["mosaic", Grid2x2, "annotate.mosaic"],
 ];
 
 /**
@@ -1403,18 +1445,18 @@ const TOOLS: [Tool, typeof Pencil, string][] = [
  *
  * One control has always driven all three; only its name was ever about lines.
  */
-const SIZE_LABEL: Partial<Record<Tool, string>> = {
-	text: "字号",
-	mosaic: "马赛克大小",
-	step: "标号大小",
+const SIZE_LABEL: Partial<Record<Tool, MessageKey>> = {
+	text: "annotate.fontSize",
+	mosaic: "annotate.mosaicSize",
+	step: "annotate.stepSize",
 };
 
-const COLOUR_NAMES: Record<string, string> = {
-	"#ef4444": "红色",
-	"#3b82f6": "蓝色",
-	"#22c55e": "绿色",
-	"#eab308": "黄色",
-	"#111827": "黑色",
+const COLOUR_NAMES: Record<string, MessageKey> = {
+	"#ef4444": "annotate.red",
+	"#3b82f6": "annotate.blue",
+	"#22c55e": "annotate.green",
+	"#eab308": "annotate.yellow",
+	"#111827": "annotate.black",
 };
 
 /**
@@ -1489,6 +1531,39 @@ const METRICS: Record<"compact" | "large", ToolbarMetrics> = {
 	},
 };
 
+/**
+ * 在按钮上按住多久，算「我要挪这条工具栏」而不是「我要按这个按钮」。
+ *
+ * 320ms：比一次利落的点击长得多（那是 80–150ms），又短到按下去等一等就有反应，不至于让人以为
+ * 按住不管用。跟系统里长按呼出菜单的那个数是一个量级。
+ */
+const HOLD_TO_DRAG_MS = 320;
+/** 按住期间手抖几个像素还算没动。超过就是在往别的按钮上蹭，那一下仍然是点击。 */
+const HOLD_SLOP = 4;
+
+/**
+ * The bar when the caller does not place it: floating at the bottom of the window.
+ *
+ * Floating rather than in a column under the image, which is where it began: that made the picture
+ * give up height to make room, so entering edit mode visibly shrank it. Floating means the picture
+ * is exactly the same size in both modes, and the bar stays legible through its own background
+ * rather than by pushing anything out of the way.
+ *
+ * Which is why exactly one class here may set `position`, and a test holds it to that. A list cannot hold two —
+ * which one wins is decided by the order Tailwind emits them, not the order they are written, and
+ * `relative` is emitted after `fixed`. A stray `relative` sat in this list and did exactly that: the
+ * bar the comment below calls floating was in fact in flow, and the image viewer's stage is a flex
+ * row, so it became a second item beside the picture, 406px wide. The picture was pushed
+ * (1280 − 1100 − 406) / 2 = 113px off the left edge of the window and the bar landed at x=1424,
+ * outside it, clipped away by the overlay's `overflow-hidden`. Pressing 标注 moved the image and
+ * took the toolbar with it — with nothing left to annotate with.
+ *
+ * Named rather than inline because that is what makes it testable; `ScreenshotOverlay` passes its
+ * own list and is unaffected either way.
+ */
+export const FLOATING_BAR =
+	"pointer-events-auto fixed bottom-6 left-1/2 z-[120] flex items-center border border-white/12 bg-[#1c1c1e]/92 shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-xl transition-[opacity,transform] duration-[var(--ly-t-base)] ease-out";
+
 export function AnnotateToolbar({
 	annotator,
 	onCancel,
@@ -1500,7 +1575,7 @@ export function AnnotateToolbar({
 	size = "compact",
 	canReplace,
 	saveLabel,
-	cancelLabel = "退出标注",
+	cancelLabel,
 	requireDirty = true,
 	className,
 	style,
@@ -1519,15 +1594,16 @@ export function AnnotateToolbar({
 	/** Write the picture to the download directory. Same reasoning as `onPin`. */
 	onDownload?: () => void;
 	/**
-	 * Take the press that begins dragging the bar somewhere else.
+	 * 这一条要挪窝了：从哪儿按下的，按下时它在哪儿。
 	 *
-	 * The handle is rendered here because it has to look like part of the row, and the dragging
-	 * itself is not: only the caller knows what the bar is floating over and where it is allowed to
-	 * go. Absent, there is no handle at all — the bar in the image viewer is pinned to the bottom of
-	 * a window and has nowhere to be dragged to.
+	 * 挪到哪儿是调用方的事——它飘在一张截好的屏幕上，得留在屏幕里——所以这里只说「开始了」，外加
+	 * 两个位置。带上 `origin` 而不是让调用方自己去 DOM 里量：这一条的位置只有它自己最清楚，而且
+	 * 按住按钮触发的那一次是从定时器里发出的，那会儿 React 的合成事件早就没有 `currentTarget` 了。
+	 *
+	 * 不传就是不能挪：看图器里这一条钉在窗口底边，没有别处可去。
 	 */
-	onGrab?: (event: React.PointerEvent) => void;
-	/** Whether a drag is in progress, so the handle can say so with its cursor. */
+	onGrab?: (grab: { from: { x: number; y: number }; origin: { x: number; y: number } }) => void;
+	/** 正在挪，好让整条和它上面每个控件都显示同一个光标。 */
 	grabbing?: boolean;
 	/**
 	 * How big the controls are. `large` is the capture overlay; see `METRICS`.
@@ -1570,6 +1646,28 @@ export function AnnotateToolbar({
 		return () => cancelAnimationFrame(id);
 	}, []);
 
+	const bar = useRef<HTMLDivElement | null>(null);
+	/** 按住计时中的那一次，连同它按在哪儿——手挪出去就作废。 */
+	const holding = useRef<{ from: { x: number; y: number }; timer: ReturnType<typeof setTimeout> } | null>(null);
+	/** 这一次按下已经变成了挪窝，那么随之而来的那个 click 不作数。 */
+	const dragged = useRef(false);
+
+	const endHold = useCallback(() => {
+		if (holding.current) clearTimeout(holding.current.timer);
+		holding.current = null;
+	}, []);
+	useEffect(() => endHold, [endHold]);
+
+	const beginDrag = useCallback(
+		(from: { x: number; y: number }) => {
+			const box = bar.current?.getBoundingClientRect();
+			if (!box || !onGrab) return;
+			dragged.current = true;
+			onGrab({ from, origin: { x: box.left, y: box.top } });
+		},
+		[onGrab],
+	);
+
 	// Undo, redo and delete from the keyboard, which is where anyone drawing reaches first.
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
@@ -1599,15 +1697,6 @@ export function AnnotateToolbar({
 	return (
 		<div
 			/*
-			 * Fixed to the window, at a size that does not depend on the picture.
-			 *
-			 * The toolbar used to sit under the image in a column, which meant the image had to give up
-			 * height to make room for it — entering edit mode visibly shrank the picture. Floating it
-			 * means the picture is exactly the same size in both modes, and the bar stays legible
-			 * against whatever is behind it through its own background rather than by pushing things
-			 * out of the way.
-			 */
-			/*
 			 * The caller says where the bar is; `metrics` says how big it is.
 			 *
 			 * Appended rather than left to the caller, because those two decisions belong to different
@@ -1624,10 +1713,18 @@ export function AnnotateToolbar({
 			 * hand appears for one frame on the grip and is replaced by an arrow for the rest of the
 			 * gesture, which reads as the drag having been dropped.
 			 */
-			className={`${
-				className ??
-				"pointer-events-auto fixed bottom-6 left-1/2 z-[120] flex relative items-center border border-white/12 bg-[#1c1c1e]/92 shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-xl transition-[opacity,transform] duration-[var(--ly-t-base)] ease-out"
-			} ${metrics.bar} ${grabbing ? "cursor-grabbing [&_*]:cursor-grabbing" : ""}`}
+			ref={bar}
+			/*
+			 * 整条都能拿起来，光标一直这么说着。
+			 *
+			 * 之前是行首一个竖点手柄，只有那 8pt 宽的一小条能拖。它有两处不对：得先看见它、再瞄准
+			 * 它，而这条工具栏本身就是浮在别人屏幕上的临时东西，没有窗口标题栏那样的位置约定；而且
+			 * 它在一排按钮的最前面，本身就是这排按钮里的一个「洞」。
+			 *
+			 * 现在按钮之外的地方按下就能拖，光标从进来那一刻就说得清楚。按钮上按住不放也能拖——
+			 * 见 `HOLD_TO_DRAG_MS`——因为这条几乎全是按钮，只留缝隙可拖等于还是要瞄准。
+			 */
+			className={`${className ?? FLOATING_BAR} ${metrics.bar} ${grabbing ? "cursor-grabbing [&_*]:cursor-grabbing" : onGrab ? "cursor-grab" : ""}`}
 			style={{
 				opacity: shown ? 1 : 0,
 				transform: className ? undefined : `translateX(-50%) translateY(${shown ? 0 : 10}px)`,
@@ -1644,6 +1741,55 @@ export function AnnotateToolbar({
 			 * new size is applied to it live.
 			 */
 			onMouseDown={(event) => event.preventDefault()}
+			onPointerDown={(event) => {
+				if (!onGrab || event.button !== 0) return;
+				const target = event.target as HTMLElement;
+				// 气泡飘在这一条外面，只是 DOM 上挂在里面。调粗细不该把整条带走。
+				if (target.closest?.("[data-toolbar-bubble]")) return;
+				const from = { x: event.clientX, y: event.clientY };
+				if (!target.closest?.("button, input, textarea, select, a")) {
+					// 空白处：按下就是要挪它，没有第二种解释。
+					event.preventDefault();
+					beginDrag(from);
+					return;
+				}
+				/*
+				 * 按在按钮上：先当成要按它，按住不放才改主意。
+				 *
+				 * 反过来（按下即拖、松开算点击）也能实现，代价是每一次点击都先动一下——按钮在手指
+				 * 底下抖，这条工具栏上的每一个操作都会变得不确定。
+				 */
+				endHold();
+				holding.current = {
+					from,
+					timer: setTimeout(() => {
+						holding.current = null;
+						beginDrag(from);
+					}, HOLD_TO_DRAG_MS),
+				};
+			}}
+			onPointerMove={(event) => {
+				const held = holding.current;
+				if (!held) return;
+				// 手挪开了就不是「按住」，是在往某个按钮上蹭——那一下仍然该是点击。
+				if (Math.abs(event.clientX - held.from.x) > HOLD_SLOP || Math.abs(event.clientY - held.from.y) > HOLD_SLOP) endHold();
+			}}
+			onPointerUp={endHold}
+			onPointerCancel={endHold}
+			onPointerLeave={endHold}
+			/*
+			 * 挪完之后那一下 click 要吞掉。
+			 *
+			 * 按住一个按钮把整条拖走，松手时浏览器照样会在这条上派发一次 click——那正是刚才被按住
+			 * 的那个按钮。不吞掉的话，「把工具栏从要标注的地方挪开」会顺手切一次工具，或者更糟，
+			 * 按到「完成」把整个截图交出去。
+			 */
+			onClickCapture={(event) => {
+				if (!dragged.current) return;
+				dragged.current = false;
+				event.preventDefault();
+				event.stopPropagation();
+			}}
 		>
 			{/*
 			 * The properties of the tool in hand, above the row rather than inside it.
@@ -1657,41 +1803,24 @@ export function AnnotateToolbar({
 			<ToolProperties annotator={annotator} index={TOOLS.findIndex(([id]) => id === annotator.tool)} side={propertiesSide} metrics={metrics} />
 
 			{/*
-			 * The grip, before anything that does something.
+			 * 行首曾经有一个竖点手柄，现在没有了。
 			 *
-			 * At the head of the row because that is where a bar is picked up in every other program
-			 * that has one, and because everything after it is a button: a handle in the middle would
-			 * be a gap in a row of controls, which reads as a mistake rather than an affordance.
-			 *
-			 * `onPointerDown` and nothing else. Where the bar may go is the caller's question — it is
-			 * floating over a captured screen and has to stay on it — so this only says the drag has
-			 * begun and hands over the event.
+			 * 它占着一排按钮的头一格，本身却不是按钮——一排控件里的一个洞，第一次看到的人得先弄明白
+			 * 那是什么。而它换来的能力，现在整条都有：按钮之外按下就能拖，按钮上按住不放也能拖。
+			 * 少一格，这一条还窄了 20pt，在一块框得很小的区域旁边，那 20pt 是看得出来的。
 			 */}
-			{onGrab && (
-				<span
-					data-toolbar-grip
-					aria-hidden="true"
-					onPointerDown={onGrab}
-					className={`-ml-0.5 flex shrink-0 items-center self-stretch rounded-md px-0.5 text-white/35 transition-colors duration-[var(--ly-t-quick)] hover:bg-white/10 hover:text-white/70 ${
-						grabbing ? "cursor-grabbing bg-white/10 text-white/70" : "cursor-grab"
-					}`}
-				>
-					<GripVertical size={metrics.icon} strokeWidth={1.9} />
-				</span>
-			)}
-
 			{TOOLS.map(([id, Icon, label], at) => (
-				<ToolButton key={id} metrics={metrics} toolIndex={at} label={label} active={annotator.tool === id} onClick={() => annotator.setTool(id)}>
+				<ToolButton key={id} metrics={metrics} toolIndex={at} label={translate(label)} active={annotator.tool === id} onClick={() => annotator.setTool(id)}>
 					<Icon size={metrics.icon} strokeWidth={1.9} />
 				</ToolButton>
 			))}
 
 			<Divider metrics={metrics} />
 
-			<ToolButton metrics={metrics} label="撤销 ⌘Z" disabled={!annotator.canUndo} onClick={annotator.undo}>
+			<ToolButton metrics={metrics} label={translate("annotate.undo")} disabled={!annotator.canUndo} onClick={annotator.undo}>
 				<Undo2 size={metrics.icon} strokeWidth={1.9} />
 			</ToolButton>
-			<ToolButton metrics={metrics} label="重做 ⇧⌘Z" disabled={!annotator.canRedo} onClick={annotator.redo}>
+			<ToolButton metrics={metrics} label={translate("annotate.redo")} disabled={!annotator.canRedo} onClick={annotator.redo}>
 				<Redo2 size={metrics.icon} strokeWidth={1.9} />
 			</ToolButton>
 			{/*
@@ -1703,12 +1832,12 @@ export function AnnotateToolbar({
 			 */}
 			{annotator.selected !== null && (
 				<span className="flex animate-[ly-tool-in_var(--ly-t-base)_ease-out]">
-					<ToolButton metrics={metrics} label="删除选中 ⌫" onClick={annotator.removeSelected}>
+					<ToolButton metrics={metrics} label={translate("annotate.deleteSelected")} onClick={annotator.removeSelected}>
 						<Delete size={metrics.icon} strokeWidth={1.9} />
 					</ToolButton>
 				</span>
 			)}
-			<ToolButton metrics={metrics} label="清空" disabled={!annotator.dirty} onClick={annotator.clear}>
+			<ToolButton metrics={metrics} label={translate("annotate.clear")} disabled={!annotator.dirty} onClick={annotator.clear}>
 				<Trash2 size={metrics.icon} strokeWidth={1.9} />
 			</ToolButton>
 
@@ -1722,12 +1851,12 @@ export function AnnotateToolbar({
 			 */}
 			{(onPin || onDownload) && <Divider metrics={metrics} />}
 			{onPin && (
-				<ToolButton metrics={metrics} label="置顶在桌面" onClick={onPin}>
+				<ToolButton metrics={metrics} label={translate("annotate.pinToDesktop")} onClick={onPin}>
 					<Pin size={metrics.icon} strokeWidth={1.9} />
 				</ToolButton>
 			)}
 			{onDownload && (
-				<ToolButton metrics={metrics} label="下载截图" onClick={onDownload}>
+				<ToolButton metrics={metrics} label={translate("annotate.download")} onClick={onDownload}>
 					<Download size={metrics.icon} strokeWidth={1.9} />
 				</ToolButton>
 			)}
@@ -1736,9 +1865,9 @@ export function AnnotateToolbar({
 
 			<button
 				type="button"
-				data-ly-tip={cancelLabel}
+				data-ly-tip={cancelLabel ?? translate("annotate.exit")}
 				data-ly-tip-side="top"
-				aria-label={cancelLabel}
+				aria-label={cancelLabel ?? translate("annotate.exit")}
 				onClick={onCancel}
 				className={`flex cursor-pointer items-center rounded-md text-white/65 transition-colors duration-[var(--ly-t-quick)] hover:text-white ${metrics.action}`}
 			>
@@ -1746,7 +1875,7 @@ export function AnnotateToolbar({
 			</button>
 			<button
 				type="button"
-				data-ly-tip={saveLabel ?? (canReplace ? "保存并替换原图" : "导出一份带标注的副本")}
+				data-ly-tip={saveLabel ?? translate(canReplace ? "annotate.saveOver" : "annotate.saveCopyTip")}
 				data-ly-tip-side="top"
 				disabled={requireDirty && !annotator.dirty}
 				onClick={onSave}
@@ -1755,7 +1884,7 @@ export function AnnotateToolbar({
 				// height with it.
 				className={`flex cursor-pointer items-center whitespace-nowrap rounded-md bg-white font-medium text-[#1c1c1e] transition-opacity duration-[var(--ly-t-quick)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35 ${metrics.confirm}`}
 			>
-				{saveLabel ?? (canReplace ? "保存" : "保存副本")}
+				{saveLabel ?? translate(canReplace ? "common.save" : "annotate.saveCopy")}
 			</button>
 		</div>
 	);
@@ -1827,6 +1956,13 @@ function ToolProperties({
 			 * bubble goes further down, `above` means it is above and the bubble goes further up.
 			 */
 			ref={box}
+			/*
+			 * 标出来，好让工具栏的按住拖拽把这一片排除在外。
+			 *
+			 * 气泡在 DOM 上是工具栏的孩子、在屏幕上却飘在它外面。工具栏空白处按下就能拖，气泡里的
+			 * 空白（按钮之间那几个像素）如果也算数，调粗细时手一沉整条工具栏就跟着走了。
+			 */
+			data-toolbar-bubble
 			className={`absolute left-0 flex cursor-default animate-[ly-tool-in_var(--ly-t-base)_ease-out] items-center border border-white/12 bg-[#1c1c1e]/95 shadow-[0_6px_20px_rgba(0,0,0,0.4)] backdrop-blur-xl ${metrics.bubble} ${
 				side === "below" ? "top-full mt-2" : "bottom-full mb-2"
 			}`}
@@ -1837,13 +1973,16 @@ function ToolProperties({
 					key={label}
 					type="button"
 					onClick={() => annotator.setWeight(value)}
-					aria-label={`${SIZE_LABEL[annotator.tool] ?? "粗细"} ${label}`}
+					aria-label={translate("annotate.sizeIs", {
+						what: translate(SIZE_LABEL[annotator.tool] ?? "annotate.weight"),
+						label: translate(label),
+					})}
 					aria-pressed={annotator.weight === value}
 					className={`flex cursor-pointer items-center rounded transition-colors ${metrics.weight} ${
 						annotator.weight === value ? "bg-white/20 text-white" : "text-white/55 hover:bg-white/10 hover:text-white"
 					}`}
 				>
-					{label}
+					{translate(label)}
 				</button>
 			))}
 
@@ -1854,7 +1993,7 @@ function ToolProperties({
 					<button
 						key={value}
 						type="button"
-						aria-label={COLOUR_NAMES[value] ?? value}
+						aria-label={COLOUR_NAMES[value] ? translate(COLOUR_NAMES[value]) : value}
 						aria-pressed={annotator.colour === value}
 						onClick={() => annotator.setColour(value)}
 						style={{ background: value }}
@@ -1873,7 +2012,7 @@ function ToolProperties({
 					<button
 						key={label}
 						type="button"
-						aria-label={`文字底色 ${label}`}
+						aria-label={translate("annotate.textBackground", { label: translate(label) })}
 						aria-pressed={annotator.backdrop === value}
 						onClick={() => annotator.setBackdrop(value)}
 						style={value ? { background: value } : undefined}

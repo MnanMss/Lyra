@@ -125,7 +125,8 @@ export async function buildOutgoing(
 				const restText = invocation.rest.trim();
 				displayText = restText;
 				outgoing = [
-					`使用 \`${skill.name}\` 技能${skill.pluginId ? `（来自插件 ${skill.pluginId}）` : ""}。`,
+					// Written for the model, so it stays in English whatever the window is set to — see `Composer`.
+			`Use the \`${skill.name}\` skill${skill.pluginId ? ` (from the ${skill.pluginId} plugin)` : ""}.`,
 					restText,
 				]
 					.filter(Boolean)
@@ -142,7 +143,7 @@ export async function buildOutgoing(
 		if (displayText === undefined) {
 			displayText = outgoing;
 		}
-		outgoing = `${outgoing}\n\n[上下文引用提示]\n${sessionPrompts.join("\n")}`;
+		outgoing = `${outgoing}\n\n[Referenced context]\n${sessionPrompts.join("\n")}`;
 	}
 	const fileRefs: Array<{ name: string; path: string }> = [];
 	if (draft.attachments.length > 0) {
@@ -152,17 +153,17 @@ export async function buildOutgoing(
 			const filePrompts = nonImages.map((f) => {
 				const targetPath = f.path ?? f.name;
 				const display = cwd && f.path ? relativeTo(cwd, f.path) : f.name;
-				const pathNote = f.path && f.path !== display ? ` (路径: ${JSON.stringify(f.path)})` : "";
+				const pathNote = f.path && f.path !== display ? ` (path: ${JSON.stringify(f.path)})` : "";
 				fileRefs.push({ name: f.name, path: targetPath });
-				return `- 文件引用 ${JSON.stringify(display)}${pathNote}：不要假设其内容，请在需要时使用 \`read\` 工具查看该文件。`;
+				return `- Referenced file ${JSON.stringify(display)}${pathNote}: do not assume its contents, read it with the \`read\` tool when needed.`;
 			});
 			if (displayText === undefined) {
 				displayText = outgoing;
 			}
 			outgoing = outgoing
-				? `${outgoing}\n\n[文件引用提示]\n${filePrompts.join("\n")}`
-				: `[文件引用提示]\n${filePrompts.join("\n")}`;
-		}
+				? `${outgoing}\n\n[Referenced files]\n${filePrompts.join("\n")}`
+				: `[Referenced files]\n${filePrompts.join("\n")}`;
+	}
 	}
 
 	const images = draft.attachments

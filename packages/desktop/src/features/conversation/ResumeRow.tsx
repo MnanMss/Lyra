@@ -1,7 +1,9 @@
+import { translate } from "../../i18n/translate.ts";
 import { useSide } from "../dock/index.ts";
 import { useApp } from "../../store/index.ts";
 import { useConfirmer } from "../../ui/overlay/Confirm.tsx";
 import { carryOnPrompt, hasRetryPoint } from "../../store/derive.ts";
+import { useI18n } from "../../i18n/index.ts";
 
 /**
  * The turn stopped somewhere short of the end, and here is how to pick it up.
@@ -21,6 +23,7 @@ import { carryOnPrompt, hasRetryPoint } from "../../store/derive.ts";
  * would make an ordinary pause look like a failure.
  */
 export function ResumeRow() {
+	const { t } = useI18n();
 	const send = useApp((s) => s.send);
 	const retryFrom = useApp((s) => s.retryFrom);
 	const running = useApp((s) => s.running);
@@ -79,21 +82,21 @@ export function ResumeRow() {
 	 * 中断」 and this row saying 「已暂停」 read as two unrelated facts.
 	 */
 	const note = interrupted
-		? "派出的任务被一并中断"
+		? t("resume.subagentsStopped")
 		: stopped === "user"
-			? "已暂停"
+			? t("common.paused")
 			: stopped === "error"
-				? "上次请求失败，进度已保留"
+				? t("resume.lastFailed")
 				: stopped === "interrupt"
-					? "上次执行被中断"
-					: `计划还有 ${unfinished} 项未完成`;
+					? t("resume.lastAborted")
+					: t("resume.unfinished", { n: unfinished });
 	return (
 		<div className="ly-enter mb-2.5 flex items-center gap-2 text-detail text-ink-faint">
 			<span>{note}</span>
 			<span className="text-line">·</span>
 			<button
 				type="button"
-				data-ly-tip={interrupted ? "把被中断的那个任务重新排上" : "接着做完没做完的部分"}
+				data-ly-tip={interrupted ? t("resume.requeue") : t("resume.carryOn")}
 				/*
 				 * Sent as the app's own message, not as something you typed.
 				 *
@@ -136,7 +139,7 @@ export function ResumeRow() {
 				}}
 				className="rounded px-1 text-ink-muted underline decoration-line underline-offset-2 transition-colors hover:text-ink"
 			>
-				继续
+				{translate("resume.continueLabel")}
 			</button>
 			{/*
 			 * Not a second kind of "carry on": this one throws the reply away and asks again.
@@ -150,7 +153,7 @@ export function ResumeRow() {
 			{hasRetryPoint(messages) && (
 				<button
 					type="button"
-					data-ly-tip="丢掉这次的回答，重新生成"
+					data-ly-tip={t("resume.regenerateHint")}
 					/*
 					 * Asked first, because this one is the expensive mistake.
 					 *
@@ -163,22 +166,22 @@ export function ResumeRow() {
 					 */
 					onClick={() =>
 						confirm.ask({
-							title: "重新生成这次回答？",
+							title: t("resume.regenerateConfirm"),
 							detail: (
 								<>
-									这会丢掉本轮已经做过的工作——读过的文件、跑过的命令、写到一半的回答——
-									并从你最后一条消息重新开始，重新消耗一次 token。
+									{translate("resume.retryDetail1")}
+									{translate("resume.retryDetail2")}
 									<br />
-									想保留这些、只把没做完的做完，请选「继续」。
+									{translate("resume.retryDetail3")}
 								</>
 							),
-							confirmLabel: "重新生成",
+							confirmLabel: t("resume.regenerate"),
 							onConfirm: () => void retryFrom(messages.length - 1),
 						})
 					}
 					className="rounded px-1 text-ink-muted underline decoration-line underline-offset-2 transition-colors hover:text-ink"
 				>
-					重试
+					{translate("common.retry2")}
 				</button>
 			)}
 			{confirm.element}

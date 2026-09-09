@@ -6,6 +6,7 @@
  * conversation has no project of its own and cannot act on one.
  */
 
+import { useI18n } from "../../i18n/index.ts";
 import type { UserContent } from "@lyra/core";
 import { FileText, Plus, RotateCcw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -42,6 +43,7 @@ export function SideComposer({
 	onStop: () => void;
 	onReset?: () => void;
 }) {
+	const { t } = useI18n();
 	const settings = useApp((s) => s.settings);
 	const meta = useApp((s) => s.meta);
 	const modelId = useSide((s) => s.modelId);
@@ -112,12 +114,12 @@ export function SideComposer({
 			const cwd = useApp.getState().workspace?.path ?? useApp.getState().scratchCwd ?? "";
 			const filePrompts = nonImages.map((f) => {
 				const display = cwd && f.path ? relativeTo(cwd, f.path) : f.name;
-				const pathNote = f.path && f.path !== display ? ` (路径: ${JSON.stringify(f.path)})` : "";
-				return `- 文件引用 ${JSON.stringify(display)}${pathNote}：不要假设其内容，请在需要时使用 \`read\` 工具查看该文件。`;
+				const pathNote = f.path && f.path !== display ? ` (path: ${JSON.stringify(f.path)})` : "";
+				return `- Referenced file ${JSON.stringify(display)}${pathNote}: do not assume its contents, read it with the \`read\` tool when needed.`;
 			});
 			finalMessage = finalMessage
-				? `${finalMessage}\n\n[文件引用提示]\n${filePrompts.join("\n")}`
-				: `[文件引用提示]\n${filePrompts.join("\n")}`;
+				? `${finalMessage}\n\n[Referenced files]\n${filePrompts.join("\n")}`
+				: `[Referenced files]\n${filePrompts.join("\n")}`;
 		}
 
 		const images = attachments
@@ -151,7 +153,7 @@ export function SideComposer({
 				onChange={setText}
 				onSubmit={submit}
 				disabled={disabled}
-				placeholder={disabled ? "还没有可以聊的会话" : "问点关于这个会话的事"}
+				placeholder={t(disabled ? "sideChat.noSession" : "sideChat.placeholder")}
 				onFiles={(files) => void addFiles(files)}
 				attachments={
 					attachments.length > 0 ? (
@@ -167,12 +169,12 @@ export function SideComposer({
 												<FileText size={13} className="shrink-0" />
 												<span className="truncate text-[11px] font-medium text-ink">{attachment.name}</span>
 											</div>
-											<span className="text-[9.5px] text-ink-faint">文件引用</span>
+											<span className="text-[9.5px] text-ink-faint">{t("subAgent.fileAttachment")}</span>
 										</div>
 									) : (
 										<button
 											type="button"
-											aria-label={`预览 ${attachment.name}`}
+											aria-label={t("subAgent.previewOne", { name: attachment.name })}
 											onClick={(event) => {
 												const images = attachments
 													.filter((a) => !a.isText && a.data)
@@ -209,8 +211,8 @@ export function SideComposer({
 					<>
 						<button
 							type="button"
-							data-ly-tip="添加附件文件或图片"
-							aria-label="添加附件文件或图片"
+							data-ly-tip={t("subAgent.attach")}
+							aria-label={t("subAgent.attach")}
 							onClick={() => fileInputRef.current?.click()}
 							className="flex h-6.5 w-6.5 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-card-hover hover:text-ink"
 						>
@@ -226,7 +228,7 @@ export function SideComposer({
 								e.target.value = "";
 							}}
 						/>
-						<ModelSelect ariaLabel="侧边聊天模型" value={modelId ?? ""} inheritedModelId={model?.id} inheritedSource="随主会话" inheritLabel="跟随主会话" inheritDetail={modelName ?? "未配置模型"}
+						<ModelSelect ariaLabel={t("sideChat.model")} value={modelId ?? ""} inheritedModelId={model?.id} inheritedSource={t("sideChat.followMain")} inheritLabel={t("sideChat.followMainLong")} inheritDetail={modelName ?? t("sideChat.noModel")}
 							disabled={disabled || loading} onChange={(value) => { void useSide.getState().setModel(value || null); }} />
 					</>
 				}
@@ -235,8 +237,8 @@ export function SideComposer({
 						{onReset && !running && (
 							<button
 								type="button"
-								data-ly-tip="新的侧边聊天"
-								aria-label="新的侧边聊天"
+								data-ly-tip={t("sideChat.new")}
+								aria-label={t("sideChat.new")}
 								onClick={onReset}
 								className="mr-1.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors duration-[var(--ly-t-quick)] hover:bg-card-hover hover:text-ink"
 							>

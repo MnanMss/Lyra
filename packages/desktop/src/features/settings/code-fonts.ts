@@ -14,12 +14,22 @@
  * picked.
  */
 
+import type { MessageKey } from "../../i18n/messages/index.ts";
+
 export interface CodeFontOption {
 	/** What the menu calls it. */
 	label: string;
 	/** The full stack, which is what gets stored. */
 	stack: string;
 	/** The first family, for the availability check and for the sample. */
+	/**
+	 * Only the entry that is not a typeface's own name carries a key.
+	 *
+	 * 「JetBrains Mono」 is called that in every language; the last row is a description, so it is
+	 * the one that has to move. Looked up by the picker rather than here — this table is built at
+	 * import time, before the language is settled.
+	 */
+	labelKey?: MessageKey;
 	family: string;
 	/**
 	 * Shipped with the app, so it is always there.
@@ -75,7 +85,8 @@ export const CODE_FONTS: CodeFontOption[] = [
 	},
 	{ label: "Consolas", family: "Consolas", stack: 'Consolas, ui-monospace, Menlo, "PingFang SC", monospace' },
 	{
-		label: "系统等宽",
+		label: "System monospace",
+		labelKey: "codeFonts.systemMono",
 		family: "ui-monospace",
 		stack: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang SC", monospace',
 	},

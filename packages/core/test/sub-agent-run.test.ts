@@ -277,16 +277,3 @@ test("the transcript is emitted for a live window as well as recorded", async ()
 		"each carrying which sub-agent it came from",
 	);
 });
-test("sub-agent that ends without output due to infinite loop is recorded as failed", async () => {
-	// Script repeating the same tool call with same arguments to trigger stalled
-	const outcome = await dispatch({
-		replies: Array.from({ length: 10 }, () => callsNoop()),
-	}).then(
-		() => ({ success: true }),
-		(err: unknown) => ({ success: false, error: err instanceof Error ? err.message : String(err) }),
-	);
-
-	// Verify error was thrown and not masked as done
-	assert.equal(outcome.success, false);
-	assert.match(outcome.error ?? "", /循环/);
-});

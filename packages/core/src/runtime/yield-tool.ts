@@ -120,10 +120,11 @@ export function makeYieldTool(
 			const errors = validateAgainstSchema(args, schema);
 
 			if (errors.length === 0) {
-				ctx.state.set(YIELD_KEY, { value: args, warnings: [] } satisfies YieldOutcome);
-				return { content: [{ type: "text", text: "结果已提交。" }], terminate: true };
+				const outcome: YieldOutcome = { value: args, warnings: [] };
+				ctx.state.set(YIELD_KEY, outcome);
+				const hasRenderedText = Boolean(renderYield(outcome));
+				return { content: [{ type: "text", text: "结果已提交。" }], ...(hasRenderedText ? { terminate: true } : {}) };
 			}
-
 			if (attempts < maxAttempts) {
 				/*
 				 * The errors go back as a tool error, which is the one channel the model already
@@ -151,9 +152,13 @@ export function makeYieldTool(
 			 * than either — so the warnings travel with it and the UI shows them.
 			 */
 			ctx.state.set(YIELD_KEY, { value: args, warnings: errors } satisfies YieldOutcome);
+			const outcome: YieldOutcome = { value: args, warnings: errors };
+			ctx.state.set(YIELD_KEY, outcome);
+			const hasRenderedText = Boolean(renderYield(outcome));
 			return {
 				content: [{ type: "text", text: `结果已提交，但有 ${errors.length} 处不符合要求，已按原样接受。` }],
-				terminate: true,
+				...(hasRenderedText ? { terminate: true } : {}),
+				...(hasRenderedText ? { terminate: true } : {}),
 			};
 		},
 	};

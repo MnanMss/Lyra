@@ -12,6 +12,7 @@
  * and it is already decoded, so this costs a `drawImage` of a few hundred pixels per frame.
  */
 
+import { translate } from "../../i18n/translate.ts";
 import { useEffect, useRef } from "react";
 import type { Point } from "./screenshot-geometry.ts";
 
@@ -34,6 +35,7 @@ export function ScreenshotLoupe({
 	viewport,
 	reading,
 	copied,
+	colorSpace = "srgb",
 }: {
 	/** The frozen screen, at its own resolution. */
 	source: HTMLCanvasElement | null;
@@ -44,19 +46,26 @@ export function ScreenshotLoupe({
 	viewport: { width: number; height: number };
 	reading: LoupeReading | null;
 	copied: boolean;
+	/**
+	 * 快照那块画布用的色彩空间，放大镜跟着用同一个。
+	 *
+	 * 两块画布的空间不一样，`drawImage` 会在中间转一道——于是放大镜里的颜色跟它下面那片屏幕不是
+	 * 同一个，而放大镜存在的全部意义就是「看清这一格到底是什么颜色」。
+	 */
+	colorSpace?: PredefinedColorSpace;
 }) {
 	const glass = useRef<HTMLCanvasElement | null>(null);
 
 	useEffect(() => {
 		const el = glass.current;
-		const ctx = el?.getContext("2d");
+		const ctx = el?.getContext("2d", { colorSpace });
 		if (!el || !ctx || !source) return;
 		const half = SPAN / 2;
 		ctx.imageSmoothingEnabled = false;
 		ctx.clearRect(0, 0, el.width, el.height);
 		// A slab of the snapshot, blown up so one snapshot pixel is a visible square.
 		ctx.drawImage(source, at.x * scale - half, at.y * scale - half, SPAN, SPAN, 0, 0, el.width, el.height);
-	}, [source, at.x, at.y, scale]);
+	}, [source, at.x, at.y, scale, colorSpace]);
 
 	/*
 	 * Beside the pointer, and never off the screen.
@@ -98,13 +107,13 @@ export function ScreenshotLoupe({
 			</div>
 			<div className="space-y-0.5 px-2 py-1.5 text-caption text-white/85 tabular-nums">
 				<div className="flex items-center justify-between gap-2">
-					<span className="text-white/50">坐标</span>
+					<span className="text-white/50">{translate("screenshot.coordinates")}</span>
 					<span>
 						{reading ? `${reading.x}, ${reading.y}` : "—"}
 					</span>
 				</div>
 				<div className="flex items-center justify-between gap-2">
-					<span className="text-white/50">色值</span>
+					<span className="text-white/50">{translate("screenshot.colour")}</span>
 					<span className="flex items-center gap-1">
 						<span
 							className="inline-block size-2.5 rounded-[2px] border border-white/30"
@@ -113,7 +122,7 @@ export function ScreenshotLoupe({
 						{reading?.hex ?? "—"}
 					</span>
 				</div>
-				<div className="pt-0.5 text-center text-white/45">{copied ? "已复制" : "按 ⌘C 复制色值"}</div>
+				<div className="pt-0.5 text-center text-white/45">{translate(copied ? "screenshot.copied" : "screenshot.copyColour")}</div>
 			</div>
 		</div>
 	);

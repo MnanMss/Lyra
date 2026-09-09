@@ -14,12 +14,14 @@
  * an empty list.
  */
 
+import { translate } from "../../i18n/translate.ts";
 import { ExternalLink } from "lucide-react";
 import { useState } from "react";
 import type { ForgeKind, ForgeKindInfo } from "../../../electron/ipc-types.ts";
 import { useAccountActions } from "../pull-requests/index.ts";
 import { Field, GhostButton, PrimaryButton, SecretInput, TextInput } from "./controls.tsx";
 import { bridge } from "../../services/index.ts";
+import { useI18n } from "../../i18n/index.ts";
 
 /**
  * Where a host keeps its token page, for the instance actually being signed in to.
@@ -47,6 +49,7 @@ function tokenUrl(info: ForgeKindInfo, baseUrl: string): string | null {
 }
 
 export function ForgeSignIn({ kinds, onDone, onCancel }: { kinds: ForgeKindInfo[]; onDone: () => void; onCancel: () => void }) {
+	const { t } = useI18n();
 	const { signIn } = useAccountActions();
 	const [kind, setKind] = useState<ForgeKind>("github");
 	const [baseUrl, setBaseUrl] = useState(kinds.find((k) => k.kind === "github")?.baseUrl ?? "https://github.com");
@@ -106,7 +109,7 @@ export function ForgeSignIn({ kinds, onDone, onCancel }: { kinds: ForgeKindInfo[
 			{info?.note && <p className="mb-4 text-detail leading-relaxed text-ink-faint">{info.note}</p>}
 
 			<div className="flex flex-col gap-3.5">
-				<Field label="服务地址" hint="自建实例填自己的域名，接口路径由应用补齐">
+				<Field label={t("forge.baseUrl")} hint={t("forge.baseUrlDetail")}>
 					<TextInput
 						value={baseUrl}
 						onChange={setBaseUrl}
@@ -119,24 +122,24 @@ export function ForgeSignIn({ kinds, onDone, onCancel }: { kinds: ForgeKindInfo[
 
 				<div>
 					<div className="mb-1.5 flex items-center gap-2">
-						<span className="text-label text-ink-muted">访问令牌</span>
+						<span className="text-label text-ink-muted">{t("forge.token")}</span>
 						{help && (
 							<button
 								type="button"
 								onClick={() => void bridge.system.openExternal(help)}
 								className="flex items-center gap-0.5 text-caption text-ink-faint transition-colors hover:text-ink"
 							>
-								去创建
+								{translate("forgeSignIn.create")}
 								<ExternalLink size={10} strokeWidth={2} />
 							</button>
 						)}
-						{info?.scopes && <span className="text-caption text-ink-faint">需要 {info.scopes}</span>}
+						{info?.scopes && <span className="text-caption text-ink-faint">{translate("forgeSignIn.needsScopes")} {info.scopes}</span>}
 					</div>
-					<SecretInput value={token} onChange={setToken} placeholder="粘贴访问令牌" />
+					<SecretInput value={token} onChange={setToken} placeholder={t("forge.pasteToken")} />
 				</div>
 
-				<Field label="备注名（可选）" hint="留空就用「用户名 · 域名」">
-					<TextInput value={label} onChange={setLabel} placeholder="工作账号" />
+				<Field label={t("forge.nickname")} hint={t("forge.nicknameDetail")}>
+					<TextInput value={label} onChange={setLabel} placeholder={t("forge.nicknamePlaceholder")} />
 				</Field>
 			</div>
 
@@ -148,9 +151,9 @@ export function ForgeSignIn({ kinds, onDone, onCancel }: { kinds: ForgeKindInfo[
 
 			<div className="mt-4 flex items-center gap-2">
 				<PrimaryButton onClick={() => void save()} disabled={busy || !token.trim() || !baseUrl.trim()}>
-					{busy ? "验证中…" : "验证并保存"}
+					{busy ? t("forge.verifying") : t("forge.verifyAndSave")}
 				</PrimaryButton>
-				<GhostButton onClick={onCancel}>取消</GhostButton>
+				<GhostButton onClick={onCancel}>{t("common.cancel")}</GhostButton>
 			</div>
 		</div>
 	);

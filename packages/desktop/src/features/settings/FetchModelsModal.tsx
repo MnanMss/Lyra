@@ -2,12 +2,14 @@
  * Modal to select and import discovered models from a provider's /v1/models endpoint.
  */
 
+import { translate } from "../../i18n/translate.ts";
 import { Check, CheckSquare, Square, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { ModelIcon } from "../models/index.ts";
 import { Scroller } from "../../ui/scroll/Scroller.tsx";
 import { SearchField } from "../../ui/inputs/SearchField.tsx";
 import { GhostButton } from "./controls.tsx";
+import { useI18n } from "../../i18n/index.ts";
 
 export function FetchModelsModal({
 	open,
@@ -22,6 +24,7 @@ export function FetchModelsModal({
 	onClose: () => void;
 	onImport: (selectedIds: string[]) => void;
 }) {
+	const { t } = useI18n();
 	const [search, setSearch] = useState("");
 	const [selected, setSelected] = useState<Set<string>>(() => {
 		// Default: select all non-existing models
@@ -65,9 +68,9 @@ export function FetchModelsModal({
 				{/* Header */}
 				<div className="flex items-center justify-between px-5 pt-4 pb-2">
 					<div className="flex items-center gap-2">
-						<span className="text-body font-semibold text-ink">拉取并选择模型</span>
+						<span className="text-body font-semibold text-ink">{t("fetchModels.title")}</span>
 						<span className="rounded-full bg-card-hover px-2 py-0.5 text-micro font-medium text-ink-muted">
-							共 {models.length} 个
+							{translate("fetchModels.totalCount", { n: models.length })}
 						</span>
 					</div>
 					<button
@@ -84,7 +87,7 @@ export function FetchModelsModal({
 					<SearchField
 						value={search}
 						onChange={setSearch}
-						placeholder="搜索模型名称或厂商…"
+						placeholder={t("fetchModels.search")}
 						size="comfortable"
 						className="flex-1 bg-input"
 					/>
@@ -102,7 +105,7 @@ export function FetchModelsModal({
 						) : (
 							<Square size={14} className="text-ink-faint" strokeWidth={1.8} />
 						)}
-						<span>{allSelected ? "取消全选" : "全选"}</span>
+						<span>{allSelected ? t("common.deselectAll") : t("common.selectAll")}</span>
 					</button>
 				</div>
 
@@ -114,7 +117,7 @@ export function FetchModelsModal({
 					contentClassName="px-5 py-2 space-y-1.5"
 				>
 					{filtered.length === 0 ? (
-						<div className="py-12 text-center text-caption text-ink-faint">没有找到匹配的模型</div>
+						<div className="py-12 text-center text-caption text-ink-faint">{t("fetchModels.noMatch")}</div>
 					) : (
 						filtered.map((modelId) => {
 							const checked = selected.has(modelId);
@@ -149,7 +152,7 @@ export function FetchModelsModal({
 												<span className="font-mono text-label text-ink truncate">{modelId}</span>
 												{isExisting && (
 													<span className="shrink-0 rounded bg-ink-faint/10 px-1 py-0.2 text-micro text-ink-faint">
-														已添加
+														{translate("fetchModels.added")}
 													</span>
 												)}
 											</div>
@@ -165,12 +168,12 @@ export function FetchModelsModal({
 				{/* Footer */}
 				<div className="flex items-center justify-between px-5 pt-3 pb-4">
 					<span className="text-caption text-ink-muted">
-						已选择 <strong className="text-ink font-medium">{selected.size}</strong> 个模型
+						{t("fetchModels.selected", { n: selected.size })}
 					</span>
 					<div className="flex items-center gap-2">
 						<GhostButton onClick={onClose}>
 							<X size={13} strokeWidth={2} />
-							<span>取消</span>
+							<span>{t("common.cancel")}</span>
 						</GhostButton>
 						<button
 							type="button"
@@ -179,7 +182,7 @@ export function FetchModelsModal({
 							className="flex h-8 items-center gap-1.5 rounded-lg bg-ink px-3.5 text-caption font-medium text-shell transition-opacity hover:opacity-90 disabled:opacity-40 cursor-pointer"
 						>
 							<Check size={13} strokeWidth={2.2} />
-							<span>导入所选 ({selected.size})</span>
+							<span>{translate("fetchModels.importSelected", { n: selected.size })}</span>
 						</button>
 					</div>
 				</div>

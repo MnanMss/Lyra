@@ -1,3 +1,4 @@
+import { translate } from "../i18n/translate.ts";
 import type { CommandRun } from "@lyra/core";
 /**
  * Reading state back out of a transcript.
@@ -79,7 +80,17 @@ export type TurnStop = "user" | "interrupt" | "error" | null;
  * these exact strings to tell "carrying on" apart from "asking something new" — that is what keeps
  * a task's elapsed time and tokens whole across an interruption. A second copy is a mismatch
  * waiting for the day somebody improves the wording.
+ *
+ * **Not translated, and that is deliberate.** Nobody reads these: `resumesTurn` folds the message
+ * into the turn above it, so it never reaches the transcript. What they are is two things that
+ * both need to stay put — the text handed to the model, and the mark a saved transcript is
+ * recognised by. Route them through `translate` and the table freezes into whatever language the
+ * window started in; a conversation carried on in Chinese and reopened in English stops matching,
+ * `resumesTurn` calls it a new question, and every interrupted turn from then on reports the
+ * length of its last leg. Which is precisely the failure this constant exists to prevent, and it
+ * is invisible: the suite walks this table, so a table that moved with the language stayed green.
  */
+// i18n-exempt: 发给模型的文本，同时是历史转录的标识——翻译它会让老会话的续跑认不出来。
 export const CARRY_ON_PROMPTS = [
 	"继续，从暂停的地方接着做。",
 	"继续，从中断的地方接着做。",
@@ -246,8 +257,8 @@ export function rebuildToolRuns(messages: Message[], running?: boolean): Record<
       run.status = "error";
       const isTask = run.toolName === "task";
       const text = isTask
-        ? "子任务在完成前中断（应用退出或会话已结束）。可在下方点击继续以恢复。"
-        : "这次调用没有结果：会话在它结束之前退出了。";
+        ? translate("derive.taskInterrupted")
+        : translate("derive.noResult");
       run.result = { content: [{ type: "text", text }], isError: true };
       run.finishedAt = run.startedAt;
     }

@@ -74,7 +74,7 @@ test("text attachment does not inline contents into prompt, but issues a file re
 		await click(view.find('[aria-label="发送"]'));
 		const textBlock = sentContent.find((c) => c.type === "text")?.text ?? "";
 		assert.ok(!textBlock.includes("SECRET_FILE_CONTENT_THAT_MUST_NEVER_BE_INLINED"), "文件正文绝对不应内联进 prompt");
-		assert.ok(textBlock.includes("[文件引用提示]"), "应当生成文件引用提示");
+		assert.ok(textBlock.includes("[Referenced files]"), "应当生成文件引用提示");
 		assert.ok(textBlock.includes("src/file.ts"), "应当生成相对或规范路径引用");
 		assert.ok(textBlock.includes("read"), "应当指导模型使用 read 工具");
 	} finally {

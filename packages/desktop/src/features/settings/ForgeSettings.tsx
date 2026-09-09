@@ -13,6 +13,7 @@
  * otherwise would be the one thing here worth being angry about.
  */
 
+import { translate } from "../../i18n/translate.ts";
 import { Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { ForgeAccount, ForgeKindInfo } from "../../../electron/ipc-types.ts";
@@ -22,8 +23,10 @@ import { IconButton } from "../../ui/primitives/IconButton.tsx";
 import { Badge, Card, EmptyHint, GhostButton, ListRow, SectionTitle, TextInput, Toggle } from "./controls.tsx";
 import { ForgeSignIn } from "./ForgeSignIn.tsx";
 import { bridge } from "../../services/index.ts";
+import { useI18n } from "../../i18n/index.ts";
 
 export function ForgeSettings() {
+	const { t } = useI18n();
 	const { accounts } = useForgeAccounts();
 	const { setEnabled, signOut, rename } = useAccountActions();
 	const [kinds, setKinds] = useState<ForgeKindInfo[]>([]);
@@ -41,16 +44,16 @@ export function ForgeSettings() {
 
 	return (
 		<div className="pt-8">
-			<h1 className="text-display leading-tight font-semibold tracking-tight text-ink">代码托管</h1>
+			<h1 className="text-display leading-tight font-semibold tracking-tight text-ink">{t("forge.title")}</h1>
 			<p className="mt-2 max-w-[600px] pb-7 text-label leading-relaxed text-ink-muted">
-				连接代码托管账号，统一查看和审查 Pull Request。支持自建实例。
+				{translate("forge.intro")}
 			</p>
 
-			<SectionTitle>账号</SectionTitle>
+			<SectionTitle>{t("common.account")}</SectionTitle>
 			<div className="mb-3">
 				{accounts.length === 0 && !adding && (
 					<Card>
-						<EmptyHint>暂无代码托管账号</EmptyHint>
+						<EmptyHint>{t("forge.empty")}</EmptyHint>
 					</Card>
 				)}
 
@@ -96,7 +99,7 @@ export function ForgeSettings() {
 							account.lastError && account.enabled ? (
 								<span className="text-danger">{account.lastError}</span>
 							) : (
-								`${account.login || "未知用户"} · ${host(account.baseUrl)}`
+								`${account.login || t("forge.unknownUser")} · ${host(account.baseUrl)}`
 							)
 						}
 						actions={
@@ -112,14 +115,14 @@ export function ForgeSettings() {
 									<IconButton
 										className="ly-row-action"
 										size="sm"
-										label="重命名"
+										label={t("common.rename")}
 										icon={<Pencil size={13} strokeWidth={1.8} />}
 										onClick={() => setEditing(account.id)}
 									/>
 									<IconButton
 										className="ly-row-action"
 										size="sm"
-										label="退出登录并删除令牌"
+										label={t("forge.signOut")}
 										icon={<Trash2 size={13} strokeWidth={1.8} />}
 										onClick={() => void signOut(account.id)}
 										tone="danger"
@@ -140,7 +143,7 @@ export function ForgeSettings() {
 				<ForgeSignIn kinds={kinds} onDone={() => setAdding(false)} onCancel={() => setAdding(false)} />
 			) : (
 				<GhostButton icon={<Plus size={14} strokeWidth={2} />} onClick={() => setAdding(true)}>
-					添加账号
+					{translate("prList.addAccount")}
 				</GhostButton>
 			)}
 
@@ -156,8 +159,7 @@ export function ForgeSettings() {
 			 */}
 			<p className="mt-8 flex max-w-[600px] items-start gap-2 pb-8 text-detail leading-relaxed text-ink-faint">
 				<ShieldCheck size={13} strokeWidth={1.8} className="mt-0.5 shrink-0" />
-				令牌加密后存在 ~/.lyra/forges.json（权限
-				0600），密钥在同目录的 vault.key，不会写进 settings.json，也不会同步到移动端。界面永远不会把它读回来。能读到你主目录的程序也能解开它——介意的话，给令牌设一个短一点的有效期。
+				{translate("forge.tokenStorageInline")}
 			</p>
 		</div>
 	);

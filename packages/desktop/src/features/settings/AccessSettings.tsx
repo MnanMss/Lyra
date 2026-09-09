@@ -16,6 +16,7 @@
  * middle of a turn.
  */
 
+import { useI18n } from "../../i18n/index.ts";
 import { Plus, ShieldCheck, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { useApp } from "../../store/index.ts";
@@ -25,6 +26,7 @@ import { ProjectOverrideNotice } from "./ProjectOverrideNotice.tsx";
 import { EmptyHint, GhostButton } from "./controls.tsx";
 
 export function AccessSettings() {
+	const { t } = useI18n();
 	const settings = useApp((s) => s.settings);
 	const saveSettings = useApp((s) => s.saveSettings);
 	const [host, setHost] = useState("");
@@ -43,17 +45,17 @@ export function AccessSettings() {
 
 	return (
 		<div className="pt-8">
-			<h1 className="text-display leading-tight font-semibold tracking-tight text-ink">访问授权</h1>
+			<h1 className="text-display leading-tight font-semibold tracking-tight text-ink">{t("access.title")}</h1>
 			<p className="mt-2 max-w-[600px] pb-7 text-label leading-relaxed text-ink-muted">
-				你点过「始终允许」的，和你允许 agent 访问的内网地址。都可以随时收回。
+				{t("access.intro")}
 			</p>
 
 			<ProjectOverrideNotice keys={["alwaysAllow", "permissionMode"]} />
-			<SectionTitle>始终允许</SectionTitle>
+			<SectionTitle>{t("access.alwaysAllow")}</SectionTitle>
 			<Card className="mb-6">
 				{allowed.length === 0 ? (
 					<div className="px-4 py-6">
-						<EmptyHint>暂无「始终允许」记录</EmptyHint>
+						<EmptyHint>{t("access.alwaysAllowEmpty")}</EmptyHint>
 					</div>
 				) : (
 					allowed.map((subject, index) => (
@@ -67,8 +69,8 @@ export function AccessSettings() {
 							<span className="min-w-0 flex-1 font-mono text-detail leading-relaxed break-all text-ink">{subject}</span>
 							<button
 								type="button"
-								data-ly-tip="不再自动允许"
-								aria-label={`不再自动允许 ${subject}`}
+								data-ly-tip={t("access.stopAuto")}
+								aria-label={t("access.stopAutoFor", { subject })}
 								onClick={() =>
 									void saveSettings({ ...settings, alwaysAllow: allowed.filter((entry) => entry !== subject) })
 								}
@@ -81,17 +83,17 @@ export function AccessSettings() {
 				)}
 			</Card>
 
-			<SectionTitle>内网地址</SectionTitle>
+			<SectionTitle>{t("access.intranet")}</SectionTitle>
 			<p className="mb-2 max-w-[600px] text-detail leading-relaxed text-ink-faint">
-				私有网段和云元数据地址默认一律拒绝，不会来问你 —— 那种地址光看 URL 判断不了好坏。
-				如果你确实有自建服务要让 agent 访问，在这里按主机名加进来。
+				{t("access.privateDenied")}
+				{t("access.addYourOwn")}
 			</p>
 			<Card className="mb-6">
 				<div className="flex items-center gap-2 px-4 py-3">
 					<TextInput
 						value={host}
 						onChange={setHost}
-						placeholder="例如 nas.local 或 gitlab.internal"
+						placeholder={t("access.hostPlaceholder")}
 						onKeyDown={(event) => {
 							if (event.key === "Enter") {
 								event.preventDefault();
@@ -101,7 +103,7 @@ export function AccessSettings() {
 					/>
 					<GhostButton onClick={addHost} disabled={!host.trim()}>
 						<Plus size={13} strokeWidth={2} />
-						添加
+						{t("mcp.add")}
 					</GhostButton>
 				</div>
 
@@ -115,7 +117,7 @@ export function AccessSettings() {
 								{entry}
 								<button
 									type="button"
-									aria-label={`移除 ${entry}`}
+									aria-label={t("access.removeEntry", { entry })}
 									onClick={() =>
 										void saveSettings({ ...settings, allowedHosts: hosts.filter((h) => h !== entry) })
 									}
@@ -134,7 +136,7 @@ export function AccessSettings() {
 			 * general override, and somebody would use it as one.
 			 */}
 			<p className="max-w-[600px] pb-8 text-detail leading-relaxed text-ink-faint">
-				按主机名匹配。一个公网域名如果解析到私有地址，仍然会被拒绝 —— 那是攻击的形状，不是配置的形状。
+				{t("access.hostOnly")}
 			</p>
 		</div>
 	);

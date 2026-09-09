@@ -1,3 +1,4 @@
+import { translate } from "../../i18n/translate.ts";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ApprovalOverlay } from "./ApprovalOverlay.tsx";
 import { BackToLatest } from "./BackToLatest.tsx";
@@ -281,14 +282,14 @@ export const Conversation = memo(function Conversation() {
            * end is what anyone is reading; the rest is one click away and stays unmounted until
            * then.
            */}
-          {loadingSession && <div role="status" className="text-label text-ink-faint">正在加载对话…</div>}
+          {loadingSession && <div role="status" className="text-label text-ink-faint">{translate("conversation.loading")}</div>}
           {hidden > 0 && (
             <button
               type="button"
               onClick={range.earlier}
               className="mb-4 flex h-7 w-full items-center justify-center rounded-md text-detail text-ink-faint transition-colors hover:bg-card-hover hover:text-ink-muted"
             >
-              显示更早的 {Math.min(hidden, WINDOW_STEP)} 条（共 {hidden} 条）
+              {translate("conversation.showEarlier", { n: Math.min(hidden, WINDOW_STEP), total: hidden })}
             </button>
           )}
 
@@ -355,7 +356,7 @@ export const Conversation = memo(function Conversation() {
            * Folded rather than removed, so the height goes continuously — which is the whole
            * reason it was made to stay put in the first place.
            */}
-          {range.end < allRuns.length && <button type="button" onClick={range.later} className="my-3 flex h-7 w-full items-center justify-center rounded-md text-detail text-ink-faint transition-colors hover:bg-card-hover hover:text-ink-muted">显示后面的 {Math.min(WINDOW_STEP, allRuns.length - range.end)} 条</button>}
+          {range.end < allRuns.length && <button type="button" onClick={range.later} className="my-3 flex h-7 w-full items-center justify-center rounded-md text-detail text-ink-faint transition-colors hover:bg-card-hover hover:text-ink-muted">{translate("conversation.showLaterN", { n: Math.min(WINDOW_STEP, allRuns.length - range.end) })}</button>}
           {range.end === allRuns.length && <>
           <div className="ly-reveal" data-open={running && !answering && !compacting} aria-hidden={!running || answering || compacting}>
             <div>

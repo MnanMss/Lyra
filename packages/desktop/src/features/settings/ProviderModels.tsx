@@ -10,6 +10,7 @@
  * about to compare it against.
  */
 
+import { translate } from "../../i18n/translate.ts";
 import { Check, CircleAlert, CloudDownload, Link2, Loader2, Pencil, Play, Plus, RefreshCw, Trash2 } from "lucide-react";
 import type { ModelConfig } from "@lyra/core";
 import type { ProviderTestResult } from "../../../electron/ipc-types.ts";
@@ -18,6 +19,7 @@ import { ModelIcon } from "../models/index.ts";
 import { formatWindow } from "../models/index.ts";
 import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
 import { Badge, GhostButton } from "./controls.tsx";
+import { useI18n } from "../../i18n/index.ts";
 
 export function ProviderModels({
 	models,
@@ -51,11 +53,12 @@ export function ProviderModels({
 	onRemove: (modelId: string) => void;
 	onSetDefault: (modelId: string) => void;
 }) {
+	const { t } = useI18n();
 	return (
 		<div className="pt-6">
 			<div className="mb-2 flex items-center justify-between">
 				<div className="flex items-center gap-2">
-					<span className="text-label text-ink-muted">模型列表</span>
+					<span className="text-label text-ink-muted">{t("providerModels.list")}</span>
 					{models.length > 0 && (
 						<span className="rounded-md bg-card-hover px-1.5 py-0.5 text-micro font-medium text-ink-faint">
 							{models.length}
@@ -68,7 +71,7 @@ export function ProviderModels({
 							type="button"
 							onClick={onFetchModels}
 							disabled={fetchingModels || testing}
-							data-ly-tip="从当前 Base URL 端点自动获取可用模型列表"
+							data-ly-tip={t("providerModels.fetchDetail")}
 							className="flex h-7 items-center gap-1.5 rounded-lg px-2 text-caption font-medium text-ink-muted transition-colors hover:bg-card-hover hover:text-ink disabled:opacity-50 cursor-pointer"
 						>
 							{fetchingModels ? (
@@ -76,11 +79,11 @@ export function ProviderModels({
 							) : (
 								<CloudDownload size={13.5} strokeWidth={1.8} />
 							)}
-							<span>{fetchingModels ? "获取中…" : "拉取模型"}</span>
+							<span>{fetchingModels ? t("providerModels.fetching") : t("providerModels.fetch")}</span>
 						</button>
 					)}
 					<GhostButton onClick={onTest} disabled={testing || !!testingModelId || fetchingModels}>
-						<span>{testing ? "测试中…" : "测试全部"}</span>
+						<span>{testing ? t("providerModels.testing") : t("providerModels.testAll")}</span>
 					</GhostButton>
 				</div>
 			</div>
@@ -113,7 +116,7 @@ export function ProviderModels({
 					className="flex h-[38px] items-center gap-2 rounded-[10px] border border-line px-3 text-label text-ink-muted transition-colors hover:border-ink-faint hover:text-ink cursor-pointer"
 				>
 					<Plus size={14} strokeWidth={1.9} />
-					添加模型
+					{translate("providerModels.add")}
 				</button>
 			</div>
 
@@ -141,6 +144,7 @@ function ModelRow({
 	onRemove: () => void;
 	onSetDefault: () => void;
 }) {
+	const { t } = useI18n();
 	const confirm = useConfirmer();
 
 	return (
@@ -156,7 +160,7 @@ function ModelRow({
 				{/* Single model test quick status badge if tested */}
 				{testResult && (
 					<span
-						data-ly-tip={`${testResult.ok ? "测试通过" : "测试失败"} · ${testResult.message}`}
+						data-ly-tip={`${testResult.ok ? t("providerModels.testPassed") : t("providerModels.testFailed")} · ${testResult.message}`}
 						className={`flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-caption tabular-nums transition-colors ${
 							testResult.ok ? "bg-ok/10 text-ok" : "bg-danger/10 text-danger"
 						}`}
@@ -170,15 +174,15 @@ function ModelRow({
 					</span>
 				)}
 
-				{isDefault && <Badge tone="accent">默认</Badge>}
+				{isDefault && <Badge tone="accent">{t("common.default")}</Badge>}
 				<span className="rounded bg-card px-1.5 py-0.5 font-mono text-caption text-ink-faint">
 					{formatWindow(model.contextWindow)}
 				</span>
 
 				<button
 					type="button"
-					data-ly-tip={testing ? "正在测试连接…" : "测试此模型"}
-					aria-label="测试此模型"
+					data-ly-tip={testing ? t("providerModels.connecting") : t("providerModels.testOne")}
+					aria-label={t("providerModels.testOne")}
 					disabled={testing}
 					onClick={onTest}
 					className={`flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition-all hover:bg-card hover:text-ink active:scale-95 ${
@@ -194,8 +198,8 @@ function ModelRow({
 
 				<button
 					type="button"
-					data-ly-tip="设为默认模型"
-					aria-label="设为默认模型"
+					data-ly-tip={t("providerModels.makeDefault")}
+					aria-label={t("providerModels.makeDefault")}
 					onClick={onSetDefault}
 					className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-card hover:text-ink"
 				>
@@ -203,8 +207,8 @@ function ModelRow({
 				</button>
 				<button
 					type="button"
-					data-ly-tip="编辑"
-					aria-label="编辑模型"
+					data-ly-tip={t("common.edit")}
+					aria-label={t("providerModels.editOne")}
 					onClick={onEdit}
 					className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-card hover:text-ink"
 				>
@@ -212,13 +216,13 @@ function ModelRow({
 				</button>
 				<button
 					type="button"
-					data-ly-tip="删除"
-					aria-label="删除模型"
+					data-ly-tip={t("common.delete")}
+					aria-label={t("providerModels.deleteOne")}
 					onClick={() =>
 						confirm.ask({
-							title: `删除 ${model.modelId}？`,
-							detail: isDefault ? "它是当前的默认模型，删掉之后要另选一个。" : undefined,
-							confirmLabel: "删除",
+							title: t("providerModels.deleteConfirm", { id: model.modelId }),
+							detail: isDefault ? t("providerModels.deleteDefaultDetail") : undefined,
+							confirmLabel: t("common.delete"),
 							onConfirm: onRemove,
 						})
 					}
@@ -231,7 +235,7 @@ function ModelRow({
 			{/* If the individual test had an error, show a quiet informative line below the row */}
 			{testResult && !testResult.ok && (
 				<div className="border-t border-danger/20 bg-danger/5 px-3.5 py-1.5 text-detail text-danger">
-					<span className="font-medium">连接失败: </span>
+					<span className="font-medium">{t("providerModels.connectFailed")} </span>
 					{testResult.message}
 				</div>
 			)}
