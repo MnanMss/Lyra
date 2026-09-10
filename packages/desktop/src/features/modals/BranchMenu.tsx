@@ -1,7 +1,8 @@
 import { translate } from "../../i18n/translate.ts";
-import { Check, GitBranch } from "lucide-react";
+import { Check, GitBranch, GitBranchPlus } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { BranchList } from "../../../electron/ipc-types.ts";
+import type { RepoRef } from "../../../electron/git.ts";
 import { MENU_MAX_HEIGHT, MenuBody, MenuItem, MenuLabel, MenuSearch, Popover, type Anchor } from "../../ui/overlay/Popover.tsx";
 import { ScrollText } from "../../ui/scroll/ScrollText.tsx";
 import { useApp } from "../../store/index.ts";
@@ -25,6 +26,7 @@ const lastSeen = new Map<string, BranchList>();
  */
 export function BranchMenu({ anchor, onClose }: { anchor: Anchor; onClose: () => void }) {
 	const workspace = useApp((s) => s.workspace);
+	const openWorkspace = useApp((s) => s.openWorkspace);
 	const refreshWorkspace = useApp((s) => s.refreshWorkspace);
 	const setSwitching = useApp((s) => s.setSwitchingBranch);
 	const notify = useApp((s) => s.notify);
@@ -33,6 +35,7 @@ export function BranchMenu({ anchor, onClose }: { anchor: Anchor; onClose: () =>
 		() => (workspace ? (lastSeen.get(workspace.path) ?? null) : null),
 	);
 	const [query, setQuery] = useState("");
+	const [worktreeBranches, setWorktreeBranches] = useState<Map<string, RepoRef>>(new Map());
 
 	useEffect(() => {
 		if (!workspace) return;
@@ -41,6 +44,16 @@ export function BranchMenu({ anchor, onClose }: { anchor: Anchor; onClose: () =>
 			lastSeen.set(workspace.path, list);
 			if (live) setBranches(list);
 		});
+		void bridge.git.worktrees(workspace.path).then((trees) => {
+			if (!live) return;
+			const map = new Map<string, RepoRef>();
+			for (const t of trees) {
+				if (t.worktree && t.branch && t.path !== workspace.path) {
+					map.set(t.branch, t);
+				}
+			}
+			setWorktreeBranches(map);
+		}).catch(() => {});
 		return () => {
 			live = false;
 		};
@@ -50,9 +63,15 @@ export function BranchMenu({ anchor, onClose }: { anchor: Anchor; onClose: () =>
 	const match = (name: string) => !needle || name.toLowerCase().includes(needle);
 	const local = (branches?.local ?? []).filter(match);
 	const remote = (branches?.remote ?? []).filter(match);
-
 	async function switchTo(branch: string) {
 		if (!workspace) return;
+		const occupied = worktreeBranches.get(branch);
+		if (occupied) {
+			onClose();
+			await openWorkspace(occupied.path);
+			notify(translate("branchMenu.switchedToWorktree", { branch }));
+			return;
+		}
 		/*
 		 * Handed over whole, remote prefix and all.
 		 *
@@ -136,23 +155,18 @@ export function BranchMenu({ anchor, onClose }: { anchor: Anchor; onClose: () =>
 					</p>
 				)}
 
-				{local.map((branch) => (
-					<Row
-						key={branch}
-						name={branch}
-						/*
-						 * From the workspace, not from the list this menu fetched.
-						 *
-						 * `branches.current` is a snapshot taken when the menu opened, and switching
-						 * does not refetch it — so the tick stayed on the branch you left until the
-						 * whole list was read again, which is what read as the check lagging behind.
-						 * The workspace's branch is re-read the moment a switch lands, so it is both
-						 * current and the same thing the bar below the composer is showing.
-						 */
-						current={branch === (workspace?.branch ?? branches?.current)}
-						onSelect={() => void switchTo(branch)}
-					/>
-				))}
+				{local.map((branch) => {
+					const occupied = worktreeBranches.get(branch);
+					return (
+						<Row
+							key={branch}
+							name={branch}
+							occupiedBy={occupied}
+							current={branch === (workspace?.branch ?? branches?.current)}
+							onSelect={() => void switchTo(branch)}
+						/>
+					);
+				})}
 
 				{remote.length > 0 && (
 					<>
@@ -170,17 +184,23 @@ export function BranchMenu({ anchor, onClose }: { anchor: Anchor; onClose: () =>
 function Row({
 	name,
 	current,
+	occupiedBy,
 	onSelect,
 }: {
 	name: string;
 	current?: boolean;
+	occupiedBy?: RepoRef;
 	onSelect: () => void;
 }) {
+	const tip = occupiedBy
+		? translate("branchMenu.occupiedTip", { name, label: occupiedBy.label })
+		: name;
 	return (
 		<MenuItem
-			icon={<GitBranch size={13} strokeWidth={1.8} />}
-			title={name}
+			icon={occupiedBy ? <GitBranchPlus size={13} strokeWidth={1.8} className="text-ink-faint" /> : <GitBranch size={13} strokeWidth={1.8} />}
+			title={tip}
 			selected={current}
+			hint={occupiedBy ? <span className="text-caption font-sans text-ink-faint">{translate("branchMenu.worktreeBadge")}</span> : undefined}
 			trailing={current ? <Check size={13} strokeWidth={2.2} className="shrink-0 text-ink" /> : undefined}
 			onClick={onSelect}
 		>

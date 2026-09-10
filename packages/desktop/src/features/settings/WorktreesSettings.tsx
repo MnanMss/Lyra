@@ -1,11 +1,12 @@
 import { translate } from "../../i18n/translate.ts";
 import { Input } from "../../ui/inputs/NativeField.tsx";
-import { FolderGit2, RefreshCw, Trash2 } from "lucide-react";
+import { FolderGit2, RefreshCw, SquarePen, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useApp } from "../../store/index.ts";
 import { Card, Row, SectionTitle } from "./controls.tsx";
 import { bridge } from "../../services/index.ts";
 import { useI18n } from "../../i18n/index.ts";
+import { startProjectSession } from "../sidebar/index.ts";
 
 export function WorktreesSettings() {
 	const { t } = useI18n();
@@ -218,6 +219,15 @@ export function WorktreesSettings() {
 								<div className="truncate text-caption text-ink-faint font-mono">{tree.path}</div>
 							</div>
 							<div className="flex items-center gap-2">
+								<button
+									type="button"
+									onClick={() => void startProjectSession(tree.path)}
+									className="flex items-center gap-1 rounded-md px-2 py-1 text-detail text-ink-muted transition-colors hover:bg-card-hover hover:text-ink"
+									data-ly-tip={t("worktrees.startSessionTip")}
+								>
+									<SquarePen size={13} strokeWidth={1.8} />
+									<span>{t("worktrees.startSession")}</span>
+								</button>
 								<button
 									type="button"
 									onClick={() => void bridge.workspace.reveal(tree.path)}

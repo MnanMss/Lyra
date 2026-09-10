@@ -108,8 +108,20 @@ export async function createWorktree(
 		 */
 		return { ok: true, path: canonicalPath(target), branch: safe };
 	} catch (cause) {
-		const message = cause instanceof Error && "stderr" in cause ? String(cause.stderr) : String(cause);
-		return { ok: false, error: message.trim() || "创建工作树失败" };
+		const rawMessage = cause instanceof Error && "stderr" in cause ? String(cause.stderr) : String(cause);
+		// Self-healing: if failed because target branch/path has stale worktree metadata, prune and retry once
+		if (rawMessage.includes("already checked out") || rawMessage.includes("already exists")) {
+			try {
+				await git(cwd, ["worktree", "prune"]);
+				const args = ["worktree", "add", "-B", safe, target];
+				if (options.baseRef) args.push(options.baseRef);
+				await git(cwd, args);
+				return { ok: true, path: canonicalPath(target), branch: safe };
+			} catch {
+				// Fall through
+			}
+		}
+		return { ok: false, error: rawMessage.trim() || "创建工作树失败" };
 	}
 }
 

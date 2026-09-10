@@ -229,6 +229,19 @@ export async function switchBranch(cwd: string, branch: string): Promise<{ ok: b
 		return { ok: true };
 	} catch (cause) {
 		const message = cause instanceof Error && "stderr" in cause ? String(cause.stderr) : String(cause);
+		// Self-healing: if failed because branch is already checked out by a missing or stale worktree, prune and retry once
+		if (message.includes("already checked out")) {
+			try {
+				await git(cwd, ["worktree", "prune"]);
+				const isLocal = await git(cwd, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`])
+					.then(() => true)
+					.catch(() => false);
+				await git(cwd, isLocal ? ["switch", branch] : ["switch", "--track", branch]);
+				return { ok: true };
+			} catch {
+				// Fall through to report original error
+			}
+		}
 		return { ok: false, error: message.trim() || "切换分支失败" };
 	}
 }

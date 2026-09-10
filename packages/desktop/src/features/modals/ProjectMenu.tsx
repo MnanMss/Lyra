@@ -57,6 +57,9 @@ export function ProjectMenu({
 		}
 		notify(t("projectMenu.worktreeMade", { path: result.path ?? "" }));
 		await refreshWorkspace();
+		if (result.path) {
+			void startProjectSession(result.path);
+		}
 		onClose();
 	}
 
