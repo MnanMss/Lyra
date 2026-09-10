@@ -40,7 +40,7 @@ before(async () => {
 	});
 	await new Promise<void>((resolve) => server.listen(0,"127.0.0.1",resolve));
 	const addr=server.address(); assert.ok(addr && typeof addr !== "string");port=addr.port;
-	app = await startApp({port:9618,seed:async(home)=>{
+	app = await startApp({port: 9721,seed:async(home)=>{
 		await seedInteractions(home,port);
 		const path=join(home,"settings.json"), settings=JSON.parse(await readFile(path,"utf8"));
 		settings.permissionMode="full"; settings.screenshot={enabled:false,shortcut:""};
@@ -107,20 +107,32 @@ test("engineering delivery shows net syntax diffs, a real report and a live owne
 	const delivery=await app.evaluate<{reportPath:string;files:{added:number;removed:number}[];commands:{status:string}[]}>(`window.lyra.delivery.get('qa-short',${timestamp})`);
 	assert.equal(delivery.files.length,1);assert.equal(delivery.files[0].removed,0);assert.ok(delivery.commands.some(c=>c.status==='exit 0'));
 	assert.match(await readFile(delivery.reportPath,"utf8"),/answer = 2/);assert.match(await readFile(delivery.reportPath,"utf8"),/本轮实现与验证记录/);
-	await until(`document.querySelector('[aria-label="内置浏览器打开服务"]')`);
+	// 等的是交付卡片自己。这里从前等「在内置浏览器打开」，可那个按钮在任务面板的服务列表里，
+	// 而任务面板要到下面第 122 行才打开——在它存在之前等它，只能等到超时。
+	await until(`document.querySelector('[data-turn-delivery] [data-delivery-file]')`);
 	await app.evaluate("Promise.all(document.getAnimations().filter(a=>Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a=>a.finished.catch(()=>{}))).then(()=>document.fonts.ready)");
 	await app.evaluate(`document.querySelector('[data-turn-delivery] [data-delivery-file]').scrollIntoView({block:'nearest',behavior:'instant'})`);
 	await app.evaluate("new Promise(requestAnimationFrame)");
 	const row=await app.evaluate<{x:number;y:number;height:number}>(`(()=>{const e=document.querySelector('[data-turn-delivery] [data-delivery-file]'),r=e.getBoundingClientRect();if(!e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)))throw new Error('delivery row is covered');return {x:r.x+r.width/2,y:r.y+r.height/2,height:r.height}})()`);
 	await app.send("Input.dispatchMouseEvent",{type:"mouseMoved",x:row.x,y:row.y});await until(`document.querySelector('[aria-label="文件变更预览"] .ly-diff-add')`);
-	await until(`document.querySelector('[aria-label="内置浏览器打开服务"]')`);await shot("turn-delivery-diff");
+	await shot("turn-delivery-diff");
 	assert.equal(await app.evaluate(`document.querySelector('[data-turn-delivery] [data-delivery-file]').getBoundingClientRect().height`),row.height);
 	assert.ok(await app.evaluate(`document.querySelector('[aria-label="文件变更预览"]').getBoundingClientRect().bottom <= document.querySelector('[data-delivery-file]').getBoundingClientRect().top`), "the preview must stay above its file row");await escape();
 	await click('[aria-label="查看实现与验证记录"]');await until(`document.querySelector('[data-dock-pane="file"]')?.innerText.includes('命令与验证证据')`);
 	await shot("delivery-report-preview");await click('[data-dock-pane="file"] button[aria-label^="关闭"]');
 	await click('[aria-label="面板"]');await until(`document.querySelector('[role="menuitem"]')`);
 	await app.evaluate(`(()=>{const e=[...document.querySelectorAll('[role="menuitem"]')].find(e=>e.innerText.split('\\n')[0]==='任务');if(!e)throw new Error('任务菜单不存在');e.setAttribute('data-qa-task','');})()`);await click('[data-qa-task]');
-	await until(`document.querySelector('[data-session-services]')?.innerText.includes('127.0.0.1:')`);
+	/*
+	 * 端点没出现时，把探测自己的说法一起报出来。
+	 *
+	 * `discoveryError` 只挂在一个图标的 `data-ly-tip` 上，不进 `innerText`——这条在 Windows 上
+	 * 红过一次，日志里就只剩「没找到 127.0.0.1:」，看不出是那段 PowerShell 失败了，还是父子
+	 * 进程没对上、监听的那个 pid 不在 `descendants` 里。差别决定改哪儿。
+	 */
+	await until(`document.querySelector('[data-session-services]')?.innerText.includes('127.0.0.1:')`).catch(async (cause: unknown) => {
+		const report = await app.evaluate(`window.lyra.services.list('qa-short').then(s=>JSON.stringify({discoveryError:s.discoveryError,jobs:s.jobs.map(j=>({pid:j.pid,finishedAt:j.finishedAt,endpoints:j.endpoints}))}))`);
+		throw new Error(`服务端点没有出现，探测的说法：${String(report)}`, { cause });
+	});
 	const services=await app.evaluate<{jobs:{id:string;pid:number;endpoints:{url:string;port:number}[]}[]}>("window.lyra.services.list('qa-short')");
 	const job=services.jobs.find(j=>j.endpoints.length);assert.ok(job);assert.equal(await (await fetch(job.endpoints[0].url)).text(),"SERVICE_QA");
 	assert.equal(await app.evaluate(`window.lyra.services.stop('qa-long',${JSON.stringify(job.id)},true)`),false);

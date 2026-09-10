@@ -138,7 +138,7 @@ async function seed(home: string): Promise<void> {
 
 before(async () => {
 	model = startModel();
-	app = await startApp({ port: 9459, seed });
+	app = await startApp({ port: 9733, seed });
 	await app.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
 	await new Promise((r) => setTimeout(r, 600));
 });
@@ -207,7 +207,7 @@ test("自己好了的，只留一行灰字，不出现任何像报错的字眼",
 	const row = await trace();
 	assert.ok(row, "抖过就该留下痕迹，哪怕最后接上了");
 	assert.equal(row.outcome, "recovered");
-	assert.match(row.text, /重连 2 次后恢复/);
+	assert.match(row.text, /重试 2 次后恢复/);
 
 	// 用户的原话：重试解决了就不该出现明显的错误提示。
 	assert.ok(!row.text.includes("错"), `恢复了不该说「错」：${row.text}`);

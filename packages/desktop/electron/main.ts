@@ -60,7 +60,9 @@ import {
 	sessions,
 	sideChats,
 } from "./session-hub.ts";
+import { canonicalPath } from "./canonical-path.ts";
 import { containingRoot, resolveInside } from "./file-ops.ts";
+import { resolveReadablePath } from "./file-read-service.ts";
 import { captureLog } from "./screenshot-debug.ts";
 import { registerFilesIpc } from "./ipc/files.ts";
 import { registerFileOpsIpc } from "./ipc/file-ops.ts";
@@ -170,8 +172,16 @@ const BROWSER_PARTITION = "persist:ly-browser";
  * `resolveInside` returns the resolved path so callers do their IO against the string that was
  * actually checked — see the note there on why comparing the raw one let `..` walk out.
  */
+/**
+ * 两侧都规范化之后再比。
+ *
+ * 目录列举交给渲染进程的是规范路径，配置里存的是用户当初选中的写法——macOS 上一个位于 `/tmp`
+ * 或任何软链下的项目，一边 `/private/var/…`、另一边 `/var/…`，同一个目录的两种写法。只 `resolve`
+ * 的话 `relative()` 会算出一串 `../..`，新建、重命名、删除、复制粘贴全被判在项目之外，而且判完
+ * 一声不吭。`file-read-service.ts` 早就在读文件那条路上这么做了，这里补上其余的门。
+ */
 function projectPath(target: string): string | null {
-	return resolveInside(target, (settings?.projects ?? []).map((project) => project.path));
+	return resolveInside(canonicalPath(target), (settings?.projects ?? []).map((project) => canonicalPath(project.path)));
 }
 
 /**
@@ -181,8 +191,8 @@ function projectPath(target: string): string | null {
  * anything walking upward through directories needs in order to know when to stop.
  */
 function projectRoot(target: string): string | null {
-	const roots = (settings?.projects ?? []).map((project) => project.path);
-	return containingRoot(target, roots);
+	const roots = (settings?.projects ?? []).map((project) => canonicalPath(project.path));
+	return containingRoot(canonicalPath(target), roots);
 }
 
 /** The predicate form, for the doorways that only need a yes or no. */
@@ -496,7 +506,17 @@ app.whenReady().then(async () => {
 	 */
 	installPermissionHandlers([BROWSER_PARTITION]);
 
-	registerPreviewProtocols({ browserPartition: BROWSER_PARTITION, insideAProject });
+	/*
+	 * The media scheme resolves both sides before it compares them.
+	 *
+	 * `insideAProject` compares the strings as configured, and a listing hands the renderer
+	 * canonical paths — the same directory reaching the guard spelled two ways. See the note on
+	 * the handler.
+	 */
+	registerPreviewProtocols({
+		browserPartition: BROWSER_PARTITION,
+		resolveMedia: (target) => resolveReadablePath(target, (settings?.projects ?? []).map((project) => project.path)),
+	});
 
 	// Clear out sessions that were reserved and never used — including any left over from
 	// when clicking "新对话" created one up front.
