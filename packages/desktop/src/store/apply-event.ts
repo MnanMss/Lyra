@@ -150,6 +150,8 @@ export function applyAgentEvent(sessionId: string, event: AgentEvent, set: Set, 
        * mirroring below is what carries it to the line.
        */
       if (meter) next = { ...meter, tokens: meter.tokens + freshTokens(event.message.usage) };
+    } else if (event.type === "subagent_message" && event.message.role === "assistant") {
+      if (meter) next = { ...meter, tokens: meter.tokens + freshTokens(event.message.usage) };
     } else if (event.type === "retry" && event.resume) {
       /*
        * A turn being picked back up after the connection died, which arrives *after* `agent_end`

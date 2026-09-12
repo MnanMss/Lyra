@@ -87,7 +87,7 @@ function folderName(path: string): string {
  * and the marks are too small to carry the meaning on their own. The label goes above rather than
  * beside so three of them tile evenly however wide the values run.
  */
-function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function Stat({ icon, label, value, tip }: { icon: React.ReactNode; label: string; value: string; tip?: string }) {
 	return (
 		/*
 		 * Each column is as wide as its own contents, with the figure centred under its word.
@@ -104,7 +104,7 @@ function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; va
 		 * column's left edge and the last column's right edge are the row's own, which is the
 		 * padding — the same left and right edges as everything above.
 		 */
-		<div className="flex min-w-0 flex-col items-center gap-0.5">
+		<div className="flex min-w-0 flex-col items-center gap-0.5" data-ly-tip={tip}>
 			<span className="flex items-center gap-1 text-caption text-ink-faint">
 				<span className="shrink-0">{icon}</span>
 				{label}
@@ -200,9 +200,9 @@ export function SessionCard({
 			 */}
 			<div className="flex items-start justify-between gap-2 px-3 py-2">
 				<Stat icon={<MessagesSquare size={11} strokeWidth={2} />} label={translate("sessionCard.messages")} value={String(session.messageCount)} />
-				<Stat icon={<Zap size={11} strokeWidth={2} />} label={translate("sessionCard.usage")} value={formatTokens(freshTokens(usage))} />
+				<Stat icon={<Zap size={11} strokeWidth={2} />} label={translate("sessionCard.usage")} value={formatTokens(freshTokens(usage))} tip={usage.total > freshTokens(usage) ? translate("sessionCard.usageDetail", { fresh: formatTokens(freshTokens(usage)), total: formatTokens(usage.total) }) : undefined} />
 				{hit !== null && (
-					<Stat icon={<Coins size={11} strokeWidth={2} />} label={translate("sessionCard.cache")} value={`${Math.round(hit * 100)}%`} />
+					<Stat icon={<Coins size={11} strokeWidth={2} />} label={translate("sessionCard.cache")} value={`${Math.round(hit * 100)}%`} tip={translate("sessionCard.cacheDetail", { read: formatTokens(usage.cacheRead) })} />
 				)}
 			</div>
 		</div>);

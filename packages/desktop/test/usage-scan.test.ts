@@ -160,6 +160,46 @@ describe("scanUsage", () => {
 		assert.equal(title?.replies, 1);
 		assert.deepEqual((await scanUsage(home)).buckets, scan.buckets, "cached scans must not charge the request twice");
 	});
+	it("subagent messages and compaction usage reach model totals without inflating conversation messages", async () => {
+		await writeFile(log("s1"), userLine(AT) + replyLine(AT));
+		await appendFile(
+			log("s1"),
+			`${JSON.stringify({
+				seq: 3,
+				ts: AT,
+				type: "event",
+				event: {
+					type: "subagent_message",
+					id: "sub-1",
+					message: {
+						role: "assistant",
+						provider: "relay",
+						model: "gemini-3.7",
+						usage: { input: 50, output: 10, cacheRead: 0, cacheWrite: 0, total: 60, cost: { total: 0.05 } },
+						timestamp: AT,
+					},
+				},
+			})}\n`,
+		);
+		await appendFile(
+			log("s1"),
+			`${JSON.stringify({
+				seq: 4,
+				ts: AT,
+				type: "usage",
+				source: "compaction",
+				providerId: "relay",
+				modelId: "gemini-3.7",
+				usage: { input: 200, output: 20, cacheRead: 0, cacheWrite: 0, total: 220, cost: { total: 0.1 } },
+			})}\n`,
+		);
+		const scan = await scanUsage(home);
+		assert.equal(scan.days[0].messages, 2);
+		const bucket = scan.buckets.find((b) => b.key === "relay/gemini-3.7");
+		assert.equal(bucket?.input, 100 + 50 + 200);
+		assert.equal(bucket?.output, 20 + 10 + 20);
+		assert.equal(bucket?.cost, 0.25 + 0.05 + 0.1);
+	});
 
 	it("a conversation spanning two days is split across them", async () => {
 		await writeFile(log("s1"), replyLine(AT, { input: 10 }) + replyLine(NEXT_DAY, { input: 90 }));
