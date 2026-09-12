@@ -401,6 +401,15 @@ export class AgentSession {
 		if (compaction.kept === undefined) return { ok: false, reason: "只裁掉了几段过长的工具输出，没有需要总结的历史。" };
 
 		if (signal.aborted) throw new Error("压缩已取消。");
+		if (compaction.usage) {
+			await this.log.append({
+				type: "usage",
+				source: "compaction",
+				providerId: compaction.usage.providerId,
+				modelId: compaction.usage.modelId,
+				usage: compaction.usage.usage,
+			});
+		}
 		this.log.markCompaction(compaction.summary, compaction.kept);
 		await this.emit({
 			type: "compacted",

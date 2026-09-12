@@ -201,6 +201,42 @@ test("title usage is counted and survives reopening without adding conversation 
 	await session.log.truncateFrom(0);
 	assert.deepEqual((await store.load(session.meta.projectId, session.meta.id))?.meta.usage, usage, "rewriting the prompt does not erase a title request that was already billed");
 });
+test("subagent messages update session usage metadata in store", async (t) => {
+	const root = await mkdtemp(join(tmpdir(), "ly-subagent-usage-"));
+	const store = new SessionStore(join(root, "sessions"));
+	t.after(() => rm(root, { recursive: true, force: true }));
+	let meta = await store.create(root, model.id);
+	const subUsage = { ...emptyUsage(), input: 200, output: 40, reasoning: 0, total: 240, cost: { input: 0.02, output: 0.04, cacheRead: 0, cacheWrite: 0, total: 0.06 } };
+	meta = await store.append(meta, {
+		type: "event",
+		event: {
+			type: "subagent_message",
+			id: "sub-1",
+			message: { ...reply("Subagent did work"), usage: subUsage },
+		},
+	});
+	assert.deepEqual(meta.usage, subUsage);
+	const loaded = await store.load(meta.projectId, meta.id);
+	assert.deepEqual(loaded?.meta.usage, subUsage);
+});
+
+test("compaction usage records update session usage metadata in store", async (t) => {
+	const root = await mkdtemp(join(tmpdir(), "ly-compact-usage-"));
+	const store = new SessionStore(join(root, "sessions"));
+	t.after(() => rm(root, { recursive: true, force: true }));
+	let meta = await store.create(root, model.id);
+	const compactUsage = { ...emptyUsage(), input: 500, output: 50, reasoning: 0, total: 550, cost: { input: 0.05, output: 0.05, cacheRead: 0, cacheWrite: 0, total: 0.1 } };
+	meta = await store.append(meta, {
+		type: "usage",
+		source: "compaction",
+		providerId: "fast",
+		modelId: "model",
+		usage: compactUsage,
+	});
+	assert.deepEqual(meta.usage, compactUsage);
+	const loaded = await store.load(meta.projectId, meta.id);
+	assert.deepEqual(loaded?.meta.usage, compactUsage);
+});
 
 test("image-only opening retains a useful title", async (t) => {
 	const { session } = await fixture(t);

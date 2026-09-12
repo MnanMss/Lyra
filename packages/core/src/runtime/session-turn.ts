@@ -197,8 +197,19 @@ async function recordTurnEvent(log: SessionLog, event: AgentEvent): Promise<void
 	 * what is sent without moving where history begins, and it is cheap and idempotent enough to
 	 * simply run again next turn.
 	 */
-	if (event.type === "compacted" && event.kept !== undefined) {
-		log.markCompaction(event.summary ?? "", event.kept);
+	if (event.type === "compacted") {
+		if (event.usage) {
+			await log.append({
+				type: "usage",
+				source: "compaction",
+				providerId: event.usage.providerId,
+				modelId: event.usage.modelId,
+				usage: event.usage.usage,
+			});
+		}
+		if (event.kept !== undefined) {
+			log.markCompaction(event.summary ?? "", event.kept);
+		}
 	}
 	await log.emit(event);
 }

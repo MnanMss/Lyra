@@ -78,7 +78,7 @@ export type SessionRecord =
 	| { seq: number; ts: number; type: "message"; message: Message }
 	| { seq: number; ts: number; type: "event"; event: AgentEvent }
 	| { seq: number; ts: number; type: "title"; title: string; source?: "user" | "auto" }
-	| { seq: number; ts: number; type: "usage"; source: "title-summary"; providerId: string; modelId: string; usage: Usage }
+	| { seq: number; ts: number; type: "usage"; source: "title-summary" | "compaction" | "subagent"; providerId: string; modelId: string; usage: Usage }
 	/**
 	 * Its own record type rather than a `meta` write: archiving must not touch `updatedAt`,
 	 * and a `meta` record always refreshes it. Sending it through the log also means a phone
@@ -204,6 +204,9 @@ export class SessionStore implements SessionStorage {
 			next.messageCount = base.messageCount + 1;
 			if (payload.message.role === "assistant") next.usage = addUsage(base.usage, payload.message.usage);
 		}
+		if (payload.type === "event" && payload.event.type === "subagent_message") {
+			if (payload.event.message.role === "assistant") next.usage = addUsage(base.usage, payload.event.message.usage);
+		}
 		if (payload.type === "title") {
 			next.title = payload.title;
 			if (payload.source === "user") next.titleSetByUser = true;
@@ -317,6 +320,10 @@ export class SessionStore implements SessionStorage {
 				const { summary, kept } = record.event;
 				if (kept !== undefined) {
 					compaction = { at: record.ts, summary: summary ?? "", keptFrom: Math.max(0, entries.length - kept) };
+				}
+			} else if (record.type === "event" && record.event.type === "subagent_message") {
+				if (record.event.message.role === "assistant" && record.event.message.usage) {
+					auxiliaryUsage = addUsage(auxiliaryUsage, record.event.message.usage);
 				}
 			} else if (record.type === "message") entries.push({ seq: record.seq, message: record.message });
 			else if (record.type === "title" && meta) {

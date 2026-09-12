@@ -29,7 +29,7 @@ import { estimateTokens } from "../tokens.ts";
 import { dropUneventful, pruneToolResults, type ArtifactSink } from "./prune.ts";
 import { measureTotal } from "./context.ts";
 import { stripStaleHandles } from "./model-switch.ts";
-import type { AssistantMessage, Message, ModelConfig, ProviderConfig } from "../types.ts";
+import type { AssistantMessage, Message, ModelConfig, ProviderConfig, Usage } from "../types.ts";
 
 /** Start compacting at this fraction of the context window. */
 const THRESHOLD = 0.8;
@@ -175,6 +175,8 @@ export interface Compaction {
 	 * still recorded; what is missing is the account of what was behind it.
 	 */
 	summary: string;
+	/** The model request usage incurred to produce the summary, if a request was made. */
+	usage?: { providerId: string; modelId: string; usage: Usage };
 	/**
 	 * How many real messages survived, counted from the newest.
 	 *
@@ -360,7 +362,8 @@ export async function compactIfNeeded(
 	const summaryHistory = summaryModel.id !== model.id || summaryProvider.id !== provider.id
 		? stripStaleHandles(older, older.length)
 		: older;
-	let summary = await summarize(summaryHistory, summaryModel, summaryProvider, streamFn, force ? manual ?? {} : undefined);
+	const summaryOutcome = await summarize(summaryHistory, summaryModel, summaryProvider, streamFn, force ? manual ?? {} : undefined);
+	let summary = summaryOutcome.text;
 	if (!summary) {
 		summary = fallbackSummary(older);
 	}
@@ -397,7 +400,7 @@ export async function compactIfNeeded(
 	 * the estimator's own error decide the answer.
 	 */
 	if (scaled(compacted) >= scaled(messages)) return null;
-	return { messages: compacted, summary, kept: tail.length };
+	return { messages: compacted, summary, kept: tail.length, ...(summaryOutcome.usage ? { usage: summaryOutcome.usage } : {}) };
 }
 
 /**
@@ -512,7 +515,7 @@ async function summarize(
 	provider: ProviderConfig,
 	streamFn: typeof streamAssistant,
 	manual?: { instructions?: string; signal?: AbortSignal },
-): Promise<string | null> {
+): Promise<{ text: string | null; usage?: { providerId: string; modelId: string; usage: Usage } }> {
 	/*
 	 * Which instruction to use depends on whether there is already a summary in there.
 	 *
@@ -564,14 +567,14 @@ async function summarize(
 	} catch (cause) {
 		// Manual commands report failure; automatic compaction may still salvage an overfull turn.
 		if (manual) throw cause;
-		return null;
+		return { text: null };
 	}
 
 	const message = final.value;
 	if (manual?.signal?.aborted) throw new Error("压缩已取消。");
 	if (message.stopReason === "error" || message.stopReason === "aborted") {
 		if (manual) throw new Error(message.errorMessage || "摘要生成失败，请检查模型连接后重试。");
-		return null;
+		return { text: null };
 	}
 	const text = message.content
 		.filter((c) => c.type === "text")
@@ -579,7 +582,10 @@ async function summarize(
 		.join("\n")
 		.trim();
 	if (manual && !text) throw new Error("模型返回的摘要为空，原上下文保持不变。");
-	return text || null;
+	return {
+		text: text || null,
+		...(message.usage ? { usage: { providerId: provider.id, modelId: model.modelId, usage: message.usage } } : {}),
+	};
 }
 
 /**

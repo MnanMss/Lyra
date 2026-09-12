@@ -259,6 +259,7 @@ export async function runAgent(config: AgentRunConfig, emit: AgentEventSink): Pr
 					after: compaction.messages.length,
 					summary: compaction.summary,
 					kept: compaction.kept,
+					...(compaction.usage ? { usage: compaction.usage } : {}),
 				});
 			}
 		}

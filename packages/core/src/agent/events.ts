@@ -1,4 +1,4 @@
-import type { AssistantMessage, Message, StreamEvent, ToolResult, ToolResultMessage } from "../types.ts";
+import type { AssistantMessage, Message, StreamEvent, ToolResult, ToolResultMessage, Usage } from "../types.ts";
 import type { SubAgentSummary } from "../runtime/sub-agents.ts";
 import type { Failure } from "../ai/failure.ts";
 
@@ -155,7 +155,7 @@ export type AgentEvent =
 	 * against the log rather than against the loop's array — the two are not the same once a run
 	 * has compacted, and an index into one is meaningless in the other.
 	 */
-	| { type: "compacted"; before: number; after: number; summary?: string; kept?: number }
+	| { type: "compacted"; before: number; after: number; summary?: string; kept?: number; usage?: { providerId: string; modelId: string; usage: Usage } }
 	/**
 	 * The connection dropped and the turn is being retried.
 	 *
