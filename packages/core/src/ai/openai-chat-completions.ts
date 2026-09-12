@@ -21,6 +21,7 @@ import { RetryBudget, fetchWithRetry, retryStream, toolCallId } from "./retry.ts
 import { parseToolArguments, readSse } from "../utils/sse.ts";
 import { describeFetchError, joinUrl } from "./anthropic-messages.ts";
 import { resolveReasoningEffort } from "./thinking-options.ts";
+import { estimateTokens } from "../tokens.ts";
 
 export const openaiChatCompletionsProvider: Provider = {
 	api: "openai-chat-completions",
@@ -341,6 +342,14 @@ async function* streamChatCompletions(
 		partial.stopReason = hasToolCalls ? "toolUse" : "stop";
 	}
 	// 成功了，但失败的那几次也是花过钱的——账上要有。
+	// 若中转或 API 未在流末尾送出 usage，使用估算兜底，避免用量完全被漏记为 0。
+	if (partial.usage.total === 0) {
+		const estimatedInput = estimateTokens(context.messages);
+		const estimatedOutput = estimateTokens([{ role: "assistant", content: partial.content } as AssistantMessage]);
+		partial.usage.input = estimatedInput;
+		partial.usage.output = estimatedOutput;
+		partial.usage.total = estimatedInput + estimatedOutput;
+	}
 	partial.usage = computeCost(addUsage(partial.usage, spentOnRetries), model);
 
 	yield { type: "done", message: partial };
