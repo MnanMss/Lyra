@@ -20,7 +20,7 @@ export function turnSlice(set: Set, get: Get) {
 	const creating = new Map<number, ReturnType<typeof bridge.sessions.create>>();
 	const prompting = new Map<string, symbol>();
 	return {
-	async send(content: UserContent[], options: { synthetic?: boolean; carryOn?: boolean; deliver?: "steer" | "followUp"; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }>; fileRefs?: Array<{ name: string; path: string }>; sessionId?: string } = {}) {
+	async send(content: UserContent[], options: { synthetic?: boolean; carryOn?: boolean; deliver?: "steer" | "followUp"; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }>; fileRefs?: Array<{ name: string; path: string }>; attachments?: Array<{ name: string; kind?: string; mimeType?: string }>; sessionId?: string } = {}) {
 		const { workspace, settings, scratchCwd, selectionEpoch: epoch } = get();
 		let sessionId = options.sessionId ?? get().activeSessionId;
 		const cwd = workspace?.path ?? scratchCwd;
@@ -48,6 +48,7 @@ export function turnSlice(set: Set, get: Get) {
 			...(options.skillRef ? { skillRef: options.skillRef } : {}),
 			...(options.sessionRefs?.length ? { sessionRefs: options.sessionRefs } : {}),
 			...(options.fileRefs?.length ? { fileRefs: options.fileRefs } : {}),
+			...(options.attachments?.length ? { attachments: options.attachments } : {}),
 		};
 		/*
 		 * 这一轮的表：接着走，还是从零起。
@@ -87,6 +88,7 @@ export function turnSlice(set: Set, get: Get) {
 				skillRef: options.skillRef,
 				sessionRefs: options.sessionRefs,
 				fileRefs: options.fileRefs,
+				attachments: options.attachments,
 			});
 			creating.set(epoch, creation);
 			try {
@@ -169,13 +171,21 @@ export function turnSlice(set: Set, get: Get) {
     for (let i = Math.min(index, messages.length - 1); i >= 0; i--) {
       const message = messages[i];
       if (message.role === "user" && !message.synthetic) {
-        await get().editMessage(i, message.content);
+        // 重试是「把同一句话原样再问一遍」，所以它长什么样也得原样——附件和气泡里那份文本一起带走。
+        await get().editMessage(i, message.content, {
+          ...(message.displayText !== undefined ? { displayText: message.displayText } : {}),
+          ...(message.attachments?.length ? { attachments: message.attachments } : {}),
+        });
         return;
       }
     }
   },
 
-  async editMessage(index: number, content: UserContent[]) {
+  async editMessage(
+    index: number,
+    content: UserContent[],
+    meta: { displayText?: string; attachments?: Array<{ name: string; kind?: string; mimeType?: string }> } = {},
+  ) {
     const sessionId = get().activeSessionId;
     if (!sessionId || get().running) return;
     const before = get();
@@ -191,6 +201,8 @@ export function turnSlice(set: Set, get: Get) {
       role: "user",
       content,
       timestamp: Date.now(),
+      ...(meta.displayText !== undefined ? { displayText: meta.displayText } : {}),
+      ...(meta.attachments?.length ? { attachments: meta.attachments } : {}),
     };
     set({
       messages: [...get().messages.slice(0, index), pending],
@@ -215,7 +227,7 @@ export function turnSlice(set: Set, get: Get) {
     saveCarried(sessionId, null);
 
 		try {
-			await bridge.agent.editMessage(sessionId, index, content);
+			await bridge.agent.editMessage(sessionId, index, content, meta);
 		} catch (cause) {
 			const current = get();
 			// Roll back only the unacknowledged preview, never a newer stream or another selection.

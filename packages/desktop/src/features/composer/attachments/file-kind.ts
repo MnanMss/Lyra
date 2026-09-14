@@ -26,6 +26,7 @@ export type FileKind =
 	| "excel"
 	| "powerpoint"
 	| "archive"
+	| "design"
 	| "font"
 	| "binary"
 	| "text";
@@ -43,6 +44,8 @@ const BY_EXTENSION: Record<string, FileKind> = {
 	pdf: "pdf",
 	doc: "word", docx: "word", rtf: "word", odt: "word", pages: "word",
 	xls: "excel", xlsx: "excel", xlsm: "excel", xlsb: "excel", ods: "excel", numbers: "excel",
+	// 表格软件打开它，图标就该是表格——`csv` 落进纯文本那一档时，一列数据长得像一段散文。
+	csv: "excel", tsv: "excel",
 	ppt: "powerpoint", pptx: "powerpoint", odp: "powerpoint", key: "powerpoint",
 
 	zip: "archive", rar: "archive", "7z": "archive", tar: "archive", gz: "archive", bz2: "archive",
@@ -52,7 +55,10 @@ const BY_EXTENSION: Record<string, FileKind> = {
 
 	exe: "binary", dll: "binary", so: "binary", dylib: "binary", bin: "binary", node: "binary",
 	class: "binary", pyc: "binary", wasm: "binary", db: "binary", sqlite: "binary", sqlite3: "binary",
-	psd: "binary", ai: "binary", sketch: "binary", fig: "binary", blend: "binary",
+	// 设计稿有自己的一档：它们确实是二进制，但「打不开的可执行文件」和「同事发来的设计稿」
+	// 在列表里是两件事，共用一个灰色的 0/1 图标等于什么都没说。
+	psd: "design", ai: "design", sketch: "design", fig: "design", xd: "design", afdesign: "design",
+	blend: "design",
 };
 
 /** The extension, lowercased, or "" for a file that has none. */
@@ -90,9 +96,21 @@ export function fileKind(name: string, mimeType = ""): FileKind {
 	return "text";
 }
 
+/**
+ * 图标归图标，能不能当文本读是另一件事。
+ *
+ * `csv` 和 `tsv` 是这条区别的全部理由。它们被归进 `excel` 是为了画一个表格图标——一列数字顶着一个
+ * 文档图标确实不像话——但门类同时还被拿去决定「内容能不能进 prompt」，于是一个**纯文本文件**被当成
+ * 二进制拒掉了：附一个 csv 上去，模型只收到一个文件名。一个字段扛了两个决定，图标对了，读取坏了。
+ *
+ * 所以这里按扩展名再问一次。不改 `fileKind` 的归类：图标那一头是对的，不该为了这一头把它弄坏。
+ */
+const TEXT_DESPITE_KIND = new Set(["csv", "tsv"]);
+
 /** Whether a prompt can carry this file's contents, rather than just its name. */
-export function isReadableAsText(kind: FileKind): boolean {
-	return kind === "text";
+export function isReadableAsText(kind: FileKind, name = ""): boolean {
+	if (kind === "text") return true;
+	return TEXT_DESPITE_KIND.has(extensionOf(name));
 }
 
 /**
@@ -132,6 +150,7 @@ export const KIND_LABEL: Record<FileKind, MessageKey> = {
 	excel: "fileKind.spreadsheet",
 	powerpoint: "fileKind.slides",
 	archive: "fileKind.archive",
+	design: "fileKind.design",
 	font: "fileKind.font",
 	binary: "fileKind.binary",
 	text: "fileKind.text",

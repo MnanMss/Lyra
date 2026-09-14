@@ -14,6 +14,7 @@ import { useMention } from "./useMention.ts";
 import { formatMention } from "./mention-catalog.ts";
 import type { ComposerDecorations } from "./CommandText.tsx";
 import { useCommands } from "./useCommands.ts";
+import { useInputHistory } from "./useInputHistory.ts";
 import { commandEntries } from "./command-catalog.ts";
 import { ComposerSend, ComposerShell } from "./ComposerShell.tsx";
 import { SubAgentBar } from "../subagents/index.ts";
@@ -33,8 +34,8 @@ import { PermissionPicker } from "../modals/index.ts";
 import { ProjectPicker } from "../modals/index.ts";
 import { useLayout } from "../../app/layout.tsx";
 import { findModel } from "../models/index.ts";
-import { fileKind, KIND_LABEL, type FileKind } from "./attachments/file-kind.ts";
-import { FileKindIcon } from "./attachments/FileKindIcon.tsx";
+import { fileKind, isReadableAsText, KIND_LABEL, looksBinary, type FileKind } from "./attachments/file-kind.ts";
+import { AttachmentStrip, type StripFile } from "./attachments/AttachmentStrip.tsx";
 import { useApp } from "../../store/index.ts";
 import { carryOnPrompt } from "../../store/derive.ts";
 import { sessionThinking } from "../../lib/thinking.ts";
@@ -164,6 +165,23 @@ export function Composer() {
 		useApp.setState({ browserAttachment: null });
 	}, [browserAttachment, draftKey]);
 	const field = useRef<HTMLTextAreaElement>(null);
+	/*
+	 * 往回翻自己说过的话。
+	 *
+	 * 排在 @ 和 / 后面接方向键——它俩开着的时候，上下是用来挑名单的。
+	 */
+	const history = useInputHistory({
+		messages,
+		value: text,
+		attachments,
+		/* 翻出来的那一条整份交回：字是字，那袋文件也照原样挂上。 */
+		onPick: (next, files) => {
+			setText(next);
+			setAttachments(files);
+		},
+		field,
+		resetKey: draftKey,
+	});
 	useEffect(() => {
 		if (!draft.text) return;
 		setText((current) =>
@@ -335,6 +353,7 @@ export function Composer() {
 				...(outgoing.skillRef ? { skillRef: outgoing.skillRef } : {}),
 				...(outgoing.sessionRefs?.length ? { sessionRefs: outgoing.sessionRefs } : {}),
 				...(outgoing.fileRefs?.length ? { fileRefs: outgoing.fileRefs } : {}),
+				...(outgoing.attachments?.length ? { attachments: outgoing.attachments } : {}),
 				draft: { text: trimmed, attachments, sessionRefs: referencedSessions },
 				preview: queuePreview(composed),
 				...(queueThumbnail(composed) ? { thumbnail: queueThumbnail(composed)! } : {}),
@@ -350,6 +369,7 @@ export function Composer() {
 			...(outgoing.skillRef ? { skillRef: outgoing.skillRef } : {}),
 			...(outgoing.sessionRefs?.length ? { sessionRefs: outgoing.sessionRefs } : {}),
 			...(outgoing.fileRefs?.length ? { fileRefs: outgoing.fileRefs } : {}),
+			...(outgoing.attachments?.length ? { attachments: outgoing.attachments } : {}),
 		});
 		if (!accepted) {
 			// A transport rejection must preserve the original files and command text for retry.
@@ -383,6 +403,7 @@ export function Composer() {
 	async function addFiles(files: FileList | null) {
 		if (!files) return;
 		const next: Attachment[] = [];
+		const refused: string[] = [];
 
 		for (const file of Array.from(files).slice(0, 8)) {
 			const id = `${file.name}-${Date.now()}-${Math.random()}`;
@@ -396,6 +417,64 @@ export function Composer() {
 
 			if (kind === "image") {
 				const buffer = await file.arrayBuffer();
+				next.push({ id, name: file.name, mimeType: file.type, data: bytesToBase64(new Uint8Array(buffer)), isText: false, kind, path: filePath });
+				continue;
+			}
+
+			if (!isReadableAsText(kind, file.name)) {
+				/*
+				 * 不是文本，但未必读不出字来。
+				 *
+				 * PDF、Word、Excel、PPT 里的字是拿得到的——`document-text.ts` 一直能做这件事，只是从来
+				 * 没有人调用它（`extractDocumentText` 在仓库里零调用点）。于是拖一份合同进来，得到的是
+				 * 一句「内容无法作为文本读取」，而那句话在能力上并不成立。
+				 *
+				 * 抽取在主进程：架构规则不许页面伸手进 `electron/`，而且 pdf.js 解析一份三百页的文档要
+				 * 几百毫秒，卡住一个没有界面的进程比卡住正在打字的窗口好。哪些格式认得由那边说了算，
+				 * 这里不复制一份清单——两处清单迟早分家。
+				 */
+				const bytes = new Uint8Array(await file.arrayBuffer());
+				const extracted = await bridge.files.documentText(file.name, bytes).catch(() => null);
+
+				if (extracted?.text) {
+					next.push({
+						id,
+						name: file.name,
+						mimeType: file.type || "application/octet-stream",
+						text: extracted.truncated
+							? `${extracted.text}\n\n${translate("composer.textTruncated", { count: extracted.fullLength - extracted.text.length })}`
+							: extracted.text,
+						isText: true,
+						// 门类不改：图标该是 PDF 就还是 PDF，变的只是「内容进不进 prompt」。
+						kind,
+						path: filePath,
+					});
+					continue;
+				}
+
+				next.push({ id, name: file.name, mimeType: file.type || "application/octet-stream", isText: false, kind, path: filePath });
+				/*
+				 * 读不出来的两种，分开说。
+				 *
+				 * 扫描件是「这份文件里本来就没有文字」，要的是 OCR；格式不支持是「换个格式」。合成同
+				 * 一句话，等于让人去试一件不可能成功的事。
+				 */
+				refused.push(
+					extracted?.imageOnly
+						? translate("composer.scannedDocument", { name: file.name })
+						: `${file.name}（${translate(KIND_LABEL[kind])}）`,
+				);
+				continue;
+			}
+
+			try {
+				const buffer = new Uint8Array(await file.arrayBuffer());
+				if (looksBinary(buffer)) {
+					// Named like text, and is not. Same treatment as the known kinds above.
+					next.push({ id, name: file.name, mimeType: file.type || "application/octet-stream", isText: false, kind: "binary", path: filePath });
+					refused.push(translate("composer.binaryFile", { name: file.name }));
+					continue;
+				}
 				next.push({
 					id,
 					name: file.name,
@@ -406,8 +485,9 @@ export function Composer() {
 					path: filePath,
 				});
 				continue;
+			} catch {
+				useApp.getState().notify(translate("subAgent.fileUnreadable", { name: file.name }), "warn");
 			}
-
 			next.push({
 				id,
 				name: file.name,
@@ -419,6 +499,17 @@ export function Composer() {
 		}
 
 		if (next.length > 0) setAttachments((prev) => [...prev, ...next]);
+	}
+
+	/**
+	 * 取下一个附件，只动上面那一排。
+	 *
+	 * 从前这里还要回正文里把 `【文件名】` 抠掉，而它是 `indexOf` 找第一个同名的——附两张都叫
+	 * `shot.png` 的图、删掉后一张，被抠走的是前一张的记号，剩下那张就此失去位置。正文里不再有
+	 * 记号之后，这类对不上账的情况整类消失了。
+	 */
+	function detach(target: Attachment) {
+		setAttachments((prev) => prev.filter((a) => a.id !== target.id));
 	}
 
 	const takeScreenshot = useCallback(async () => {
@@ -454,6 +545,33 @@ export function Composer() {
 		shell.classList.add("ly-composer-catch");
 		shell.addEventListener("animationend", () => shell.classList.remove("ly-composer-catch"), { once: true });
 	};
+
+	/**
+	 * 带着像素的那几个，按它们在附件里的先后。
+	 *
+	 * 查看器里的序号只能在这一份里数：混着文档一起数，附件里有图有文档时点开的就是另一张图。
+	 */
+	const previewable = attachments.filter((a) => !a.isText && a.data);
+
+	/**
+	 * 输入框上方那一排，交给 `AttachmentStrip` 去摆。
+	 *
+	 * `key` 就是附件 id，取下时按它找回原件——名字会重，id 不会。
+	 */
+	const strip: StripFile[] = attachments.map((attachment) => {
+		const kind = attachment.kind ?? (attachment.isText ? "text" : "binary");
+		// 只有正文和像素都进不了提示词的，才是「仅文件名」。一张图的字节是送到了的。
+		const bodiless = !attachment.isText && !attachment.data;
+		return {
+			key: attachment.id,
+			name: attachment.name,
+			kind,
+			...(attachment.data && !attachment.isText
+				? { src: `data:${attachment.mimeType};base64,${attachment.data}` }
+				: {}),
+			tip: `${attachment.name}\n${t(KIND_LABEL[kind])}${bodiless ? ` · ${t("composer.filenameOnly")}` : ""}`,
+		};
+	});
 
 	return (
 		/*
@@ -539,6 +657,20 @@ export function Composer() {
 				<MentionMenu id={mention.id} items={mention.matches} term={mention.term} active={mention.active} keyboardSelection={mention.keyboardSelection} onPick={(item) => void mention.pick(item)} onHover={mention.hover} />
 				<ComposerShell
 					fieldRef={field}
+					/*
+					 * 翻到第几条了，写在框里的最上沿。
+					 *
+					 * 在框里而不是框外：翻出来的那句就落在它下面一行，两者说的是同一件事，隔着边框分开摆
+					 * 就得让人自己把它们联系起来。不写又不行——翻出来的那句和自己刚打的那句长得一模一样，
+					 * 都是输入框里的黑字，按到哪儿了全凭记性，一旦记错，再按一下就走过头了。
+					 */
+					hint={
+						history.position ? (
+							<div data-ly-history="" className="px-4 pt-2.5 text-caption text-ink-faint">
+								{t("composer.history", { current: history.position.current, total: history.position.total })}
+							</div>
+						) : undefined
+					}
 					value={text}
 					onChange={(next) => {
 						slash.change(next);
@@ -566,89 +698,47 @@ export function Composer() {
 					onKeyDown={(event) => {
 						if (mention.keyDown(event)) return;
 						slash.keyDown(event, () => void submit());
+						// 命令单接下了这个键就到此为止：它是拿 preventDefault 说这话的，见 ComposerShell。
+						if (event.defaultPrevented) return;
+						history.keyDown(event);
 					}}
 					placeholder={t("composer.placeholder")}
 					onFiles={(files) => void addFiles(files)}
 					attachments={
 						attachments.length > 0 || sessionRefs.length > 0 ? (
-							<div className="flex flex-wrap gap-2 px-4 pt-3.5">
-								{sessionRefs.map((session) => <button key={session.id} type="button" aria-label={translate("composer.removeSessionRef", { title: session.title })} onClick={() => setSessionRefs((refs) => refs.filter((ref) => ref.id !== session.id))} className="flex max-w-full items-center gap-1.5 rounded-lg border border-line-soft bg-card px-2 py-1 text-caption text-ink-muted"><MessageSquare size={12} className="shrink-0" /><span className="truncate">{session.title}</span><X size={12} className="shrink-0" /></button>)}
-								{attachments.map((attachment) => (
-									<div key={attachment.id} className="relative">
-										{/*
-										 * Three shapes, not two.
-										 *
-										 * The old split was "text or image", and the image branch drew an `<img>` from
-										 * `attachment.data` — which a Word document, a video or an archive does not have.
-										 * Attaching one produced a broken image where the file should have been.
-										 */}
-										{attachment.isText ? (
-											<div
-												className="flex h-[68px] w-[110px] flex-col justify-between rounded-lg border border-line bg-card p-2.5 text-left shadow-xs"
-												data-ly-tip={attachment.path ? `${attachment.name}\n${attachment.path}` : attachment.name}
-											>
-												<div className="flex items-center gap-1.5 text-ink-muted">
-													<FileKindIcon kind={attachment.kind ?? "text"} size={15} />
-													<span className="truncate text-xs font-medium text-ink">{attachment.name}</span>
-												</div>
-												<span className="text-[10px] text-ink-faint">{t("subAgent.fileAttachment")}</span>
-											</div>
-										) : !attachment.data ? (
-											/* Attached by name and type: its bytes are not something a prompt can carry.
-											   See `addFiles`. */
-											<div
-												className="flex h-[68px] w-[110px] flex-col justify-between rounded-lg border border-line bg-card p-2.5 text-left shadow-xs"
-											data-ly-tip={`${attachment.name}\n${t(KIND_LABEL[attachment.kind ?? "binary"])} · ${t("composer.filenameOnly")}`}
-											>
-												<div className="flex items-center gap-1.5 text-ink-muted">
-													<FileKindIcon kind={attachment.kind ?? "binary"} size={15} />
-													<span className="truncate text-xs font-medium text-ink">{attachment.name}</span>
-												</div>
-												<span className="text-[10px] text-ink-faint">
-											{t(KIND_LABEL[attachment.kind ?? "binary"])} · {t("composer.filenameOnly")}
-												</span>
-											</div>
-										) : (
-											<button
-												type="button"
-												aria-label={translate("subAgent.previewOne", { name: attachment.name })}
-												onClick={(event) =>
-													openFromEvent(
-														event,
-														attachments
-															.filter((a) => !a.isText && a.data)
-															.map((a) => ({
-																src: `data:${a.mimeType};base64,${a.data}`,
-																alt: a.name,
-																onReplace: (dataUrl: string) =>
-																	setAttachments((prev) =>
-																		prev.map((item) =>
-																			item.id === a.id ? { ...item, ...fromDataUrl(dataUrl, item) } : item,
-																		),
-																	),
-															})),
-														// Indexed among the ones that are actually previewable, or the viewer opens the wrong picture.
-														attachments.filter((a) => !a.isText && a.data).findIndex((a) => a.id === attachment.id),
-													)
-												}
-												className="block overflow-hidden rounded-lg border border-line transition-opacity duration-[var(--ly-t-quick)] hover:opacity-85"
-											>
-												<img
-													src={`data:${attachment.mimeType};base64,${attachment.data}`}
-													alt={attachment.name}
-													className="h-[68px] w-[92px] object-cover"
-												/>
-											</button>
-										)}
-										<button
-											type="button"
-											onClick={() => setAttachments((prev) => prev.filter((a) => a.id !== attachment.id))}
-											className="absolute -top-1.5 -right-1.5 flex h-[18px] w-[18px] items-center justify-center rounded-full border border-line bg-float text-ink-muted transition-colors hover:text-ink"
-										>
-											<X size={11} strokeWidth={2.2} />
-										</button>
+							<div className="flex flex-col gap-2 px-4 pt-3.5">
+								{sessionRefs.length > 0 && (
+									<div className="flex flex-wrap gap-1.5">
+										{sessionRefs.map((session) => <button key={session.id} type="button" aria-label={translate("composer.removeSessionRef", { title: session.title })} onClick={() => setSessionRefs((refs) => refs.filter((ref) => ref.id !== session.id))} className="flex h-8 max-w-[240px] items-center gap-1.5 rounded-lg border border-line-soft bg-card pr-1.5 pl-2 text-caption text-ink-muted transition-colors hover:text-ink"><MessageSquare size={12} className="shrink-0" /><span className="min-w-0 truncate">{session.title}</span><X size={12} className="shrink-0" /></button>)}
 									</div>
-								))}
+								)}
+								<AttachmentStrip
+									files={strip}
+									onRemove={(file) => {
+										const target = attachments.find((a) => a.id === file.key);
+										if (target) detach(target);
+									}}
+									/*
+									 * 这一份还能被改：在查看器里标注完，改的是还没发出去的草稿本身。
+									 * 气泡外那一排就没有 `onReplace`——那一份已经发出去了，是记录。
+									 */
+									onOpen={(index, event) =>
+										openFromEvent(
+											event,
+											previewable.map((a) => ({
+												src: `data:${a.mimeType};base64,${a.data}`,
+												alt: a.name,
+												onReplace: (dataUrl: string) =>
+													setAttachments((prev) =>
+														prev.map((item) =>
+															item.id === a.id ? { ...item, ...fromDataUrl(dataUrl, item) } : item,
+														),
+													),
+											})),
+											index,
+										)
+									}
+								/>
 							</div>
 						) : undefined
 					}

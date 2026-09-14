@@ -168,7 +168,7 @@ export class AgentSession {
 	 * window on the first prompt — which then compacts again, from scratch, having thrown away the
 	 * summary it paid for last time.
 	 */
-	restore(messages: Message[], compaction: Boundary | null = null): void {
+	restore(messages: Message[], compaction: Boundary | null = null, compactions: number[] = []): void {
 		/*
 		 * Handles from before a model change are dropped on the way in, not at the point of use.
 		 *
@@ -176,7 +176,7 @@ export class AgentSession {
 		 * means the stale handles come back every time the session is opened. Cleaning here covers
 		 * both ways in, from the session hub and from sync, and leaves the encoders unchanged.
 		 */
-		this.log.restore(stripStaleHandles(messages, this.log.meta?.modelSwitchedAt), compaction);
+		this.log.restore(stripStaleHandles(messages, this.log.meta?.modelSwitchedAt), compaction, compactions);
 	}
 
 	get running(): boolean {
@@ -481,7 +481,8 @@ export class AgentSession {
 		await this.log.append({ type: "meta", meta });
 		// The running session holds the same messages the next turn will encode, so clean those too.
 		if (switching) {
-			this.log.restore(stripStaleHandles(this.log.messages, meta.modelSwitchedAt), this.log.compaction);
+			// Same transcript, same marks — a model switch rewrites handles, not where history was summarised.
+			this.log.restore(stripStaleHandles(this.log.messages, meta.modelSwitchedAt), this.log.compaction, this.log.compactions);
 		}
 		return true;
 	}
@@ -631,6 +632,7 @@ export class AgentSession {
 			skillRef?: { name: string; path?: string; pluginId?: string };
 			sessionRefs?: Array<{ id: string; title: string }>;
 			fileRefs?: Array<{ name: string; path: string }>;
+			attachments?: Array<{ name: string; kind?: string; mimeType?: string }>;
 		} = {},
 	): Promise<void> {
 		// A prompt waits for the manual boundary before creating a turn against that history.
@@ -645,6 +647,7 @@ export class AgentSession {
 			...(options.skillRef ? { skillRef: options.skillRef } : {}),
 			...(options.sessionRefs?.length ? { sessionRefs: options.sessionRefs } : {}),
 			...(options.fileRefs?.length ? { fileRefs: options.fileRefs } : {}),
+			...(options.attachments?.length ? { attachments: options.attachments } : {}),
 		};
 
 		if (this.running) {
@@ -873,7 +876,19 @@ export class AgentSession {
 	async editAndResend(
 		messageIndex: number,
 		content: UserContent[],
-		options: { thinking?: ThinkingLevel } = {},
+		options: {
+			thinking?: ThinkingLevel;
+			/**
+			 * 改的是措辞，不是这条消息是什么。
+			 *
+			 * 这两样从前没跟过来，于是编辑一次就把它们清空了：`attachments` 一没，界面上那排附件
+			 * 整个消失——文件其实还在 `content` 里，模型照样看得见，只有人看不见了；`displayText`
+			 * 一没，气泡退回原文，一份上千行的附件正文重新整个铺进自己发出的那条消息里，而那正
+			 * 是 `displayText` 存在的全部理由。
+			 */
+			displayText?: string;
+			attachments?: Array<{ name: string; kind?: string; mimeType?: string }>;
+		} = {},
 	): Promise<void> {
 		await this.cancelTitleSummary();
 		if (this.running) {

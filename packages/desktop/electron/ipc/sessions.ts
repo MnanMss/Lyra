@@ -73,7 +73,7 @@ export function registerSessionsIpc({
 	 */
 	const ensureSession = ensureLiveSession;
 
-	ipcMain.handle("sessions:create", async (_event, cwd: string, modelId: string, initial?: { content: UserContent[]; synthetic?: boolean; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }>; fileRefs?: Array<{ name: string; path: string }> }) => createSession(cwd, modelId, initial));
+	ipcMain.handle("sessions:create", async (_event, cwd: string, modelId: string, initial?: { content: UserContent[]; synthetic?: boolean; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }>; fileRefs?: Array<{ name: string; path: string }>; attachments?: Array<{ name: string; kind?: string; mimeType?: string }> }) => createSession(cwd, modelId, initial));
 
 	/**
 	 * Read a transcript without starting anything.
@@ -268,7 +268,7 @@ export function registerSessionsIpc({
 			_event,
 			sessionId: string,
 			content: UserContent[],
-			options?: { synthetic?: boolean; deliver?: "steer" | "followUp"; resumePending?: boolean; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }>; fileRefs?: Array<{ name: string; path: string }> },
+			options?: { synthetic?: boolean; deliver?: "steer" | "followUp"; resumePending?: boolean; displayText?: string; skillRef?: { name: string; path?: string; pluginId?: string }; sessionRefs?: Array<{ id: string; title: string }>; fileRefs?: Array<{ name: string; path: string }>; attachments?: Array<{ name: string; kind?: string; mimeType?: string }> },
 		) => {
 			return promptSession(sessionId, content, options);
 		},
@@ -318,8 +318,9 @@ export function registerSessionsIpc({
 			sessionId: string,
 			messageIndex: number,
 			content: UserContent[],
+			options?: { displayText?: string; attachments?: Array<{ name: string; kind?: string; mimeType?: string }> },
 		) => {
-			await editSessionMessage(sessionId, messageIndex, content);
+			await editSessionMessage(sessionId, messageIndex, content, options);
 		},
 	);
 

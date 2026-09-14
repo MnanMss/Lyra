@@ -8,6 +8,7 @@ export interface InitialPrompt {
 	skillRef?: { name: string; path?: string; pluginId?: string };
 	sessionRefs?: Array<{ id: string; title: string }>;
 	fileRefs?: Array<{ name: string; path: string }>;
+	attachments?: Array<{ name: string; kind?: string; mimeType?: string }>;
 }
 
 /** Persist identity, title and the submitted message without starting MCP, Git or a provider. */
@@ -33,6 +34,7 @@ export async function createStoredSession(
 					...(initial.skillRef ? { skillRef: initial.skillRef } : {}),
 					...(initial.sessionRefs?.length ? { sessionRefs: initial.sessionRefs } : {}),
 					...(initial.fileRefs?.length ? { fileRefs: initial.fileRefs } : {}),
+					...(initial.attachments?.length ? { attachments: initial.attachments } : {}),
 				},
 			]
 		: [];

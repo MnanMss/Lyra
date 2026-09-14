@@ -13,6 +13,7 @@ import type { UserContent } from "@lyra/core";
 // Through the browser-safe door: the main barrel reaches the filesystem, and this runs in a page.
 import { expandCommand, parseInvocation, parseSkillMention, resolveCommand, skillNameOf } from "@lyra/core/commands-view";
 
+import { attachmentBody, attachmentImageLabel, attachmentLabel, attachmentStub, placeAttachments, stripPlaceholders } from "../../lib/attachment-placeholders.ts";
 import { skillCommandName } from "./command-catalog.ts";
 import { bridge } from "../../services/index.ts";
 import { relativeTo } from "../../lib/paths.ts";
@@ -22,6 +23,8 @@ export interface OutgoingAttachment {
 	name: string;
 	mimeType: string;
 	path?: string;
+	/** 图标用的门类，跟着消息一起留在转录里——正文不留，只留这个。 */
+	kind?: string;
 	data?: string;
 	text?: string;
 	isText?: boolean;
@@ -40,10 +43,18 @@ export interface Outgoing {
 	skillRef?: { name: string; path?: string; pluginId?: string };
 	sessionRefs?: { id: string; title: string }[];
 	fileRefs?: Array<{ name: string; path: string }>;
+	/** 名字和门类，给气泡里那排胶囊用；正文不在里面，见 `UserMessage.attachments`。 */
+	attachments?: { name: string; kind?: string; mimeType?: string }[];
 	/** 命令自己声明的投递方式——见 `SlashCommand.deliver`。 */
 	deliver?: "steer" | "followUp";
 }
 
+/**
+ * `stillCurrent` 是磁盘那一趟回来之后再问一次：这份草稿还是刚才那份吗。
+ *
+ * 命令要按磁盘上的定义展开，那是一次异步，而人可以在这段时间里接着打字、换对话。答案是否就放弃这
+ * 次提交，`null` 就是放弃——不是失败，是这份草稿已经不存在了。
+ */
 /**
  * `stillCurrent` 是磁盘那一趟回来之后再问一次：这份草稿还是刚才那份吗。
  *
@@ -146,39 +157,124 @@ export async function buildOutgoing(
 		outgoing = `${outgoing}\n\n[Referenced context]\n${sessionPrompts.join("\n")}`;
 	}
 	const fileRefs: Array<{ name: string; path: string }> = [];
-	if (draft.attachments.length > 0) {
-		const nonImages = draft.attachments.filter((a) => !(!a.isText && a.data));
-		if (nonImages.length > 0) {
-			const cwd = draftCwd ?? "";
-			const filePrompts = nonImages.map((f) => {
-				const targetPath = f.path ?? f.name;
-				const display = cwd && f.path ? relativeTo(cwd, f.path) : f.name;
-				const pathNote = f.path && f.path !== display ? ` (path: ${JSON.stringify(f.path)})` : "";
-				fileRefs.push({ name: f.name, path: targetPath });
-				return `- Referenced file ${JSON.stringify(display)}${pathNote}: do not assume its contents, read it with the \`read\` tool when needed.`;
-			});
-			if (displayText === undefined) {
-				displayText = outgoing;
-			}
-			outgoing = outgoing
-				? `${outgoing}\n\n[Referenced files]\n${filePrompts.join("\n")}`
-				: `[Referenced files]\n${filePrompts.join("\n")}`;
+	for (const file of draft.attachments) {
+		if (file.path) {
+			fileRefs.push({ name: file.name, path: file.path });
+		}
 	}
-	}
+	if (displayText === undefined && draft.attachments.length > 0) displayText = outgoing;
 
-	const images = draft.attachments
-		.filter((a) => !a.isText && a.data)
-		.map((a): UserContent => ({ type: "image", data: a.data!, mimeType: a.mimeType }));
+	const { segments, unplaced } = placeAttachments(outgoing, draft.attachments);
+	const content: UserContent[] = [];
+	let buffer = "";
+	const flush = () => {
+		if (buffer) content.push({ type: "text", text: buffer });
+		buffer = "";
+	};
+	/*
+	 * 每份附件正文自己占一个 content 块，不跟前后的字并进同一块。
+	 *
+	 * 这不是排版讲究，是为了「编辑已发出的消息」还能用：编辑框改的是 `displayText`——人打的那些字，
+	 * 不含正文——所以重建消息时必须把正文原样搬过去。并成一块就分不出哪一段是人写的、哪一段是文件，
+	 * 见 `isAttachmentBody`。
+	 */
+	/*
+	 * 每份附件带上它在这一条消息里的位置。
+	 *
+	 * 人指认附件靠的是序数加门类——「第二张截图」「excel 文件 1」——而不是文件名。位置按**实际写进
+	 * prompt 的先后**数，不是按草稿里的先后：模型看到的是前者，两者在有记号的旧草稿里会不一样。
+	 */
+	const total = draft.attachments.length;
+	const kindTotals = new Map<string, number>();
+	for (const file of draft.attachments) {
+		const kind = file.kind ?? "file";
+		kindTotals.set(kind, (kindTotals.get(kind) ?? 0) + 1);
+	}
+	const kindSeen = new Map<string, number>();
+	let placed = 0;
+
+	const labelFor = (file: OutgoingAttachment): string => {
+		const kind = file.kind ?? "file";
+		placed += 1;
+		const kindIndex = (kindSeen.get(kind) ?? 0) + 1;
+		kindSeen.set(kind, kindIndex);
+		return attachmentLabel({
+			index: placed,
+			total,
+			kind: file.kind,
+			kindIndex,
+			kindTotal: kindTotals.get(kind) ?? 1,
+		});
+	};
+
+	const spell = (file: OutgoingAttachment) => {
+		const label = labelFor(file);
+		if (file.isText && file.text) {
+			flush();
+			if (file.path) {
+				const cwd = draftCwd ?? "";
+				const display = cwd && file.path ? relativeTo(cwd, file.path) : file.name;
+				const pathNote = file.path && file.path !== display ? ` (path: ${JSON.stringify(file.path)})` : "";
+				content.push({ type: "text", text: `\n\n[Referenced files]\n- Referenced file ${JSON.stringify(display)}${pathNote}: do not assume its contents, read it with the \`read\` tool when needed.\n\n` });
+			} else {
+				// Fenced and named, so the model can tell the document from the sentence around it.
+				content.push({ type: "text", text: attachmentBody(file.name, file.text, label) });
+			}
+			return;
+		}
+		if (!file.isText && file.data) {
+			/*
+			 * 图片前面先写一行，说它是谁、排第几。
+			 *
+			 * 图片块本身装不下字，而三张截图在模型眼里本来是三团无法区分的像素——「第二张截图里的报错」
+			 * 就是从这里开始猜的。这一行是它们之间唯一的区别。
+			 */
+			flush();
+			content.push({ type: "text", text: attachmentImageLabel(file.name, label) });
+			content.push({ type: "image", data: file.data, mimeType: file.mimeType });
+			return;
+		}
+		// Attached by name and type only — see `addFiles`. Saying so is what stops the model from
+		// answering as though it had read something it was never given.
+		flush();
+		content.push({ type: "text", text: attachmentStub(file.name, file.mimeType, label) });
+	};
+
+	/*
+	 * 材料在前，问题在后。
+	 *
+	 * 没有记号可站的附件从前缀在最末尾，现在整体走在正文前面——而「没有记号可站」如今是常态，
+	 * 因为记号不再被写进草稿了。先给材料再提问，跟编辑一条已发出的消息时走的是同一条路：
+	 * `UserMessage.submit` 早就是 `[...图片, ...正文, 新的字]`，两边从此说的是同一件事。
+	 */
+	for (const file of unplaced) spell(file);
+	for (const segment of segments) {
+		if (segment.kind === "text") buffer += segment.text;
+		else spell(segment.file);
+	}
+	flush();
 
 	return {
-		content: [
-			...images,
-			...(outgoing ? [{ type: "text" as const, text: outgoing }] : []),
-		],
-		...(displayText !== undefined ? { displayText } : {}),
+		content,
+		/*
+		 * 给人看的那一份里不留 `【文件名】`。
+		 *
+		 * 新的草稿不会有，但升级前存下的还带着——留着它，气泡里就是一遍文件名，气泡外面那排附件
+		 * 上又是一遍，同一个文件说两次。
+		 */
+		...(displayText !== undefined ? { displayText: stripPlaceholders(displayText, draft.attachments) } : {}),
 		...(skillRef ? { skillRef } : {}),
 		...(draft.sessionRefs.length > 0 ? { sessionRefs: draft.sessionRefs } : {}),
 		...(fileRefs.length > 0 ? { fileRefs } : {}),
+		...(draft.attachments.length > 0
+			? {
+					attachments: draft.attachments.map((file) => ({
+						name: file.name,
+						...(file.kind ? { kind: file.kind } : {}),
+						...(file.mimeType ? { mimeType: file.mimeType } : {}),
+					})),
+				}
+			: {}),
 		...(deliver ? { deliver } : {}),
 	};
 }

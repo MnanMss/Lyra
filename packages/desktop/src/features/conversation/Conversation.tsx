@@ -10,12 +10,14 @@ import { RunningIndicator } from "./RunningIndicator.tsx";
 import { TaskList } from "../task/index.ts";
 import { Scroller } from "../../ui/scroll/Scroller.tsx";
 import { useAnswering } from "./useAnswering.ts";
-import { isNudge, runs, runKey } from "./grouping.ts";
+import { isNudge, runs, runKey, turnBlocks, type Run } from "./grouping.ts";
+import { intact } from "../../lib/transcript.ts";
 import { ToolRun as ToolRunGroup, WINDOW_STEP } from "./runs.tsx";
 import { CommandRunRow } from "./CommandRunRow.tsx";
 import { QuestionNav } from "./QuestionNav.tsx";
 import { questionsIn, timeSeparators } from "./question-navigation.ts";
 import { MessageRow } from "./rows.tsx";
+import { TurnProcess } from "./TurnProcess.tsx";
 import { useTranscriptWindow } from "./view-state.ts";
 import { useFollowBottom } from "../../ui/scroll/useFollowBottom.ts";
 import { tailSignature } from "../../ui/scroll/signature.ts";
@@ -44,7 +46,17 @@ import { useApp } from "../../store/index.ts";
 const NARROW_COLUMN = 520;
 
 export const Conversation = memo(function Conversation() {
-  const messages = useApp((s) => s.messages);
+  /*
+   * 转录的入口，也是那道闸门的位置。
+   *
+   * `intact` 放在这里而不是只放在 `runs` 里，是因为这一条数组要交给五个消费者——`runs`、
+   * `timeSeparators`、`questionsIn`、`useAnswering`、`tailSignature`——它们各自都会去读 `role`。
+   * 只挡住其中一个，另外四个照样能把整个窗口掀翻，而报出来还是同一句话。
+   *
+   * 没有损坏时 `intact` 交回的是同一个引用，所以下面那些 `useMemo` 的依赖不会因此失效。
+   */
+  const rawMessages = useApp((s) => s.messages);
+  const messages = useMemo(() => intact(rawMessages), [rawMessages]);
   const running = useApp((s) => s.running);
   const compactions = useApp((s) => s.compactions);
 	const commandRuns = useApp((s) => s.commandRuns);
@@ -197,6 +209,13 @@ export const Conversation = memo(function Conversation() {
    */
   const hidden = range.start;
   const visibleRuns = allRuns.slice(range.start, range.end);
+  /*
+   * 分块只在转录变了的时候算一次。
+   *
+   * 它在渲染里被读两次（画每一块、判断哪一块是最后一块），直接调用就是每次渲染跑两遍分组，
+   * 而这条转录在一轮里每个 token 都会重渲染。
+   */
+  const blocks = useMemo(() => turnBlocks(visibleRuns), [visibleRuns]);
   const { scrollTo, detach } = follow;
   useLayoutEffect(() => {
     if (!jump || jump.sessionId !== activeSessionId) return;
@@ -293,7 +312,15 @@ export const Conversation = memo(function Conversation() {
             </button>
           )}
 
-          {visibleRuns.map((run) =>
+          {/*
+           * 按回合分块，不是逐条铺开。
+           *
+           * 一轮读下来是「想 → 做 → 说」。前两步是过程——跑的时候你在看着它，跑完之后它挡在答案
+           * 前面就只是噪音。`turnBlocks` 在 Run 那一层把这件事定下来（规则性的东西要能单独测），
+           * 这里只负责把过程那一块套进 `TurnProcess`。
+           */}
+          {blocks.map((block) => {
+            const draw = (run: Run) =>
             /*
 						 * Automatic compaction belongs on the running indicator. An explicitly submitted
 						 * command keeps its own result, so the user can verify the action they requested.
@@ -338,8 +365,26 @@ export const Conversation = memo(function Conversation() {
                  */
                 live={running && Boolean(run.live)}
               />
-            ),
-          )}
+            );
+            if (block.kind === "plain") return draw(block.runs[0]);
+            const key = `${activeSessionId}:process:${runKey(block.runs[0] as Exclude<Run, { kind: "compaction" }>)}`;
+            return (
+              <TurnProcess
+                key={key}
+                counts={block.counts}
+                /*
+                 * 按**回合**算，不是按块的位置算。
+                 *
+                 * 正文一开始流式输出，过程块就不再排在末尾——按位置判，折叠行会在回合中途冒出来
+                 * 并把正在进行的工作收起来，而那正是人盯着看的时候。录像里抓到过一次。
+                 */
+                running={running && block.turn === blocks[blocks.length - 1].turn}
+                stateKey={key}
+              >
+                {block.runs.map(draw)}
+              </TurnProcess>
+            );
+          })}
 
           {/*
            * Present for the whole turn — until the answer starts, at which point it has been

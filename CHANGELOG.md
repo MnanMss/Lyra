@@ -5,6 +5,277 @@
 只收录 0.8.0 及之后的版本：更早的提交信息还没有统一格式，勉强解析出来的条目比留白更容易误导。
 那些版本的说明在 [GitHub Releases](https://github.com/kittors/Lyra/releases) 里。
 
+## [0.9.10](https://github.com/kittors/Lyra/releases/tag/v0.9.10) - 2026-09-11
+
+<!-- lyra:notes zh-CN -->
+
+### 新功能
+
+- **方向键往回翻自己说过的话**。输入框里按 ↑ 翻出上一句，再按往更早翻，↓ 往回走；翻过最近那条，就回到原来那句还没打完的草稿——草稿必须回得来，否则「想看看上次是怎么说的」这个念头，代价是丢掉手里正写着的半句话。框里最上沿标一行「历史 1/4」，翻到哪儿一眼看得见。
+
+  当初那条附了图或文件的，图和文件也跟着回来。翻回来的是整条消息，而不是那条消息里的一句话——只给字的话，一句「这张图里有什么」翻出来就成了没有指代对象的问题。
+
+  方向键在这个输入框里本来就有三个主人（@ 的名单、/ 的命令单、排队消息的挪动），所以历史排在最后一个，而且只在光标已经贴着头或尾的时候才接管：消息有好几行时，↑ 的本分仍然是把光标挪到上一行。
+
+### 修复
+
+- **一条读不出来的记录，不再让人失去整个窗口**。上一版修同一句崩溃（`Cannot read properties of undefined (reading 'role')`）时只堵了写入口，渲染端一行没动，所以承诺只兑现了一半：坏记录少了几条来路，可一旦真的出现，界面照样整个白掉——有人在 Windows 上长时间跑任务时又撞到了同一句。这一版补上另一半：读不出来的那一条就地换成一条画得出来的，**位置不动**。位置必须保住，因为压缩标记、命令记录、抖动行全是指进这个数组的下标，抽掉一条它们就整体错位一格，画出一份对不上的转录比崩更难发现。读会话那条路上也装了同一道闸——那里一抛出来，会话会**永远停在「正在加载对话…」**，一句报错都不给。
+- **附件上那个取下的叉，改成鼠标移上去才出现，而且浮在缩略图的右上角上**，不再常驻在图里面。它盖着的正是人想看的那张图；一排缩略图配一排叉，最显眼的东西成了「删掉我」，而这排东西本来是拿来看的。
+
+<!-- lyra:notes zh-TW -->
+
+### 新功能
+
+- **方向鍵往回翻自己說過的話**。輸入框裡按 ↑ 翻出上一句，再按往更早翻，↓ 往回走；翻過最近那條，就回到原來那句還沒打完的草稿——草稿必須回得來，否則「想看看上次是怎麼說的」這個念頭，代價是丟掉手裡正寫著的半句話。框裡最上沿標一行「歷史 1/4」，翻到哪兒一眼看得見。
+
+  當初那條附了圖或檔案的，圖和檔案也跟著回來。翻回來的是整條訊息，而不是那條訊息裡的一句話——只給字的話，一句「這張圖裡有什麼」翻出來就成了沒有指涉對象的問題。
+
+  方向鍵在這個輸入框裡本來就有三個主人（@ 的名單、/ 的命令單、排隊訊息的挪動），所以歷史排在最後一個，而且只在游標已經貼著頭或尾的時候才接管：訊息有好幾行時，↑ 的本分仍然是把游標挪到上一行。
+
+### 修復
+
+- **一條讀不出來的記錄，不再讓人失去整個視窗**。上一版修同一句崩潰（`Cannot read properties of undefined (reading 'role')`）時只堵了寫入口，繪製端一行沒動，所以承諾只兌現了一半：壞記錄少了幾條來路，可一旦真的出現，介面照樣整個白掉——有人在 Windows 上長時間跑任務時又撞到了同一句。這一版補上另一半：讀不出來的那一條就地換成一條畫得出來的，**位置不動**。位置必須保住，因為壓縮標記、命令記錄、抖動行全是指進這個陣列的索引，抽掉一條它們就整體錯位一格，畫出一份對不上的逐字稿比崩更難發現。讀工作階段那條路上也裝了同一道閘——那裡一拋出來，工作階段會**永遠停在「正在載入對話…」**，一句錯誤都不給。
+- **附件上那個取下的叉，改成滑鼠移上去才出現，而且浮在縮圖的右上角上**，不再常駐在圖裡面。它蓋著的正是人想看的那張圖；一排縮圖配一排叉，最顯眼的東西成了「刪掉我」，而這排東西本來是拿來看的。
+
+<!-- lyra:notes en -->
+
+### New
+
+- **The arrow keys go back through what you have said.** Press ↑ in the composer for your previous message, again for the one before that, ↓ to come back; past the most recent one you land on the half-written draft you started with. The draft has to come back — otherwise the thought "let me see how I put it last time" costs you the sentence you are in the middle of writing. A line along the top inside the field reads "History 1/4", so where you are is never a guess.
+
+  If that message had an image or a file attached, those come back with it. What you get back is the whole message rather than one sentence out of it: with only the words, "what is in this picture" returns as a question with nothing to point at.
+
+  The arrow keys already had three owners here — the @ list, the / command list, and reordering queued messages — so history goes last, and only takes over once the caret is already at the very start or the very end. In a message several lines long, ↑ still does its usual job of moving the caret up a line.
+
+### Fixes
+
+- **One unreadable record no longer costs you the whole window.** The previous fix for this crash (`Cannot read properties of undefined (reading 'role')`) only closed the ways in; nothing changed on the rendering side, so the promise was half kept. Fewer bad records got written, but one that did still took the interface down — someone running a long task on Windows hit the same error again. This version adds the other half: a record that cannot be read is replaced in place by one that can be drawn, **keeping its position**. The position has to hold, because compaction marks, command runs and hiccup rows are all indices into that array; drop one and every one of them shifts by a place, and a transcript that quietly disagrees with itself is harder to notice than a crash. The same gate now sits on the read path, where a throw used to leave the session stuck on "loading conversation…" forever, saying nothing at all.
+- **The remove button on an attachment now appears when you hover it, and sits on the thumbnail's top corner** instead of inside the picture. It used to be pinned there permanently, covering the very image you were looking at; a row of thumbnails came with a row of crosses, which made "delete me" the most prominent thing about a strip you are meant to be looking at.
+
+<!-- lyra:notes ja -->
+
+### 新機能
+
+- **方向キーで自分が書いた文をさかのぼれるようになりました。** 入力欄で ↑ を押すと一つ前の文が、もう一度押すとさらに前の文が戻ってきます。↓ は逆向きで、いちばん新しいものを通り越すと、書きかけだった下書きに戻ります。下書きが戻ってくることは必須です——そうでないと「前はどう書いたっけ」と思っただけで、いま書いている途中の一文を失うことになります。入力欄の内側いちばん上に「履歴 1/4」と出るので、どこまで戻ったかは見ればわかります。
+
+  その文に画像やファイルが付いていた場合、それらも一緒に戻ります。戻ってくるのはメッセージ全体であって、その中の一文ではありません——文字だけでは、「この画像には何が写っていますか」が指す先のない問いになってしまいます。
+
+  この入力欄では方向キーにすでに三つの持ち主がいます（@ の一覧、/ のコマンド一覧、順番待ちメッセージの入れ替え）。ですから履歴はいちばん後ろに並び、しかもカーソルが先頭か末尾に着いているときだけ引き受けます。数行あるメッセージでは、↑ は今までどおりカーソルを一行上へ動かします。
+
+### 修正
+
+- **読み取れない記録が一つあっても、ウィンドウ全体を失うことはなくなりました。** 同じクラッシュ（`Cannot read properties of undefined (reading 'role')`）を前回直したときは書き込み口を塞いだだけで、描画側には一行も手を入れていませんでした。約束は半分しか果たされておらず、壊れた記録の入口は減ったものの、いざ現れれば画面はやはり真っ白になります——Windows で長時間タスクを回していた方が、また同じ文言に行き当たりました。今回もう半分を補いました。読めない記録は、**位置をそのままに**、描ける一行へその場で置き換えます。位置を守る必要があるのは、圧縮の目印・コマンドの記録・回線の乱れの行が、すべてこの配列への添字だからです。一つ抜けばすべてが一つずつずれ、静かに食い違った記録はクラッシュより気づきにくくなります。同じ関門は読み込み側にも置きました。そちらで例外が出ると、その会話は**「会話を読み込んでいます…」のまま永久に止まり**、何も言ってくれませんでした。
+- **添付ファイルの取り消しボタンは、カーソルを重ねたときだけ現れ、サムネイルの右上の角に載るようになりました。** 以前は画像の中に出しっぱなしで、まさに見たいその絵を覆っていました。サムネイルが並べば×も並び、本来は眺めるためのその一列で、いちばん目立つものが「消す」になっていました。
+
+<!-- lyra:notes ko -->
+
+### 새 기능
+
+- **방향키로 자기가 썼던 말을 거슬러 올라갑니다.** 입력창에서 ↑를 누르면 바로 앞 메시지가, 한 번 더 누르면 그 앞의 것이 돌아옵니다. ↓는 반대 방향이고, 가장 최근 것을 지나치면 쓰다 만 초안으로 돌아옵니다. 초안은 반드시 돌아와야 합니다 — 그러지 않으면 "지난번엔 어떻게 썼더라" 하는 생각의 대가가 지금 쓰던 문장을 잃는 일이 됩니다. 입력창 안쪽 맨 위에 "기록 1/4"이라고 적혀 있어, 어디까지 왔는지는 보면 압니다.
+
+  그 메시지에 이미지나 파일이 붙어 있었다면 그것들도 함께 돌아옵니다. 돌아오는 건 메시지 전체이지 그 안의 한 문장이 아닙니다 — 글자만 돌아오면 "이 사진에 뭐가 있나요"는 가리킬 대상이 없는 질문이 되어 버립니다.
+
+  이 입력창에서 방향키에는 이미 주인이 셋 있습니다(@ 목록, / 명령 목록, 대기 중인 메시지 순서 바꾸기). 그래서 기록은 맨 뒤에 서고, 커서가 이미 맨 앞이나 맨 끝에 닿아 있을 때만 넘겨받습니다. 여러 줄짜리 메시지에서 ↑는 여전히 커서를 한 줄 위로 옮기는 제 일을 합니다.
+
+### 수정
+
+- **읽을 수 없는 기록 하나 때문에 창 전체를 잃지 않습니다.** 같은 오류(`Cannot read properties of undefined (reading 'role')`)를 지난번에 고칠 때는 쓰는 입구만 막았고 그리는 쪽은 한 줄도 손대지 않았습니다. 약속은 절반만 지켜진 셈이라, 망가진 기록이 들어올 길은 줄었지만 일단 생기면 화면은 여전히 통째로 하얘졌습니다 — Windows에서 오래 도는 작업을 하던 분이 같은 문장을 또 만났습니다. 이번에 나머지 절반을 채웠습니다. 읽히지 않는 기록은 **자리를 그대로 둔 채** 그릴 수 있는 한 줄로 그 자리에서 바뀝니다. 자리를 지켜야 하는 이유는 압축 표시, 명령 기록, 끊김 줄이 전부 그 배열의 색인이기 때문입니다. 하나를 빼면 전부 한 칸씩 밀리고, 조용히 어긋난 기록은 아예 죽는 것보다 알아채기 어렵습니다. 같은 관문을 읽는 쪽에도 두었습니다. 거기서 예외가 나면 그 대화는 **"대화를 불러오는 중…"에서 영영 멈춰** 아무 말도 하지 않았습니다.
+- **첨부 파일의 제거 버튼이 마우스를 올렸을 때만 나타나고, 썸네일 오른쪽 위 모서리에 걸치도록 바뀌었습니다.** 전에는 그림 안에 늘 박혀 있어서 정작 보려던 그 그림을 가렸습니다. 썸네일이 늘어서면 ×도 함께 늘어서서, 보라고 만든 줄에서 가장 눈에 띄는 것이 "지우기"가 되어 있었습니다.
+
+<!-- lyra:notes fr -->
+
+### Nouveautés
+
+- **Les flèches remontent ce que vous avez déjà écrit.** Dans la zone de saisie, ↑ rappelle votre message précédent, encore une fois celui d'avant, ↓ revient en arrière ; passé le plus récent, vous retombez sur le brouillon inachevé d'où vous étiez parti. Ce brouillon doit revenir : sans cela, l'envie de « voir comment je l'avais formulé » coûte la phrase que vous êtes en train d'écrire. Une ligne en haut, à l'intérieur du champ, indique « Historique 1/4 » : où vous en êtes ne se devine pas.
+
+  Si ce message avait une image ou un fichier joint, ils reviennent avec lui. Ce qui revient est le message entier, pas une phrase qui en est extraite : avec les seuls mots, « qu'y a-t-il sur cette image » redevient une question qui ne désigne rien.
+
+  Les flèches avaient déjà trois propriétaires ici — la liste du @, celle des commandes /, et le réordonnancement des messages en file. L'historique passe donc en dernier, et ne prend la main que lorsque le curseur est déjà tout au début ou tout à la fin. Dans un message de plusieurs lignes, ↑ fait toujours son travail habituel : monter d'une ligne.
+
+### Corrections
+
+- **Un enregistrement illisible ne coûte plus la fenêtre entière.** Le correctif précédent pour ce plantage (`Cannot read properties of undefined (reading 'role')`) n'avait fermé que les entrées ; rien n'avait bougé du côté de l'affichage, la promesse n'était donc tenue qu'à moitié. Les mauvais enregistrements se faisaient plus rares, mais l'un d'eux suffisait encore à faire tomber l'interface — quelqu'un l'a de nouveau rencontré sous Windows, sur une tâche longue. Cette version ajoute l'autre moitié : un enregistrement qu'on ne peut pas lire est remplacé sur place par un qui s'affiche, **en gardant sa position**. Elle doit tenir, car les marques de compression, les commandes et les lignes de coupure sont toutes des indices dans ce tableau ; en retirer un les décale tous d'un rang, et une transcription qui se contredit en silence se repère moins bien qu'un plantage. La même barrière est maintenant posée du côté de la lecture, où une exception laissait la conversation bloquée sur « chargement de la conversation… » indéfiniment, sans rien dire.
+- **Le bouton de retrait d'une pièce jointe n'apparaît plus qu'au survol, et se pose sur le coin supérieur droit de la vignette** au lieu d'être dedans. Il y était affiché en permanence, masquant précisément l'image que vous regardiez ; une rangée de vignettes s'accompagnait d'une rangée de croix, et « supprimer » devenait l'élément le plus visible d'une bande faite pour être regardée.
+
+<!-- lyra:notes ru -->
+
+### Новое
+
+- **Стрелки листают то, что вы уже писали.** В поле ввода ↑ возвращает предыдущее сообщение, ещё раз — то, что было до него, ↓ идёт обратно; за самым свежим вас ждёт недописанный черновик, с которого всё начиналось. Черновик обязан возвращаться: иначе мысль «а как я это сформулировал в прошлый раз» стоит вам той фразы, которую вы пишете сейчас. Строка вверху, внутри поля, показывает «История 1/4» — где вы находитесь, не приходится угадывать.
+
+  Если к тому сообщению были приложены картинка или файл, они возвращаются вместе с ним. Возвращается сообщение целиком, а не одна фраза из него: с одними словами «что на этой картинке» снова становится вопросом, которому не на что указать.
+
+  У стрелок в этом поле уже есть три хозяина — список по @, список команд по /, и перестановка сообщений в очереди. Поэтому история идёт последней и берёт управление только тогда, когда курсор уже стоит в самом начале или в самом конце. В сообщении из нескольких строк ↑ по-прежнему делает своё обычное дело — поднимает курсор на строку выше.
+
+### Исправления
+
+- **Одна нечитаемая запись больше не стоит вам целого окна.** Прошлое исправление той же ошибки (`Cannot read properties of undefined (reading 'role')`) закрыло только входы; со стороны отрисовки не изменилось ничего, и обещание оказалось выполнено наполовину. Испорченных записей стало меньше, но одной по-прежнему хватало, чтобы уронить интерфейс, — в Windows на долгой задаче человек снова наткнулся на ту же строку. Эта версия добавляет вторую половину: запись, которую не удаётся прочитать, заменяется на месте той, которую можно нарисовать, **с сохранением позиции**. Позиция должна устоять: отметки сжатия, записи команд и строки обрывов — всё это индексы в том же массиве, убери один элемент, и они сдвинутся на шаг, а расшифровка, которая тихо расходится сама с собой, заметна хуже, чем падение. Тот же заслон теперь стоит и на чтении, где исключение оставляло беседу **навсегда на «загрузка беседы…»** и ничего не сообщало.
+- **Крестик для снятия вложения теперь появляется при наведении и садится на правый верхний угол миниатюры**, а не внутрь картинки. Раньше он висел там постоянно и закрывал ровно то изображение, на которое вы смотрели; за рядом миниатюр шёл ряд крестиков, и «удалить» оказывалось самым заметным в полосе, которую полагается разглядывать.
+
+## [0.9.9](https://github.com/kittors/Lyra/releases/tag/v0.9.9) - 2026-09-11
+
+<!-- lyra:notes zh-CN -->
+
+### 新功能
+
+- **PDF 里的字，现在读得出来**。从前拖一份 PDF 进输入框，得到的是一句「内容无法作为文本读取」——而那句话在能力上并不成立：Word、Excel、PPT 的解析一直都在仓库里，只是从来没有人调用它。现在这几种格式连同 PDF 一起，按页把正文抽出来交给模型，一份一百页的文档也答得了「部署那节写了什么」，并且说得出在第几页。整页是图的扫描件单独说一句「里面没有可提取的文字」，不和「格式不支持」合并：一个是换个格式再来，一个是这份文件里本来就没有字，需要的是 OCR。
+- **中文 PDF 抽出来的字，模型认得出了**。PDF 里的字形按字体自己的编码表走。实测一份中文白皮书，抽出来的「白皮书」其实是康熙部首区的「⽩⽪书」——人眼完全看不出区别，对模型却是另外几个字符，于是问「白皮书里写了什么」，问题里的字和文档里的字对不上。
+- **附件在输入框上方和气泡旁边，长成同一个样子**。从前同一份文件在两处画法不同，图片更是缩略图和文件名各出现一遍，一个是像素一个是紫色图标，看不出说的是同一个东西。图片和文档现在各自成组，不再混在一行里高矮不齐。编辑已经发出的消息，也不会再把那排附件抹掉——改的是措辞，附件本来就该留着。
+- **回复里的文件链接旁边，多了两个出口**。点链接还是在内置面板里打开，读 .md、.ts 这类那是最快的办法。问题出在打不开的那些：点一个 .exe，正在看的东西被挤掉，换来一句「二进制文件，无法以文本显示」。现在鼠标停上去，旁边会显形「用默认程序打开」和「在文件管理器中显示」。
+- **不同端点的脾气，各记各的**。哪个参数不吃、一轮里的工具调用怎么排、推理内容怎么还回去——三件事分成三条轴，撞上一次学一次，不再压进同一条梯子里互相干扰。
+
+### 修复
+
+- **Windows 上长时间跑任务，整个界面会崩掉**。报错是 `Cannot read properties of undefined (reading 'role')`。拿十二种畸形数据挨个试过，能产生这句话的形状只有一种：消息数组里有一个空位。它一旦出现，十八个渲染函数里有八到十四个当场崩。空位能进数组的每一条路都堵上了。
+- **一轮长到需要压缩自己历史的时候，压缩分隔线会全部消失**，停下来重新打开又回来——而那正是这些标记最该画出来的时候。
+- **子智能体的花销，一直没被算进用量**。用量扫描为了省下解析开销，在解析之前先按「是不是消息」筛了一道，而子智能体的消息不在那一类里，于是这一整类记录命中 0 条。
+- **一轮跑了多久，报出来的数只有实际的两成**。从前是把每次请求在飞的时间加起来：一轮真实 13 分 02 秒，其中四次子代理和三次长命令占掉 10 分 48 秒，报出来是 2 分 14 秒。而运行中那一行读的一直是墙钟，所以回合一结束，数字当场从 13 分掉到 2 分。现在两处都按墙钟算，旁边的速度悬浮上去会说清楚分母是哪个口径。
+- **过程行之间的空隙，从 4px 改到 6px**。行高 24px 配 4px 是 1:6，一行行贴下来像一堵字墙。
+- **回合用时、速度，以及「用默认程序打开」这三处小字，跟着界面语言走了**。
+
+<!-- lyra:notes zh-TW -->
+
+### 新功能
+
+- **PDF 裡的字，現在讀得出來**。從前拖一份 PDF 進輸入框，得到的是一句「內容無法作為文字讀取」——而那句話在能力上並不成立：Word、Excel、PPT 的解析一直都在，只是從來沒有人呼叫它。現在這幾種格式連同 PDF 一起，按頁把內文抽出來交給模型，一份一百頁的文件也答得了「部署那節寫了什麼」，而且說得出在第幾頁。整頁是圖的掃描件單獨說一句「裡面沒有可擷取的文字」，不和「格式不支援」合併：一個是換個格式再來，一個是這份檔案裡本來就沒有字，需要的是 OCR。
+- **中文 PDF 抽出來的字，模型認得出了**。PDF 裡的字形按字型自己的編碼表走。實測一份中文白皮書，抽出來的「白皮书」其實是康熙部首區的「⽩⽪书」——肉眼完全看不出區別，對模型卻是另外幾個字元，於是問「白皮書裡寫了什麼」，問題裡的字和文件裡的字對不上。
+- **附件在輸入框上方和泡泡旁邊，長成同一個樣子**。從前同一份檔案在兩處畫法不同，圖片更是縮圖和檔名各出現一遍，一個是像素一個是紫色圖示，看不出說的是同一個東西。圖片和文件現在各自成組，不再混在一行裡高矮不齊。編輯已經送出的訊息，也不會再把那排附件抹掉——改的是措辭，附件本來就該留著。
+- **回覆裡的檔案連結旁邊，多了兩個出口**。點連結還是在內建面板裡開啟，讀 .md、.ts 這類那是最快的辦法。問題出在開不了的那些：點一個 .exe，正在看的東西被擠掉，換來一句「二進位檔案，無法以文字顯示」。現在滑鼠停上去，旁邊會顯形「用預設程式開啟」和「在檔案總管中顯示」。
+- **不同端點的脾氣，各記各的**。哪個參數不吃、一輪裡的工具呼叫怎麼排、推理內容怎麼還回去——三件事分成三條軸，撞上一次學一次，不再壓進同一條梯子裡互相干擾。
+
+### 修復
+
+- **Windows 上長時間跑任務，整個介面會崩掉**。錯誤是 `Cannot read properties of undefined (reading 'role')`。拿十二種畸形資料逐個試過，能產生這句話的形狀只有一種：訊息陣列裡有一個空位。它一旦出現，十八個繪製函式裡有八到十四個當場崩。空位能進陣列的每一條路都堵上了。
+- **一輪長到需要壓縮自己歷史的時候，壓縮分隔線會全部消失**，停下來重新打開又回來——而那正是這些標記最該畫出來的時候。
+- **子智慧體的花費，一直沒被算進用量**。用量掃描為了省下解析開銷，在解析之前先按「是不是訊息」篩了一道，而子智慧體的訊息不在那一類裡，於是這一整類記錄命中 0 條。
+- **一輪跑了多久，報出來的數只有實際的兩成**。從前是把每次請求在飛的時間加起來：一輪真實 13 分 02 秒，其中四次子代理和三次長命令佔掉 10 分 48 秒，報出來是 2 分 14 秒。而執行中那一行讀的一直是牆鐘，所以回合一結束，數字當場從 13 分掉到 2 分。現在兩處都按牆鐘算，旁邊的速度懸停上去會說清楚分母是哪個口徑。
+- **過程行之間的空隙，從 4px 改到 6px**。行高 24px 配 4px 是 1:6，一行行貼下來像一堵字牆。
+- **回合用時、速度，以及「用預設程式開啟」這三處小字，跟著介面語言走了**。
+
+<!-- lyra:notes en -->
+
+### New
+
+- **Text inside a PDF is readable now.** Dropping a PDF into the composer used to come back with "cannot be read as text" — a sentence that was not true of what the app could do: the parsers for Word, Excel and PowerPoint had been sitting in the repository all along with nothing calling them. Those formats and PDF now have their text pulled out page by page and handed to the model, so a hundred-page document can answer "what does the deployment section say" and name the page it came from. A scan — a PDF that is a photograph of a page — is reported as having no text to extract, kept separate from "format not supported": one means try another format, the other means there is no text in this file at all and what it needs is OCR.
+- **Chinese pulled out of a PDF is recognisable to the model.** Glyphs in a PDF follow the font's own encoding table. In a Chinese white paper, the first two characters of 白皮书 came back as their Kangxi radical forms, ⽩ and ⽪ — indistinguishable on screen, different characters to the model, so a question about that white paper matched nothing inside it.
+- **An attachment looks the same above the composer as it does beside the bubble.** The same file used to be drawn two different ways, and an image appeared twice over — once as pixels, once as its filename — with nothing to say they were the same thing. Images and documents are now grouped separately instead of standing in one uneven row. Editing a message you already sent no longer wipes that row either: editing changes the wording, the attachments were always meant to stay.
+- **File links in a reply have two exits beside them.** Clicking the link still opens the built-in panel, which is the fastest way to read a .md or a .ts. The trouble was the files it cannot open: clicking a .exe cost you whatever you were looking at and returned "binary file, cannot be displayed as text". "Open with the default app" and "Reveal in file manager" now appear on hover.
+- **Each endpoint's quirks are learned separately.** Which parameter it refuses, how the tool calls in a turn must be ordered, how reasoning is handed back — three things on three axes now, each learned on its own rather than collapsed into one ladder where they interfered with each other.
+
+### Fixes
+
+- **A long-running task on Windows could take the whole interface down.** The error was `Cannot read properties of undefined (reading 'role')`. Twelve kinds of malformed data were tried one at a time; exactly one shape produces that sentence — a hole in the message array — and when one appears, eight to fourteen of the eighteen render functions fail on the spot. Every route by which a hole could reach the array is now closed.
+- **Compaction markers vanished during any turn long enough to summarise its own history,** and came back once it stopped — which is exactly when those markers are worth drawing.
+- **Sub-agent spend never counted towards usage.** To save on parsing, the usage scan filtered for "is this a message" before parsing anything, and a sub-agent's messages are not in that category: the entire class of records matched zero.
+- **A turn's elapsed time was reported at about a fifth of the truth.** It used to add up the time each request spent in flight: a turn that really took 13m02s, with four sub-agents and three long commands accounting for 10m48s of it, was reported as 2m14s. The line shown while it ran had always used the wall clock, so the number dropped from 13 minutes to 2 the moment the turn ended. Both are the wall clock now, and hovering the speed beside it says which denominator it uses.
+- **The gap between process rows goes from 4px to 6px.** A 24px row with a 4px gap is 1:6, and they stack into a wall of text.
+- **Turn duration, speed, and "open with the default app" now follow the interface language.**
+
+<!-- lyra:notes ja -->
+
+### 新機能
+
+- **PDF の中の文字が読めるようになりました。** これまで PDF を入力欄にドロップすると「テキストとして読み取れません」と返ってきましたが、それは実際にできることと合っていませんでした——Word、Excel、PowerPoint の解析はずっと入っていて、呼ぶ人がいなかっただけです。これらの形式と PDF は、ページごとに本文を取り出してモデルに渡すようになりました。100 ページの文書でも「デプロイの節には何が書いてあるか」に答えられ、何ページ目かも言えます。ページを撮影しただけのスキャン PDF は「取り出せる文字がありません」と別に伝えます。「対応していない形式」と一緒にはしません——前者は別の形式で試す話、後者はそのファイルに文字が入っておらず、必要なのは OCR だという話だからです。
+- **中国語 PDF から取り出した文字を、モデルが同じ字として扱えるようになりました。** PDF の字形はフォント側の符号表に従います。ある中国語の白書から取り出した「白皮书」は、実際には康熙部首の「⽩⽪书」でした。画面上は見分けがつかず、モデルにとっては別の文字なので、その白書について尋ねても本文と一致しませんでした。
+- **添付ファイルが、入力欄の上と吹き出しの横で同じ見た目になりました。** 同じファイルが二か所で違う描かれ方をしていて、画像に至ってはサムネイルとファイル名で二度出ていました。画像と文書はそれぞれまとまって並び、高さの違うものが一列に混ざることはなくなりました。送信済みのメッセージを編集しても、その並びが消えません——編集で変えるのは文言で、添付はそのまま残るべきものです。
+- **返信の中のファイルリンクの隣に、出口が二つ増えました。** リンクを押せば今までどおり内蔵パネルで開きます。.md や .ts を読むにはそれが一番速いからです。困るのは開けないファイルのほうで、.exe を押すと見ていたものが押しのけられ、「バイナリファイルはテキストとして表示できません」だけが返ってきました。カーソルを合わせると「既定のアプリで開く」と「ファイルマネージャーで表示」が出ます。
+- **エンドポイントごとの癖を、別々に覚えます。** 受け付けないパラメータ、1 ターン内のツール呼び出しの並べ方、推論内容の返し方——三つを三本の軸に分け、ぶつかるたびにその軸だけを学びます。一本の梯子に押し込んで互いに干渉させるのはやめました。
+
+### 修正
+
+- **Windows で長時間タスクを回すと、画面全体が落ちることがありました。** エラーは `Cannot read properties of undefined (reading 'role')`。12 種類の壊れたデータを一つずつ試したところ、この文言が出る形は一つだけ——メッセージ配列の中の空き——で、それが現れると 18 個ある描画関数のうち 8〜14 個がその場で落ちます。空きが配列に入り込む経路をすべて塞ぎました。
+- **自分の履歴を要約するほど長いターンの間、圧縮の区切り線がすべて消えていました。** 止めて開き直すと戻ってきます——その区切りが一番必要なのは、まさにそういうターンです。
+- **サブエージェントの費用が使用量に入っていませんでした。** 解析の手間を省くため、使用量の走査は解析の前に「メッセージかどうか」で絞っており、サブエージェントのメッセージはそこに入りません。その種別は 0 件のままでした。
+- **1 ターンの所要時間が、実際の 2 割ほどで表示されていました。** 各リクエストが飛んでいた時間の合計だったためです。実際に 13 分 02 秒かかったターンで、サブエージェント 4 回と長いコマンド 3 回が 10 分 48 秒を占めていたものが、2 分 14 秒と出ていました。実行中の行はずっと実時間だったので、ターンが終わった瞬間に 13 分が 2 分へ落ちていました。どちらも実時間になり、隣の速度にカーソルを合わせるとどの分母かが分かります。
+- **処理行どうしの間隔を 4px から 6px にしました。** 行の高さ 24px に対して 4px は 1:6 で、積み重なると文字の壁になります。
+- **ターンの所要時間、速度、「既定のアプリで開く」の三か所が、画面の言語に従うようになりました。**
+
+<!-- lyra:notes ko -->
+
+### 새 기능
+
+- **PDF 안의 글자를 읽어냅니다.** 지금까지는 PDF를 입력창에 끌어다 놓으면 "텍스트로 읽을 수 없습니다"라는 답이 돌아왔지만, 그건 실제로 할 수 있는 일과 맞지 않는 말이었습니다 — Word, Excel, PowerPoint를 읽는 코드는 줄곧 있었고 아무도 부르지 않았을 뿐입니다. 이제 이 형식들과 PDF는 쪽 단위로 본문을 뽑아 모델에게 넘깁니다. 100쪽짜리 문서에도 "배포 절에 뭐라고 쓰여 있나"를 물을 수 있고, 몇 쪽인지도 말해 줍니다. 페이지를 찍기만 한 스캔본은 "추출할 텍스트가 없습니다"라고 따로 알립니다. "지원하지 않는 형식"과 합치지 않았습니다 — 하나는 다른 형식으로 다시 해보라는 말이고, 다른 하나는 이 파일에 글자가 아예 없으니 OCR이 필요하다는 말입니다.
+- **중국어 PDF에서 뽑은 글자를 모델이 같은 글자로 알아봅니다.** PDF의 글자 모양은 글꼴 쪽 부호표를 따릅니다. 어떤 중국어 백서에서 뽑은 "白皮书"는 실은 강희 부수 영역의 "⽩⽪书"였습니다. 화면에서는 구별되지 않지만 모델에게는 다른 문자라, 그 백서에 대해 물어도 본문과 맞지 않았습니다.
+- **첨부 파일이 입력창 위와 말풍선 옆에서 같은 모습이 됩니다.** 같은 파일이 두 곳에서 다르게 그려졌고, 이미지는 썸네일과 파일 이름으로 두 번씩 나왔습니다. 이제 이미지와 문서가 각각 묶여 놓여, 높이가 다른 것들이 한 줄에 섞이지 않습니다. 이미 보낸 메시지를 고쳐도 그 줄이 사라지지 않습니다 — 고치는 건 문구이고, 첨부는 남아 있어야 하는 것입니다.
+- **답변 속 파일 링크 옆에 출구가 두 개 생겼습니다.** 링크를 누르면 지금처럼 내장 패널에서 열립니다. .md나 .ts를 읽기에는 그게 가장 빠릅니다. 문제는 열 수 없는 파일이었습니다. .exe를 누르면 보고 있던 것이 밀려나고 "바이너리 파일은 텍스트로 표시할 수 없습니다"만 돌아왔습니다. 이제 마우스를 올리면 "기본 앱으로 열기"와 "파일 관리자에서 보기"가 나타납니다.
+- **엔드포인트마다의 버릇을 따로 익힙니다.** 받지 않는 매개변수, 한 턴 안의 도구 호출 순서, 추론 내용을 돌려주는 방식 — 세 가지를 세 축으로 나눠, 부딪힐 때마다 그 축만 배웁니다. 한 사다리에 밀어 넣어 서로 간섭하게 두지 않습니다.
+
+### 수정
+
+- **Windows에서 오래 도는 작업 중에 화면 전체가 내려앉을 수 있었습니다.** 오류는 `Cannot read properties of undefined (reading 'role')`입니다. 망가진 데이터 열두 가지를 하나씩 넣어 본 결과, 이 문장이 나오는 모양은 하나뿐이었습니다 — 메시지 배열 안의 빈자리 — 그리고 그것이 나타나면 열여덟 개 렌더 함수 중 여덟에서 열넷이 그 자리에서 죽습니다. 빈자리가 배열에 들어갈 수 있는 경로를 모두 막았습니다.
+- **자기 기록을 요약해야 할 만큼 긴 턴에서는 압축 구분선이 전부 사라졌습니다.** 멈추고 다시 열면 돌아왔습니다 — 그 표시가 가장 필요한 때가 바로 그런 턴입니다.
+- **하위 에이전트의 비용이 사용량에 들어가지 않았습니다.** 파싱 비용을 아끼려고 사용량 훑기가 파싱 전에 "메시지인가"로 먼저 걸렀는데, 하위 에이전트의 메시지는 거기에 들지 않습니다. 그 종류의 기록은 0건이었습니다.
+- **한 턴이 걸린 시간이 실제의 5분의 1쯤으로 나왔습니다.** 요청이 떠 있던 시간만 더했기 때문입니다. 실제로 13분 02초 걸린 턴에서 하위 에이전트 네 번과 긴 명령 세 번이 10분 48초를 차지했는데, 2분 14초로 나왔습니다. 실행 중에 보이는 줄은 줄곧 벽시계였으니, 턴이 끝나는 순간 13분이 2분으로 떨어졌습니다. 이제 둘 다 벽시계이고, 옆의 속도에 마우스를 올리면 어느 분모인지 알려줍니다.
+- **처리 줄 사이 간격을 4px에서 6px로 넓혔습니다.** 줄 높이 24px에 4px는 1:6이라, 쌓이면 글자 벽처럼 보입니다.
+- **턴 소요 시간, 속도, "기본 앱으로 열기" 세 군데가 화면 언어를 따릅니다.**
+
+<!-- lyra:notes fr -->
+
+### Nouveautés
+
+- **Le texte d'un PDF se lit enfin.** Déposer un PDF dans la zone de saisie renvoyait « impossible de lire comme du texte » — une phrase qui ne correspondait pas à ce que l'application savait faire : les lecteurs Word, Excel et PowerPoint étaient là depuis toujours, personne ne les appelait. Ces formats et le PDF voient maintenant leur texte extrait page par page et transmis au modèle ; un document de cent pages peut répondre à « que dit la section déploiement » et citer la page. Un scan — un PDF qui n'est que la photo d'une page — est signalé comme n'ayant aucun texte à extraire, séparément de « format non pris en charge » : l'un veut dire essayez un autre format, l'autre qu'il n'y a aucun texte dans ce fichier et qu'il faudrait de l'OCR.
+- **Le chinois extrait d'un PDF est reconnu par le modèle.** Les glyphes d'un PDF suivent la table d'encodage de la police : dans un livre blanc chinois, les deux premiers caractères de 白皮书 ressortaient sous leur forme de radicaux de Kangxi, ⽩ et ⽪. Rien ne les distingue à l'écran, ce sont des caractères différents pour le modèle, et une question sur ce livre blanc ne correspondait à rien dedans.
+- **Une pièce jointe a la même allure au-dessus de la zone de saisie et à côté de la bulle.** Le même fichier était dessiné de deux façons, et une image apparaissait deux fois — en pixels, puis par son nom — sans rien pour indiquer qu'il s'agissait de la même chose. Images et documents sont désormais groupés séparément au lieu de former une rangée bancale. Modifier un message déjà envoyé n'efface plus cette rangée : on modifie la formulation, les pièces jointes devaient rester.
+- **Les liens de fichiers dans une réponse ont deux sorties à côté d'eux.** Cliquer ouvre toujours le panneau intégré, la façon la plus rapide de lire un .md ou un .ts. L'ennui venait des fichiers qu'il ne sait pas ouvrir : cliquer sur un .exe coûtait ce que vous étiez en train de regarder et rendait « fichier binaire, affichage texte impossible ». « Ouvrir avec l'application par défaut » et « Afficher dans le gestionnaire de fichiers » apparaissent au survol.
+- **Les manies de chaque point d'accès s'apprennent séparément.** Quel paramètre il refuse, dans quel ordre doivent venir les appels d'outils d'un tour, comment lui rendre le raisonnement — trois choses sur trois axes, chacune apprise de son côté au lieu d'être tassées dans une même échelle où elles se gênaient.
+
+### Corrections
+
+- **Une tâche longue sous Windows pouvait faire tomber toute l'interface.** L'erreur : `Cannot read properties of undefined (reading 'role')`. Douze formes de données malformées ont été essayées une à une ; une seule produit cette phrase — un trou dans le tableau des messages — et lorsqu'il apparaît, huit à quatorze des dix-huit fonctions de rendu tombent aussitôt. Tous les chemins par lesquels un trou pouvait y entrer sont fermés.
+- **Les marqueurs de compression disparaissaient pendant tout tour assez long pour résumer son propre historique,** et revenaient à l'arrêt — alors que c'est précisément là qu'ils méritent d'être tracés.
+- **La dépense des sous-agents n'entrait jamais dans l'usage.** Pour économiser de l'analyse, le balayage filtrait sur « est-ce un message » avant de rien analyser, et les messages d'un sous-agent n'en sont pas : cette catégorie entière ne remontait rien.
+- **La durée d'un tour était annoncée à environ un cinquième de la réalité.** Elle additionnait le temps passé en vol par chaque requête : un tour de 13 min 02 s, dont 10 min 48 s pour quatre sous-agents et trois commandes longues, était annoncé à 2 min 14 s. La ligne affichée pendant l'exécution utilisait déjà l'horloge murale — le nombre passait donc de 13 minutes à 2 à la fin du tour. Les deux sont à l'horloge murale, et survoler la vitesse à côté indique son dénominateur.
+- **L'espace entre les lignes de processus passe de 4 à 6 px.** Une ligne de 24 px avec 4 px d'écart, c'est du 1:6 : empilées, elles font un mur de texte.
+- **Durée du tour, vitesse et « ouvrir avec l'application par défaut » suivent maintenant la langue de l'interface.**
+
+<!-- lyra:notes ru -->
+
+### Новое
+
+- **Текст внутри PDF наконец читается.** Раньше на PDF, брошенный в поле ввода, приходило «не удаётся прочитать как текст» — а это расходилось с тем, что приложение умеет: разбор Word, Excel и PowerPoint лежал в репозитории давно, его просто никто не вызывал. Теперь эти форматы и PDF отдают текст постранично, и у документа на сто страниц можно спросить, что написано в разделе о развёртывании, — и получить ссылку на страницу. Скан, то есть PDF из фотографий страниц, отмечается отдельно: «внутри нет текста для извлечения». Это не то же самое, что «формат не поддерживается»: первое значит «попробуйте другой формат», второе — что текста в файле нет вовсе и нужен OCR.
+- **Китайский текст из PDF модель узнаёт.** Начертания в PDF идут по таблице кодировки шрифта: в китайской белой книге первые два иероглифа из 白皮书 извлекались в форме ключей Канси — ⽩ и ⽪. На экране не отличить, для модели это другие символы — и вопрос про эту белую книгу не совпадал ни с чем внутри неё.
+- **Вложение выглядит одинаково над полем ввода и рядом с сообщением.** Один и тот же файл рисовался двумя способами, а картинка появлялась дважды — пикселями и именем файла — и ничто не подсказывало, что это одно и то же. Картинки и документы теперь идут отдельными группами, а не одним неровным рядом. Правка уже отправленного сообщения больше не стирает этот ряд: правится формулировка, вложения должны остаться.
+- **Рядом со ссылкой на файл в ответе появились два выхода.** По самой ссылке по-прежнему открывается встроенная панель — быстрее всего прочитать .md или .ts. Мешали файлы, которые она открыть не может: клик по .exe стоил того, что вы смотрели, и возвращал «двоичный файл, показать как текст нельзя». «Открыть в приложении по умолчанию» и «Показать в файловом менеджере» появляются при наведении.
+- **Повадки каждой точки доступа запоминаются по отдельности.** Какой параметр она не принимает, в каком порядке должны идти вызовы инструментов за ход, как возвращать рассуждение — три вещи на трёх осях, каждая учится сама по себе, а не в одной лестнице, где они мешали друг другу.
+
+### Исправления
+
+- **Долгая задача в Windows могла уронить весь интерфейс.** Ошибка — `Cannot read properties of undefined (reading 'role')`. Перебрали двенадцать видов испорченных данных: эту фразу даёт ровно одна форма — дыра в массиве сообщений, — и когда она появляется, от восьми до четырнадцати из восемнадцати функций отрисовки падают сразу же. Все пути, которыми дыра могла попасть в массив, закрыты.
+- **Отметки сжатия пропадали на всём протяжении хода, достаточно длинного, чтобы пересказать собственную историю,** и возвращались после остановки — хотя нужны они именно там.
+- **Расходы субагентов не попадали в статистику.** Чтобы сэкономить на разборе, обход отсеивал записи по признаку «это сообщение?» ещё до разбора, а сообщения субагента к нему не относятся: весь этот класс записей давал ноль.
+- **Длительность хода показывалась примерно впятеро меньше настоящей.** Складывалось время, которое каждый запрос провёл в полёте: ход, реально занявший 13 мин 02 с, из которых 10 мин 48 с ушли на четырёх субагентов и три долгие команды, показывался как 2 мин 14 с. Строка во время выполнения всегда шла по настенным часам, поэтому в момент завершения число падало с 13 минут до 2. Теперь оба значения по настенным часам, а наведение на скорость рядом поясняет, какой у неё знаменатель.
+- **Промежуток между строками процесса — с 4 px до 6 px.** Строка высотой 24 px с зазором 4 px даёт 1:6, и сложенные подряд они читаются как стена текста.
+- **Длительность хода, скорость и «открыть в приложении по умолчанию» теперь следуют языку интерфейса.**
+
+## [0.9.8](https://github.com/kittors/Lyra/releases/tag/v0.9.8) - 2026-09-11
+
+### 修复
+
+- **desktop**: 新加的模型默认就支持思考、图片和工具 ([bb8355c](https://github.com/kittors/Lyra/commit/bb8355ce909f6f01c66f6a1110eac4470eb71459))
+- **desktop**: 过程块到答案的距离不再随开合变化，思考行两头化开 ([c9cb888](https://github.com/kittors/Lyra/commit/c9cb888d8de19dc1590098f04c52d848594cb0e4))
+- **desktop**: 换项目时终端跟着走，不再停在上一个项目里 ([957569a](https://github.com/kittors/Lyra/commit/957569a9be3507965c4381664bddae0df7e678f3))
+- **core**: 三条协议链上那些让会话再也说不了话的形状 ([310f8aa](https://github.com/kittors/Lyra/commit/310f8aadf9f24fac619318672a1fb40a2b83f1cd))
+
+## [0.9.7](https://github.com/kittors/Lyra/releases/tag/v0.9.7) - 2026-09-10
+
+### 新功能
+
+- **desktop**: 归档里的会话可以取消归档和删除 ([1d3cd06](https://github.com/kittors/Lyra/commit/1d3cd06fec035a3127c8ec38ea5365ac4d29df39))
+- **desktop**: 附件不再把正文铺进气泡，而且带上先后顺序 ([9b014d4](https://github.com/kittors/Lyra/commit/9b014d4ef71cd1721a3e46f67e367e40a15073ed))
+
+### 修复
+
+- **desktop**: 提示条让开侧边栏，队列拖动落定不再回弹 ([b541f8c](https://github.com/kittors/Lyra/commit/b541f8c1b5d28a97cd5350fa0aed37a1f7423e2a))
+- **desktop**: 撤掉三处会静默出错的改动 ([747bb9c](https://github.com/kittors/Lyra/commit/747bb9ca031c6bfd40bab20b367738d490142783))
+- **desktop**: 拉取的模型按 200K 导入，弹窗遮罩盖住整扇窗 ([7b79f45](https://github.com/kittors/Lyra/commit/7b79f45389426f218a7379b997001a57ff921989))
+- **core**: 编辑器不再把 unified diff 的减号写进源码 ([351c121](https://github.com/kittors/Lyra/commit/351c121f1ebc86d665659d8ca2a5a69c6884ac04))
+- **core**: 换过模型的会话不再作废 ([e957c7f](https://github.com/kittors/Lyra/commit/e957c7fe6c71d80abc40e131030819130f78555f))
+
+### 重构
+
+- **desktop**: 归档正开着的对话，人回到新对话 ([a48b113](https://github.com/kittors/Lyra/commit/a48b113a344c500a134bdd858778e34241f8c34d))
+- **desktop**: 一轮里的过程行统一成一套骨架 ([10bec22](https://github.com/kittors/Lyra/commit/10bec228ec50743d2932dcec5aa8fc1c0735b75b))
+
 ## [0.9.6](https://github.com/kittors/Lyra/releases/tag/v0.9.6) - 2026-09-09
 
 <!-- lyra:notes zh-CN -->

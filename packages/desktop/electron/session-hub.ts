@@ -92,12 +92,17 @@ export const browsers = new Map<string, () => void>();
 export const sideChats = new Map<string, SideChat>();
 
 
-export async function editSessionMessage(sessionId: string, index: number, content: Parameters<LyraApi["agent"]["editMessage"]>[2]): Promise<void> {
+export async function editSessionMessage(
+	sessionId: string,
+	index: number,
+	content: Parameters<LyraApi["agent"]["editMessage"]>[2],
+	options: Parameters<LyraApi["agent"]["editMessage"]>[3] = {},
+): Promise<void> {
 	const session = await ensureLiveSession(sessionId);
 	if (!session) throw new Error("找不到这个会话。");
 	if (session.running) throw new Error("请先停止当前回复，再编辑消息。");
 	// Acknowledge submission immediately; the rerun and any failure arrive on the shared stream.
-	void session.editAndResend(index, content).catch((error: unknown) => {
+	void session.editAndResend(index, content, options).catch((error: unknown) => {
 		const message = error instanceof Error ? error.message : String(error);
 		broadcast(sessionId, { type: "notice", level: "error", message });
 		broadcast(sessionId, { type: "agent_end", reason: "error", error: message });
@@ -192,6 +197,16 @@ export async function snapshot(session: AgentSession): Promise<SessionSnapshot> 
 	return {
 		meta: session.meta,
 		messages: session.messages,
+		/*
+		 * The same field the stored read returns, so a session being read live is not missing
+		 * something a session read from disk has.
+		 *
+		 * Leaving it out did not break anything — the window defaults it to an empty list — it just
+		 * quietly dropped every compaction mark for as long as the session was running, and put them
+		 * all back the moment it stopped. A turn long enough to summarise its own history is exactly
+		 * the one where those marks are worth drawing.
+		 */
+		compactions: session.log.compactions,
 		commandRuns: session.log.commandRuns,
 		running: session.running || submitted.has(session.meta.id),
 		pendingApprovals: session.listPendingApprovals().map(({ id, request }) => ({
@@ -245,7 +260,7 @@ async function startStoredSession(projectId: string, sessionId: string): Promise
 		const loaded = await store.load(projectId, sessionId);
 		if (!loaded || retiring.has(sessionId)) return null;
 		session = stageSession({ meta: loaded.meta, messages: loaded.messages, running: false, pendingApprovals: [] });
-		session.restore(loaded.messages, loaded.compaction);
+		session.restore(loaded.messages, loaded.compaction, loaded.compactions);
 		session.log.commandRuns = loaded.commandRuns ?? [];
 	}
 	try {
